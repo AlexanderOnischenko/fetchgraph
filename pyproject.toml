@@ -1,4 +1,11 @@
 [project]
-name='fetchgraph'
-version='0.0.1'
-requires-python='>=3.10'
+name = "fetchgraph"
+version = "0.0.1"
+description = "Graph-based planning & context fetching agent."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name="Your Name"}]
+
+[tool.setuptools.package-data]
+fetchgraph = ["prompts/*.md"]

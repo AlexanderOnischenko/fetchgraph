@@ -14,6 +14,7 @@ from .core import (
     SupportsDescribe,
     Verifier,
     Saver,
+    LLMInvoke,
     # classes
     ContextPacker,
     BaseGraphAgent,
@@ -36,6 +37,7 @@ __all__ = [
     "SupportsDescribe",
     "Verifier",
     "Saver",
+    "LLMInvoke",
     "ContextPacker",
     "BaseGraphAgent",
     "make_llm_plan_generic",

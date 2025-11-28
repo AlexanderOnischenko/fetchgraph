@@ -12,6 +12,7 @@ from .core import (
     BaseGraphAgent,
     make_llm_plan_generic,
     make_llm_synth_generic,
+    create_generic_agent,
 )
 from .models import (
     RawLLMOutput,
@@ -86,6 +87,7 @@ __all__ = [
     "BaseGraphAgent",
     "make_llm_plan_generic",
     "make_llm_synth_generic",
+    "create_generic_agent",
     "AggregationResult",
     "AggregationSpec",
     "ColumnDescriptor",

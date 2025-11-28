@@ -58,6 +58,14 @@ class LLMInvoke(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> str: ...
 
 class ContextItem(BaseModel):
+    """Container for fetched context.
+
+    ``text`` is the human-oriented, size-limited representation consumed by the
+    LLM, while ``raw`` preserves the full provider object for programmatic reuse
+    (e.g., exporting rows to CSV or re-feeding a structured response into
+    another provider).
+    """
+
     key: str
     raw: Any
     text: str

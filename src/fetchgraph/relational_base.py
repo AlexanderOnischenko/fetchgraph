@@ -2,9 +2,10 @@ from __future__ import annotations
 
 """Base relational provider abstraction."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from .core import ContextProvider, ProviderInfo, SupportsDescribe
+from .json_types import SelectorsDict
 from .relational_models import (
     QueryResult,
     RelationalQuery,
@@ -34,7 +35,22 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         self.relations = relations
 
     # --- ContextProvider API ---
-    def fetch(self, feature_name: str, selectors: Optional[Dict[str, Any]] = None, **kwargs) -> Any:
+    def fetch(self, feature_name: str, selectors: Optional[SelectorsDict] = None, **kwargs) -> Any:
+        """Fetch relational data according to structured JSON selectors.
+
+        Parameters
+        ----------
+        selectors:
+            JSON-serializable selector payload (:class:`SelectorsDict`) constructed by the
+            planner/LLM. The payload **must** include a string ``"op"`` indicating the
+            operation type (e.g. ``"schema"``, ``"semantic_only"``, ``"query"``); accepted
+            shapes for each operation are described by the JSON Schema emitted from
+            :meth:`describe` via ``ProviderInfo.selectors_schema``. The provider raises a
+            ``ValueError`` if ``"op"`` is missing.
+        **kwargs:
+            Runtime hints or options that are not part of the planner contract and may be
+            non-JSON-serializable; passed through without interpretation.
+        """
         selectors = selectors or {}
         op = selectors.get("op")
         if op is None:
@@ -81,6 +97,14 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
 
     # --- SupportsDescribe API ---
     def describe(self) -> ProviderInfo:
+        """Describe provider capabilities and selector schema for planning.
+
+        The returned :class:`ProviderInfo` includes ``selectors_schema`` generated from the
+        request models (``SchemaRequest``, ``SemanticOnlyRequest``, ``RelationalQuery``),
+        which together define the JSON Schema for valid ``selectors`` payloads that
+        :meth:`fetch` accepts. Planners should use this schema to generate compliant
+        selector objects.
+        """
         schema = {
             "oneOf": [
                 SchemaRequest.model_json_schema(),

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from .json_types import SelectorsDict
+
 from pydantic import BaseModel, Field
 
 
@@ -21,6 +23,13 @@ class TaskProfile(BaseModel):
 
 
 class ProviderInfo(BaseModel):
+    """Metadata describing a provider and its selector contract.
+
+    - ``selectors_schema`` is a JSON Schema describing the expected ``SelectorsDict``
+      structure for ``selectors`` passed to the provider.
+    - ``examples`` are stringified JSON examples of valid ``selectors`` payloads.
+    """
+
     name: str
     description: str = ""
     selectors_schema: Dict[str, Any] = Field(default_factory=dict)
@@ -40,9 +49,16 @@ ProviderType = str
 
 
 class ContextFetchSpec(BaseModel):
+    """Specification for a single provider fetch step.
+
+    ``selectors`` is a JSON-serializable object describing provider-specific
+    fetch parameters. Its allowed structure is defined by the provider via
+    ``ProviderInfo.selectors_schema``.
+    """
+
     provider: ProviderType
     mode: str = "full"
-    selectors: Dict[str, Any] = Field(default_factory=dict)
+    selectors: SelectorsDict = Field(default_factory=dict)
     max_tokens: Optional[int] = None
 
 

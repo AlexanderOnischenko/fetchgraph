@@ -95,7 +95,15 @@ def _make_provider(semantic_backend=None) -> SqlRelationalDataProvider:
             join=RelationJoin(
                 from_entity="order", from_column="customer_id", to_entity="customer", to_column="id"
             ),
-        )
+        ),
+        RelationDescriptor(
+            name="order_customer_ref",
+            from_entity="order",
+            to_entity="customer",
+            join=RelationJoin(
+                from_entity="order", from_column="customer_id", to_entity="customer", to_column="id"
+            ),
+        ),
     ]
 
     return SqlRelationalDataProvider(
@@ -241,4 +249,19 @@ def test_semantic_boost_with_filters_keeps_parameter_order():
     res = provider.fetch("demo", selectors=req.model_dump())
 
     assert [row.data["id"] for row in res.rows] == [102, 103]
+
+
+def test_repeated_entity_join_uses_unique_aliases():
+    provider = _make_provider()
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer", "order_customer_ref"],
+        filters=ComparisonFilter(entity="order_customer_ref", field="name", op="=", value="Bob"),
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["id"] for row in res.rows] == [102]
+    assert res.rows[0].related["order_customer"]["name"] == "Bob"
+    assert res.rows[0].related["order_customer_ref"]["notes"] == "retail"
 

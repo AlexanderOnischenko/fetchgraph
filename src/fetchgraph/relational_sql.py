@@ -72,6 +72,19 @@ class SqlRelationalDataProvider(RelationalDataProvider):
     def _column_ref(self, entity: str, column: str) -> str:
         return f"{self._quote_ident(entity)}.{self._quote_ident(column)}"
 
+    def _lookup_alias(self, entity: str, table_aliases: Mapping[str, Tuple[str, str]]) -> str:
+        if entity in table_aliases:
+            return table_aliases[entity][1]
+
+        matches = [alias for _, (ent, alias) in table_aliases.items() if ent == entity]
+        if not matches:
+            raise KeyError(f"Entity '{entity}' not joined in query")
+        if len(matches) > 1:
+            raise KeyError(
+                f"Entity '{entity}' is joined multiple times; reference a relation name to disambiguate"
+            )
+        return matches[0]
+
     def _resolve_field(self, root_entity: str, field: str, entity: Optional[str]) -> Tuple[str, str]:
         ent = entity
         fld = field
@@ -107,16 +120,14 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         self,
         clause: Optional[FilterClause],
         root_entity: str,
-        table_aliases: Mapping[str, str],
+        table_aliases: Mapping[str, Tuple[str, str]],
         params: List[Any],
     ) -> Optional[str]:
         if clause is None:
             return None
         if isinstance(clause, ComparisonFilter):
             ent, fld = self._resolve_field(root_entity, clause.field, clause.entity)
-            if ent not in table_aliases:
-                raise KeyError(f"Entity '{ent}' not joined in query")
-            col = self._column_ref(table_aliases[ent], fld)
+            col = self._column_ref(self._lookup_alias(ent, table_aliases), fld)
             return self._build_comparison(col, clause.op, clause.value, params)
         if isinstance(clause, LogicalFilter):
             parts: List[str] = []
@@ -132,7 +143,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         self,
         clauses: List[SemanticClause],
         root_entity: str,
-        table_aliases: Mapping[str, str],
+        table_aliases: Mapping[str, Tuple[str, str]],
     ) -> Tuple[List[str], Optional[str], List[Any], List[Any]]:
         if not clauses:
             return [], None, [], []
@@ -148,13 +159,13 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             pk = self._pk_column(clause.entity)
             if not pk:
                 raise ValueError(f"Primary key not defined for entity '{clause.entity}'")
-            if clause.entity not in table_aliases:
+            if clause.entity not in self._entity_index:
                 raise KeyError(f"Entity '{clause.entity}' not joined in query")
             matches = self.semantic_backend.search(clause.entity, clause.fields, clause.query, clause.top_k)
             if clause.threshold is not None:
                 matches = [m for m in matches if m.score >= clause.threshold]
             match_ids = [m.id for m in matches]
-            target_col = self._column_ref(table_aliases[clause.entity], pk)
+            target_col = self._column_ref(self._lookup_alias(clause.entity, table_aliases), pk)
 
             if clause.mode == "filter":
                 if match_ids:
@@ -180,31 +191,38 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         return conditions, boost_order, condition_params, boost_params
 
     def _build_default_select(
-        self, root_entity: str, table_aliases: Mapping[str, str]
+        self, root_entity: str, table_aliases: Mapping[str, Tuple[str, str]]
     ) -> Tuple[List[str], List[str]]:
         select_parts: List[str] = []
         base_columns: List[str] = []
+        entity_aliases: Dict[str, set[str]] = {}
+        for ent, alias in table_aliases.values():
+            entity_aliases.setdefault(ent, set()).add(alias)
+        root_alias = self._lookup_alias(root_entity, table_aliases)
         for col in self._entity_index[root_entity].columns:
             select_parts.append(
-                f"{self._column_ref(table_aliases[root_entity], col.name)} AS {self._quote_ident(col.name)}"
+                f"{self._column_ref(root_alias, col.name)} AS {self._quote_ident(col.name)}"
             )
             base_columns.append(col.name)
 
-        for entity, alias in table_aliases.items():
-            if entity == root_entity:
+        seen_aliases = {root_alias}
+        for ref, (entity, alias) in table_aliases.items():
+            if ref == root_entity or alias in seen_aliases:
                 continue
+            seen_aliases.add(alias)
             desc = self._entity_index.get(entity)
             if not desc:
                 continue
+            label = entity if len(entity_aliases[entity]) == 1 else ref
             for col in desc.columns:
-                aliased = self._select_alias(entity, col.name, root_entity)
+                aliased = self._select_alias(label, col.name, root_entity)
                 select_parts.append(
                     f"{self._column_ref(alias, col.name)} AS {self._quote_ident(aliased)}"
                 )
         return select_parts, base_columns
 
     def _build_select_from_expressions(
-        self, req: RelationalQuery, table_aliases: Mapping[str, str]
+        self, req: RelationalQuery, table_aliases: Mapping[str, Tuple[str, str]]
     ) -> Tuple[List[str], List[str]]:
         select_parts: List[str] = []
         base_columns = [col.name for col in self._entity_index[req.root_entity].columns]
@@ -212,27 +230,32 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             ent, fld = self._resolve_field(req.root_entity, expr.expr, None)
             alias = self._select_alias(ent, fld, req.root_entity)
             target_alias = expr.alias or alias
-            if ent not in table_aliases:
+            if ent not in table_aliases and ent not in self._entity_index:
                 raise KeyError(f"Entity '{ent}' not joined in query")
             select_parts.append(
-                f"{self._column_ref(table_aliases[ent], fld)} AS {self._quote_ident(target_alias)}"
+                f"{self._column_ref(self._lookup_alias(ent, table_aliases), fld)} AS {self._quote_ident(target_alias)}"
             )
         return select_parts, base_columns
 
-    def _build_relations(self, req: RelationalQuery) -> Tuple[List[str], Dict[str, str]]:
+    def _build_relations(self, req: RelationalQuery) -> Tuple[List[str], Dict[str, Tuple[str, str]]]:
         joins: List[str] = []
-        table_aliases: Dict[str, str] = {req.root_entity: req.root_entity}
+        table_aliases: Dict[str, Tuple[str, str]] = {req.root_entity: (req.root_entity, req.root_entity)}
+        used_aliases = {req.root_entity}
 
         for rel_name in req.relations:
             relation = self._relation_by_name(rel_name)
             left_entity = right_entity = left_field = right_field = None
 
-            if relation.from_entity in table_aliases:
+            if relation.from_entity in table_aliases or any(
+                ent == relation.from_entity for ent, _ in table_aliases.values()
+            ):
                 left_entity = relation.from_entity
                 right_entity = relation.to_entity
                 left_field = relation.join.from_column
                 right_field = relation.join.to_column
-            elif relation.to_entity in table_aliases:
+            elif relation.to_entity in table_aliases or any(
+                ent == relation.to_entity for ent, _ in table_aliases.values()
+            ):
                 left_entity = relation.to_entity
                 right_entity = relation.from_entity
                 left_field = relation.join.to_column
@@ -240,29 +263,36 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             else:
                 raise ValueError(f"Neither entity of relation '{relation.name}' present in query")
 
-            right_alias = right_entity
-            table_aliases[right_entity] = right_alias
+            base_alias = rel_name or right_entity
+            right_alias = base_alias
+            suffix = 2
+            while right_alias in used_aliases:
+                right_alias = f"{base_alias}_{suffix}"
+                suffix += 1
+            used_aliases.add(right_alias)
+
+            table_aliases[rel_name] = (right_entity, right_alias)
+            table_aliases.setdefault(right_entity, (right_entity, right_alias))
+
             join_type = relation.join.join_type.upper()
             if join_type == "OUTER":
                 join_type = "FULL OUTER"
             joins.append(
                 f"{join_type} JOIN {self._quote_ident(right_entity)} AS {self._quote_ident(right_alias)} "
-                f"ON {self._column_ref(table_aliases[left_entity], left_field)} = {self._column_ref(right_alias, right_field)}"
+                f"ON {self._column_ref(self._lookup_alias(left_entity, table_aliases), left_field)} = {self._column_ref(right_alias, right_field)}"
             )
 
         return joins, table_aliases
 
     def _build_aggregations(
-        self, req: RelationalQuery, table_aliases: Mapping[str, str]
+        self, req: RelationalQuery, table_aliases: Mapping[str, Tuple[str, str]]
     ) -> Tuple[List[str], List[str]]:
         group_cols: List[str] = []
         select_parts: List[str] = []
 
         for g in req.group_by:
             ent, fld = self._resolve_field(req.root_entity, g.field, g.entity)
-            if ent not in table_aliases:
-                raise KeyError(f"Entity '{ent}' not joined in query")
-            col_ref = self._column_ref(table_aliases[ent], fld)
+            col_ref = self._column_ref(self._lookup_alias(ent, table_aliases), fld)
             alias = self._select_alias(ent, fld, req.root_entity)
             select_parts.append(f"{col_ref} AS {self._quote_ident(alias)}")
             group_cols.append(col_ref)
@@ -270,9 +300,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         if req.aggregations:
             for spec in req.aggregations:
                 ent, fld = self._resolve_field(req.root_entity, spec.field, None)
-                if ent not in table_aliases:
-                    raise KeyError(f"Entity '{ent}' not joined in query")
-                col_ref = self._column_ref(table_aliases[ent], fld)
+                col_ref = self._column_ref(self._lookup_alias(ent, table_aliases), fld)
                 agg_func = spec.agg
                 if agg_func == "count_distinct":
                     agg_expr = f"COUNT(DISTINCT {col_ref})"
@@ -320,11 +348,12 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         limit_clause = f"LIMIT {req.limit}" if req.limit is not None else ""
         offset_clause = f"OFFSET {req.offset}" if req.offset else ""
 
+        root_alias = self._lookup_alias(req.root_entity, table_aliases)
         sql_parts = [
             "SELECT",
             ", ".join(select_parts),
             "FROM",
-            f"{self._quote_ident(req.root_entity)} AS {self._quote_ident(req.root_entity)}",
+            f"{self._quote_ident(req.root_entity)} AS {self._quote_ident(root_alias)}",
         ]
         if joins:
             sql_parts.append(" ".join(joins))
@@ -345,7 +374,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         return QueryResult(rows=rows, meta={"relations_used": req.relations})
 
     def _handle_aggregate_query(
-        self, req: RelationalQuery, joins: Sequence[str], table_aliases: Mapping[str, str]
+        self, req: RelationalQuery, joins: Sequence[str], table_aliases: Mapping[str, Tuple[str, str]]
     ):
         select_parts, group_cols = self._build_aggregations(req, table_aliases)
         conditions: List[str] = []
@@ -371,11 +400,12 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         limit_clause = f"LIMIT {req.limit}" if req.limit is not None else ""
         offset_clause = f"OFFSET {req.offset}" if req.offset else ""
 
+        root_alias = self._lookup_alias(req.root_entity, table_aliases)
         sql_parts = [
             "SELECT",
             ", ".join(select_parts),
             "FROM",
-            f"{self._quote_ident(req.root_entity)} AS {self._quote_ident(req.root_entity)}",
+            f"{self._quote_ident(req.root_entity)} AS {self._quote_ident(root_alias)}",
         ]
         if joins:
             sql_parts.append(" ".join(joins))

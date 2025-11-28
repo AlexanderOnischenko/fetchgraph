@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+"""Composite relational provider that delegates to child providers."""
+
+from typing import Dict, List
+
+from .relational_base import RelationalDataProvider
+from .relational_models import (
+    EntityDescriptor,
+    FilterClause,
+    RelationDescriptor,
+    RelationalQuery,
+    SemanticOnlyRequest,
+    SemanticOnlyResult,
+)
+
+
+class CompositeRelationalProvider(RelationalDataProvider):
+    """Composite provider delegating to child relational providers."""
+
+    def __init__(self, name: str, children: Dict[str, RelationalDataProvider]):
+        entities: List[EntityDescriptor] = []
+        relations: List[RelationDescriptor] = []
+        for child in children.values():
+            entities.extend(child.entities)
+            relations.extend(child.relations)
+        super().__init__(name=name, entities=entities, relations=relations)
+        self.children = children
+
+    def fetch(self, feature_name: str, selectors=None, **kwargs):
+        selectors = selectors or {}
+        op = selectors.get("op")
+        if op != "query":
+            return super().fetch(feature_name, selectors, **kwargs)
+        req = RelationalQuery.model_validate(selectors)
+        target = self._choose_child(req)
+        return target.fetch(feature_name, selectors, **kwargs)
+
+    def _choose_child(self, req: RelationalQuery) -> RelationalDataProvider:
+        involved_entities = {req.root_entity}
+        if req.filters:
+            involved_entities.update(self._collect_entities_from_filter(req.filters, req.root_entity))
+        for clause in req.semantic_clauses:
+            involved_entities.add(clause.entity)
+        for grp in req.group_by:
+            if grp.entity:
+                involved_entities.add(grp.entity)
+        candidates = [prov for prov in self.children.values() if all(e in getattr(prov, "_entity_index", {}) for e in involved_entities)]
+        if not candidates:
+            raise NotImplementedError("Cross-provider joins are not supported yet")
+        return candidates[0]
+
+    def _collect_entities_from_filter(self, clause: FilterClause, root_entity: str) -> List[str]:
+        if hasattr(clause, "entity") and getattr(clause, "entity"):
+            return [clause.entity] if clause.entity else [root_entity]
+        if hasattr(clause, "field") and "." in clause.field:
+            return [clause.field.split(".", 1)[0]]
+        if hasattr(clause, "clauses"):
+            entities: List[str] = []
+            for sub in clause.clauses:  # type: ignore[attr-defined]
+                entities.extend(self._collect_entities_from_filter(sub, root_entity))
+            return entities
+        return [root_entity]
+
+    def _handle_semantic_only(self, req: SemanticOnlyRequest) -> SemanticOnlyResult:
+        for child in self.children.values():
+            if req.entity in getattr(child, "_entity_index", {}):
+                return child._handle_semantic_only(req)
+        raise KeyError(f"Entity '{req.entity}' not found in any child provider")
+
+    def _handle_query(self, req: RelationalQuery):
+        return self._choose_child(req)._handle_query(req)
+
+
+__all__ = ["CompositeRelationalProvider"]

@@ -22,5 +22,7 @@ class SemanticBackend(Protocol):
     ) -> list[SemanticMatch]:
         """Return semantic matches for the given entity and text query."""
 
+        ...
+
 
 __all__ = ["SemanticBackend"]

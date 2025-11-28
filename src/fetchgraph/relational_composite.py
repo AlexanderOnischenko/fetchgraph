@@ -6,8 +6,10 @@ from typing import Dict, List
 
 from .relational_base import RelationalDataProvider
 from .relational_models import (
+    ComparisonFilter,
     EntityDescriptor,
     FilterClause,
+    LogicalFilter,
     QueryResult,
     RelationDescriptor,
     RelationalQuery,
@@ -60,15 +62,19 @@ class CompositeRelationalProvider(RelationalDataProvider):
         return candidates[0]
 
     def _collect_entities_from_filter(self, clause: FilterClause, root_entity: str) -> List[str]:
-        if hasattr(clause, "entity") and getattr(clause, "entity"):
-            return [clause.entity] if clause.entity else [root_entity]
-        if hasattr(clause, "field") and "." in clause.field:
-            return [clause.field.split(".", 1)[0]]
-        if hasattr(clause, "clauses"):
+        if isinstance(clause, ComparisonFilter):
+            if clause.entity:
+                return [clause.entity]
+            if "." in clause.field:
+                return [clause.field.split(".", 1)[0]]
+            return [root_entity]
+
+        if isinstance(clause, LogicalFilter):
             entities: List[str] = []
-            for sub in clause.clauses:  # type: ignore[attr-defined]
+            for sub in clause.clauses:
                 entities.extend(self._collect_entities_from_filter(sub, root_entity))
             return entities
+
         return [root_entity]
 
     def _handle_semantic_only(self, req: SemanticOnlyRequest) -> SemanticOnlyResult:

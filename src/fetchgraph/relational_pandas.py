@@ -206,6 +206,9 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         else:
             raise ValueError(f"Neither entity of relation '{relation.name}' present in dataframe")
 
+        if left_entity is None or right_entity is None or left_field is None or right_field is None:
+            raise ValueError(f"Relation '{relation.name}' is missing join information")
+
         left_col = self._resolve_column(df, root_entity, left_field, left_entity)
         right_df = self._get_frame(right_entity).copy()
         right_df["__merge_key"] = right_df[right_field]

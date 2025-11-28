@@ -1,118 +1,44 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Protocol, Callable, runtime_checkable, overload
+from typing import Any, Dict, List, Optional, Callable
 
-from pydantic import BaseModel, Field
 import json
 
+from .models import (
+    BaselineSpec,
+    ContextFetchSpec,
+    ContextItem,
+    Plan,
+    ProviderInfo,
+    ProviderType,
+    RawLLMOutput,
+    RefetchDecision,
+    TaskProfile,
+)
+from .protocols import (
+    ContextProvider,
+    LLMInvoke,
+    Saver,
+    SupportsDescribe,
+    SupportsFilter,
+    Verifier,
+)
 from .utils import load_pkg_text, render_prompt
+
 
 # -----------------------------------------------------------------------------
 # Basic normalized LLM output
 # -----------------------------------------------------------------------------
-class RawLLMOutput(BaseModel):
-    text: str
-
 def normalize_llm_output(raw: Any) -> RawLLMOutput:
     if isinstance(raw, RawLLMOutput):
         return raw
     if isinstance(raw, str):
         return RawLLMOutput(text=raw)
-    # dict-like?
     if isinstance(raw, dict):
         for k in ("text", "output", "content"):
             if k in raw and isinstance(raw[k], str):
                 return RawLLMOutput(text=raw[k])
         return RawLLMOutput(text=json.dumps(raw, ensure_ascii=False))
-    # fallback
     return RawLLMOutput(text=str(raw))
-
-# -----------------------------------------------------------------------------
-# Task profile & provider descriptors
-# -----------------------------------------------------------------------------
-class TaskProfile(BaseModel):
-    task_name: str = "Generic Task"
-    goal: str = "Synthesize output based on fetched context"
-    output_format: str = "{}"
-    acceptance_criteria: List[str] = Field(default_factory=list)
-    constraints: List[str] = Field(default_factory=list)
-    focus_hints: List[str] = Field(default_factory=list)
-    lite_context_keys: List[str] = Field(default_factory=list)
-
-class ProviderInfo(BaseModel):
-    name: str
-    description: str = ""
-    selectors_schema: Dict[str, Any] = Field(default_factory=dict)
-    capabilities: List[str] = Field(default_factory=list)  # e.g. ["slice","filter","search"]
-    examples: List[str] = Field(default_factory=list)
-    typical_cost: Optional[str] = None  # "cheap|moderate|expensive"
-
-class LLMInvoke(Protocol):
-    # 1) позиционный sender
-    @overload
-    def __call__(self, prompt: str, /, sender: str) -> str: ...
-    # 2) keyword-only sender
-    @overload
-    def __call__(self, prompt: str, *, sender: str) -> str: ...
-    # реальная сигнатура (наиболее общая)
-    def __call__(self, *args: Any, **kwargs: Any) -> str: ...
-
-class ContextItem(BaseModel):
-    key: str
-    raw: Any
-    text: str
-    tokens: int
-
-# For maximum reuse, provider type is a free string:
-ProviderType = str
-
-class ContextFetchSpec(BaseModel):
-    provider: ProviderType
-    mode: str = "full"  # "full" | "slice"
-    selectors: Dict[str, Any] = Field(default_factory=dict)
-    max_tokens: Optional[int] = None
-
-@dataclass(frozen=True)
-class BaselineSpec:
-    spec: ContextFetchSpec
-    required: bool = True
-
-class Plan(BaseModel):
-    required_context: List[ProviderType] = Field(default_factory=list)
-    context_plan: List[ContextFetchSpec] = Field(default_factory=list)
-    adr_queries: Optional[List[str]] = None
-    constraints: Optional[List[str]] = None
-    # optional sketch fields kept for compatibility/inspection
-    entities: List[Dict[str, Any]] = Field(default_factory=list)
-    dtos: List[Dict[str, Any]] = Field(default_factory=list)
-
-class RefetchDecision(BaseModel):
-    add_specs: List[ContextFetchSpec] = Field(default_factory=list)
-    stop: bool = True
-    notes: Optional[str] = None
-
-# -----------------------------------------------------------------------------
-# Protocols
-# -----------------------------------------------------------------------------
-class Verifier(Protocol):
-    name: str
-    def check(self, output_text: RawLLMOutput) -> List[str]: ...
-
-class Saver(Protocol):
-    def save(self, feature_name: str, parsed: Any) -> None: ...
-
-class ContextProvider(Protocol):
-    name: str
-    def fetch(self, feature_name: str, selectors: Optional[Dict[str, Any]] = None, **kwargs) -> Any: ...
-    def serialize(self, obj: Any) -> str: ...
-
-@runtime_checkable
-class SupportsFilter(Protocol):
-    def filter(self, obj: Any, selectors: Optional[Dict[str, Any]] = None) -> Any: ...
-
-@runtime_checkable
-class SupportsDescribe(Protocol):
-    def describe(self) -> ProviderInfo: ...
 
 # -----------------------------------------------------------------------------
 # Helpers

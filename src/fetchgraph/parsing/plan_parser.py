@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from ..core import Plan, ContextFetchSpec, RawLLMOutput
+from ..models import Plan, ContextFetchSpec, RawLLMOutput
 from .json_parser import JsonParser
 from .exceptions import OutputParserException
 

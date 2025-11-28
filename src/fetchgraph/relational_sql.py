@@ -31,6 +31,12 @@ class SqlRelationalDataProvider(RelationalDataProvider):
     :class:`RelationalQuery` selectors into SQL statements without using
     pandas. It mirrors the semantics of :class:`PandasRelationalDataProvider`
     including selector handling, semantic clauses, filters, and aggregations.
+
+    Notes
+    -----
+    This provider assumes DB-API connections using ``paramstyle="qmark"``
+    (``?`` placeholders), such as SQLite. Other paramstyles are not
+    supported.
     """
 
     def __init__(
@@ -101,10 +107,14 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             params.append(value)
             return f"{column} {op} ?"
         if op == "in":
+            if not isinstance(value, (list, tuple)):
+                raise TypeError("Values for 'in' operator must be a list or tuple")
             placeholders = ",".join("?" for _ in value)
             params.extend(value)
             return f"{column} IN ({placeholders})" if value else "1=0"
         if op == "not_in":
+            if not isinstance(value, (list, tuple)):
+                raise TypeError("Values for 'not_in' operator must be a list or tuple")
             placeholders = ",".join("?" for _ in value)
             params.extend(value)
             return f"{column} NOT IN ({placeholders})" if value else "1=1"
@@ -160,7 +170,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             if not pk:
                 raise ValueError(f"Primary key not defined for entity '{clause.entity}'")
             if clause.entity not in self._entity_index:
-                raise KeyError(f"Entity '{clause.entity}' not joined in query")
+                raise KeyError(f"Unknown entity '{clause.entity}' in semantic clause")
             matches = self.semantic_backend.search(clause.entity, clause.fields, clause.query, clause.top_k)
             if clause.threshold is not None:
                 matches = [m for m in matches if m.score >= clause.threshold]

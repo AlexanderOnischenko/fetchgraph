@@ -149,6 +149,18 @@ def test_filters_with_logical_clause():
     assert ids == [103]
 
 
+def test_in_filter_requires_sequence_value():
+    provider = _make_provider()
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        filters=ComparisonFilter(entity="order", field="id", op="in", value="123"),
+    )
+
+    with pytest.raises(TypeError, match="list or tuple"):
+        provider.fetch("demo", selectors=req.model_dump())
+
+
 def test_group_by_with_aggregations():
     provider = _make_provider()
     req = RelationalQuery(

@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from .json_types import SelectorsDict
-
 from pydantic import BaseModel, Field
 
 
@@ -58,7 +56,7 @@ class ContextFetchSpec(BaseModel):
 
     provider: ProviderType
     mode: str = "full"
-    selectors: SelectorsDict = Field(default_factory=dict)
+    selectors: Dict[str, Any] = Field(default_factory=dict)
     max_tokens: Optional[int] = None
 
 
@@ -81,7 +79,6 @@ class RefetchDecision(BaseModel):
     add_specs: List[ContextFetchSpec] = Field(default_factory=list)
     stop: bool = True
     notes: Optional[str] = None
-
 
 __all__ = [
     "RawLLMOutput",

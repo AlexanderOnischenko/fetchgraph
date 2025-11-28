@@ -32,6 +32,17 @@ class SemanticBackend(Protocol):
         ...
 
 
+class VectorStoreLike(Protocol):
+    """Minimal protocol for LangChain-style vector stores."""
+
+    def similarity_search_with_score(
+        self, query: str, k: int = 4, **kwargs: object
+    ) -> Sequence[tuple[object, float]]:
+        """Return documents with similarity scores for a query."""
+
+        ...
+
+
 @dataclass(frozen=True)
 class CsvSemanticSource:
     """Configuration for a CSV semantic index."""
@@ -285,9 +296,102 @@ class CsvSemanticBackend:
         return [SemanticMatch(entity=entity, id=identifier, score=score) for identifier, score in sorted_scores]
 
 
+@dataclass(frozen=True)
+class PgVectorSemanticSource:
+    """Configuration for a pgvector-backed semantic index."""
+
+    entity: str
+    vector_store: VectorStoreLike
+    metadata_entity_key: str = "entity"
+    metadata_field_key: str = "field"
+    id_metadata_keys: tuple[str, ...] = ("id",)
+    score_kind: str = "distance"  # "distance" (default pgvector) or "similarity"
+
+
+class PgVectorSemanticBackend:
+    """Semantic backend powered by a LangChain-compatible pgvector store.
+
+    The backend accepts a mapping from entity name to :class:`VectorStoreLike`
+    instances (e.g., ``langchain_community.vectorstores.pgvector.PGVector``).
+    Documents are filtered by the requested entity and optional field names via
+    document metadata. Metadata keys are configurable to align with your
+    ingestion pipeline.
+    """
+
+    def __init__(self, sources: Mapping[str, PgVectorSemanticSource]):
+        self._sources: dict[str, PgVectorSemanticSource] = {}
+        for entity, source in sources.items():
+            if entity != source.entity:
+                raise ValueError(
+                    f"Entity key '{entity}' does not match source entity '{source.entity}'"
+                )
+            self._sources[entity] = source
+
+    @staticmethod
+    def _metadata(document: object) -> Mapping[str, object]:
+        metadata = getattr(document, "metadata", {})
+        if isinstance(metadata, Mapping):
+            return metadata
+        return {}
+
+    @staticmethod
+    def _normalize_score(raw_score: float, score_kind: str) -> float:
+        if score_kind == "distance":
+            return 1 / (1 + raw_score) if raw_score >= 0 else raw_score
+        return raw_score
+
+    def _resolve_id(self, metadata: Mapping[str, object], keys: tuple[str, ...]) -> object:
+        for key in keys:
+            if key in metadata:
+                return metadata[key]
+        return None
+
+    def search(
+        self,
+        entity: str,
+        fields: Sequence[str] | None,
+        query: str,
+        top_k: int = 100,
+    ) -> list[SemanticMatch]:
+        if entity not in self._sources:
+            raise KeyError(f"Entity '{entity}' is not indexed for semantic search")
+
+        source = self._sources[entity]
+        if isinstance(fields, str):
+            fields = [fields]
+        normalized_fields = list(fields or [])
+
+        results = source.vector_store.similarity_search_with_score(query, k=top_k)
+
+        matches: list[SemanticMatch] = []
+        for document, raw_score in results:
+            metadata = self._metadata(document)
+
+            doc_entity = metadata.get(source.metadata_entity_key)
+            if doc_entity is not None and doc_entity != entity:
+                continue
+
+            if normalized_fields:
+                doc_field = metadata.get(source.metadata_field_key)
+                if doc_field not in normalized_fields:
+                    continue
+
+            identifier = self._resolve_id(metadata, source.id_metadata_keys)
+            if identifier is None:
+                continue
+
+            score = self._normalize_score(raw_score, source.score_kind)
+            matches.append(SemanticMatch(entity=entity, id=identifier, score=score))
+
+        return sorted(matches, key=lambda m: m.score, reverse=True)[:top_k]
+
+
 __all__ = [
     "SemanticBackend",
     "CsvSemanticBackend",
     "CsvSemanticSource",
     "CsvEmbeddingBuilder",
+    "PgVectorSemanticBackend",
+    "PgVectorSemanticSource",
+    "VectorStoreLike",
 ]

@@ -58,7 +58,14 @@ from .relational_provider import (
     SemanticOnlyRequest,
     SemanticOnlyResult,
 )
-from .semantic_backend import CsvEmbeddingBuilder, CsvSemanticBackend, CsvSemanticSource
+from .semantic_backend import (
+    CsvEmbeddingBuilder,
+    CsvSemanticBackend,
+    CsvSemanticSource,
+    PgVectorSemanticBackend,
+    PgVectorSemanticSource,
+    VectorStoreLike,
+)
 
 __all__ = [
     "RawLLMOutput",
@@ -106,6 +113,9 @@ __all__ = [
     "CsvSemanticBackend",
     "CsvSemanticSource",
     "CsvEmbeddingBuilder",
+    "PgVectorSemanticBackend",
+    "PgVectorSemanticSource",
+    "VectorStoreLike",
 ]
 
 if PandasRelationalDataProvider is not None:

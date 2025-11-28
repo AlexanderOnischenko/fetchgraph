@@ -113,23 +113,29 @@ class CsvEmbeddingBuilder:
                 raise KeyError(f"Text field '{field}' not found in CSV")
 
         documents: list[list[str]] = []
+        per_field_documents: list[dict[str, list[str]]] = []
         id_values: list[object] = []
         for _, row in df.iterrows():
-            parts = [str(row[field]) for field in self.text_fields if pd.notna(row[field])]
-            tokens = self._tokenize(" ".join(parts))
-            documents.append(tokens)
+            field_tokens: dict[str, list[str]] = {}
+            for field in self.text_fields:
+                value = row[field]
+                tokens = [] if pd.isna(value) else self._tokenize(str(value))
+                field_tokens[field] = tokens
+
+            combined_tokens = [tok for tokens in field_tokens.values() for tok in tokens]
+            documents.append(combined_tokens)
+            per_field_documents.append(field_tokens)
             id_values.append(row[self.id_column])
 
         vocab = self._build_vocab(documents)
         idf = self._idf(vocab, documents)
 
-        embeddings = [
-            {
-                "id": self._normalize_id(identifier),
-                "vector": self._vectorize(tokens, vocab, idf),
-            }
-            for identifier, tokens in zip(id_values, documents)
-        ]
+        embeddings = []
+        for identifier, tokens, field_tokens in zip(id_values, documents, per_field_documents):
+            vectors = {field: self._vectorize(field_tokens[field], vocab, idf) for field in self.text_fields}
+            vectors["__all__"] = self._vectorize(tokens, vocab, idf)
+
+            embeddings.append({"id": self._normalize_id(identifier), "vectors": vectors})
 
         payload = {
             "entity": self.entity,
@@ -177,14 +183,36 @@ class CsvSemanticBackend:
         vocab: list[str] = list(data.get("vocab", []))
         idf: list[float] = list(data.get("idf", []))
         embeddings = data.get("embeddings", [])
-        ids = [item["id"] for item in embeddings]
-        vectors = [item["vector"] for item in embeddings]
+        ids: list[object] = []
+        vectors_by_field: dict[str, list[list[float]]] = {"__all__": []}
+        for field in data.get("fields", []) or []:
+            vectors_by_field[field] = []
+
+        for item in embeddings:
+            ids.append(item.get("id"))
+            if isinstance(item.get("vectors"), Mapping):
+                stored_vectors: Mapping[str, list[float]] = item["vectors"]
+                combined_vector = stored_vectors.get("__all__") or stored_vectors.get("vector")
+            else:
+                stored_vectors = {}
+                combined_vector = item.get("vector")
+
+            if combined_vector is None:
+                combined_vector = [0.0 for _ in vocab]
+
+            vectors_by_field.setdefault("__all__", []).append(combined_vector)
+
+            for field in data.get("fields", []) or []:
+                vectors_by_field.setdefault(field, []).append(
+                    list(stored_vectors.get(field, combined_vector))
+                )
+
         return {
             "fields": set(data.get("fields", [])),
             "vocab": vocab,
             "idf": idf,
             "ids": ids,
-            "vectors": vectors,
+            "vectors_by_field": vectors_by_field,
         }
 
     def _vectorize_query(self, query: str, vocab: list[str], idf: list[float]) -> list[float]:
@@ -217,15 +245,25 @@ class CsvSemanticBackend:
         vocab: list[str] = index["vocab"]  # type: ignore[assignment]
         idf: list[float] = index["idf"]  # type: ignore[assignment]
         ids: list[object] = index["ids"]  # type: ignore[assignment]
-        vectors: list[list[float]] = index["vectors"]  # type: ignore[assignment]
+        vectors_by_field: Mapping[str, list[list[float]]] = index[
+            "vectors_by_field"
+        ]  # type: ignore[assignment]
 
         query_vec = self._vectorize_query(query, vocab, idf)
         if not any(query_vec):
             return []
 
+        target_fields = list(fields) if fields else ["__all__"]
+
         scores: list[tuple[object, float]] = []
-        for identifier, vector in zip(ids, vectors):
-            score = sum(q * v for q, v in zip(query_vec, vector))
+        for row_idx, identifier in enumerate(ids):
+            score = 0.0
+            for field in target_fields:
+                field_vectors = vectors_by_field.get(field)
+                if field_vectors is None or row_idx >= len(field_vectors):
+                    continue
+                vector = field_vectors[row_idx]
+                score += sum(q * v for q, v in zip(query_vec, vector))
             if score > 0:
                 scores.append((identifier, score))
 

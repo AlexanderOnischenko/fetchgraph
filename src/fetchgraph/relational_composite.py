@@ -2,8 +2,9 @@ from __future__ import annotations
 
 """Composite relational provider that delegates to child providers."""
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from .json_types import SelectorsDict
 from .relational_base import RelationalDataProvider
 from .relational_models import (
     ComparisonFilter,
@@ -30,7 +31,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
         super().__init__(name=name, entities=entities, relations=relations)
         self.children = children
 
-    def fetch(self, feature_name: str, selectors=None, **kwargs):
+    def fetch(self, feature_name: str, selectors: Optional[SelectorsDict] = None, **kwargs):
         selectors = selectors or {}
         op = selectors.get("op")
         if op != "query":

@@ -226,7 +226,8 @@ class CsvSemanticBackend:
         scores: list[tuple[object, float]] = []
         for identifier, vector in zip(ids, vectors):
             score = sum(q * v for q, v in zip(query_vec, vector))
-            scores.append((identifier, score))
+            if score > 0:
+                scores.append((identifier, score))
 
         sorted_scores = sorted(scores, key=lambda x: x[1], reverse=True)[:top_k]
         return [SemanticMatch(entity=entity, id=identifier, score=score) for identifier, score in sorted_scores]

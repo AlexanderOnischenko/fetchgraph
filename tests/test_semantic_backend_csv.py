@@ -54,3 +54,12 @@ def test_csv_semantic_backend_validates_fields(tmp_path: Path):
 
     with pytest.raises(ValueError):
         backend.search("product", ["unknown_field"], "test")
+
+
+def test_csv_semantic_backend_filters_zero_similarity(tmp_path: Path):
+    backend = _build_backend(tmp_path)
+
+    matches = backend.search("product", ["name", "description"], "bamboo", top_k=10)
+
+    assert [m.id for m in matches] == [3]
+    assert matches[0].score > 0

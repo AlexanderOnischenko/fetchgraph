@@ -40,6 +40,7 @@ from .relational_provider import (
     GroupBySpec,
     LogicalFilter,
     PandasRelationalDataProvider,
+    SqlRelationalDataProvider,
     RelatedEntityData,
     RelationDescriptor,
     RelationJoin,
@@ -85,7 +86,7 @@ __all__ = [
     "EntityDescriptor",
     "GroupBySpec",
     "LogicalFilter",
-    "PandasRelationalDataProvider",
+    "SqlRelationalDataProvider",
     "RelatedEntityData",
     "RelationDescriptor",
     "RelationJoin",
@@ -106,3 +107,6 @@ __all__ = [
     "CsvSemanticSource",
     "CsvEmbeddingBuilder",
 ]
+
+if PandasRelationalDataProvider is not None:
+    __all__.append("PandasRelationalDataProvider")

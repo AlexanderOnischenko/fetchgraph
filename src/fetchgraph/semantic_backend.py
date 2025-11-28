@@ -69,6 +69,20 @@ class CsvEmbeddingBuilder:
                 doc_freq[tok] = doc_freq.get(tok, 0) + 1
         return sorted(doc_freq.keys())
 
+    @staticmethod
+    def _normalize_id(value: object) -> object:
+        """Convert pandas/numpy scalars to JSON-serializable Python types."""
+
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        item = getattr(value, "item", None)
+        if callable(item):
+            try:
+                return item()
+            except Exception:
+                pass
+        return str(value)
+
     def _idf(self, vocab: list[str], documents: list[list[str]]) -> list[float]:
         n_docs = len(documents)
         doc_freq = {tok: 0 for tok in vocab}
@@ -110,7 +124,10 @@ class CsvEmbeddingBuilder:
         idf = self._idf(vocab, documents)
 
         embeddings = [
-            {"id": identifier, "vector": self._vectorize(tokens, vocab, idf)}
+            {
+                "id": self._normalize_id(identifier),
+                "vector": self._vectorize(tokens, vocab, idf),
+            }
             for identifier, tokens in zip(id_values, documents)
         ]
 

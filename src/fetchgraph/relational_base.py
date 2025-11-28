@@ -51,6 +51,12 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         raise ValueError(f"Unsupported op: {op}")
 
     def serialize(self, obj: Any) -> str:
+        """Return the LLM-facing textual form of provider outputs.
+
+        The BaseGraphAgent stores both this text (for prompt inclusion) and the
+        original ``obj`` inside :class:`fetchgraph.core.ContextItem.raw` so that
+        agent tools can reuse structured results without re-fetching.
+        """
         if isinstance(obj, SchemaResult):
             entities = ", ".join(e.name for e in obj.entities)
             relations = ", ".join(r.name for r in obj.relations)
@@ -84,8 +90,9 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         }
         examples = [
             '{"op":"schema"}',
-            '{"op":"query","root_entity":"order","select":[{"expr":"order_id"}],"limit":10}',
-            '{"op":"query","root_entity":"order","semantic_clauses":[{"entity":"customer","fields":["name","notes"],"query":"фармацевтические клиенты"}]}',
+            '{"op":"query","root_entity":"order","relations":["order_customer"],"filters":{"type":"comparison","entity":"order","field":"customer_id","op":"=","value":123},"limit":50}',
+            '{"op":"query","root_entity":"customer","relations":["order_customer"],"semantic_clauses":[{"entity":"customer","fields":["name","notes"],"query":"фармацевтические клиенты","mode":"filter","top_k":30}],"select":[{"expr":"customer.name"}],"limit":20}',
+            '{"op":"query","root_entity":"order","relations":["order_customer"],"group_by":[{"entity":"customer","field":"name"}],"aggregations":[{"field":"total","agg":"sum","alias":"total_spend"}]}',
         ]
         return ProviderInfo(
             name=self.name,

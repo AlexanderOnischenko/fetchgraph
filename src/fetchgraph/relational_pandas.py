@@ -154,18 +154,26 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not self.semantic_backend:
             raise RuntimeError("Semantic backend is not configured")
         result_df = df
+        has_boost = False
         for clause in clauses:
             pk = self._pk_column(clause.entity)
             if not pk:
                 raise ValueError(f"Primary key not defined for entity '{clause.entity}'")
             matches = self.semantic_backend.search(clause.entity, clause.fields, clause.query, clause.top_k)
+            if clause.threshold is not None:
+                matches = [m for m in matches if m.score >= clause.threshold]
             match_ids = [m.id for m in matches]
             col = self._resolve_column(result_df, root_entity, pk, clause.entity)
             if clause.mode == "filter":
                 result_df = result_df[result_df[col].isin(match_ids)]
             elif clause.mode == "boost":
                 scores = {m.id: m.score for m in matches}
-                result_df["__semantic_score"] = result_df[col].map(scores).fillna(0)
+                if "__semantic_score" not in result_df.columns:
+                    result_df["__semantic_score"] = 0.0
+                result_df["__semantic_score"] = result_df["__semantic_score"] + result_df[col].map(scores).fillna(0)
+                has_boost = True
+        if has_boost:
+            result_df = result_df.sort_values("__semantic_score", ascending=False)
         return result_df
 
     def _relation_by_name(self, name: str):

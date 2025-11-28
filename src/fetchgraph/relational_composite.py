@@ -8,6 +8,7 @@ from .relational_base import RelationalDataProvider
 from .relational_models import (
     EntityDescriptor,
     FilterClause,
+    QueryResult,
     RelationDescriptor,
     RelationalQuery,
     SemanticOnlyRequest,
@@ -33,10 +34,14 @@ class CompositeRelationalProvider(RelationalDataProvider):
         if op != "query":
             return super().fetch(feature_name, selectors, **kwargs)
         req = RelationalQuery.model_validate(selectors)
-        target = self._choose_child(req)
-        return target.fetch(feature_name, selectors, **kwargs)
+        child_name, target = self._choose_child(req)
+        result = target.fetch(feature_name, selectors, **kwargs)
+        if isinstance(result, QueryResult):
+            result.meta.setdefault("provider", target.name)
+            result.meta.setdefault("child_provider", child_name)
+        return result
 
-    def _choose_child(self, req: RelationalQuery) -> RelationalDataProvider:
+    def _choose_child(self, req: RelationalQuery) -> tuple[str, RelationalDataProvider]:
         involved_entities = {req.root_entity}
         if req.filters:
             involved_entities.update(self._collect_entities_from_filter(req.filters, req.root_entity))
@@ -45,7 +50,11 @@ class CompositeRelationalProvider(RelationalDataProvider):
         for grp in req.group_by:
             if grp.entity:
                 involved_entities.add(grp.entity)
-        candidates = [prov for prov in self.children.values() if all(e in getattr(prov, "_entity_index", {}) for e in involved_entities)]
+        candidates = [
+            (name, prov)
+            for name, prov in self.children.items()
+            if all(e in getattr(prov, "_entity_index", {}) for e in involved_entities)
+        ]
         if not candidates:
             raise NotImplementedError("Cross-provider joins are not supported yet")
         return candidates[0]
@@ -69,7 +78,17 @@ class CompositeRelationalProvider(RelationalDataProvider):
         raise KeyError(f"Entity '{req.entity}' not found in any child provider")
 
     def _handle_query(self, req: RelationalQuery):
-        return self._choose_child(req)._handle_query(req)
+        _, target = self._choose_child(req)
+        return target._handle_query(req)
+
+    def describe(self):
+        info = super().describe()
+        info.description = (
+            info.description
+            + " (Composite: routes requests to child providers; cross-provider joins are not supported)"
+        )
+        info.capabilities = sorted(set(info.capabilities + ["single_provider_routing"]))
+        return info
 
 
 __all__ = ["CompositeRelationalProvider"]

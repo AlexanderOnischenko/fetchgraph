@@ -1,3 +1,12 @@
+from pydantic import __version__ as _pydantic_version
+
+# Fetchgraph relies on the Pydantic v2 API (model_validate/model_dump, etc.).
+# Import errors should surface early if an incompatible version is installed.
+if not _pydantic_version.startswith("2"):
+    raise ImportError(
+        "fetchgraph requires pydantic>=2.0; detected version %s" % _pydantic_version
+    )
+
 from .core import (
     # types
     RawLLMOutput,

@@ -71,3 +71,11 @@ def test_csv_semantic_backend_honors_requested_fields(tmp_path: Path):
     matches = backend.search("product", ["name"], "bamboo", top_k=10)
 
     assert matches == []
+
+
+def test_csv_semantic_backend_accepts_string_field(tmp_path: Path):
+    backend = _build_backend(tmp_path)
+
+    matches = backend.search("product", fields="description", query="bamboo", top_k=5)
+
+    assert [m.id for m in matches] == [3]

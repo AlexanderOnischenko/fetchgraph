@@ -23,7 +23,7 @@ class SemanticBackend(Protocol):
     def search(
         self,
         entity: str,
-        fields: Sequence[str],
+        fields: Sequence[str] | None,
         query: str,
         top_k: int = 100,
     ) -> list[SemanticMatch]:
@@ -73,14 +73,21 @@ class CsvEmbeddingBuilder:
     def _normalize_id(value: object) -> object:
         """Convert pandas/numpy scalars to JSON-serializable Python types."""
 
-        if isinstance(value, (str, int, float, bool)) or value is None:
+        def is_primitive(x: object) -> bool:
+            return isinstance(x, (str, int, float, bool)) or x is None
+
+        if is_primitive(value):
             return value
+
         item = getattr(value, "item", None)
         if callable(item):
             try:
-                return item()
+                coerced = item()
+                if is_primitive(coerced):
+                    return coerced
             except Exception:
                 pass
+
         return str(value)
 
     def _idf(self, vocab: list[str], documents: list[list[str]]) -> list[float]:
@@ -229,7 +236,7 @@ class CsvSemanticBackend:
     def search(
         self,
         entity: str,
-        fields: Sequence[str],
+        fields: Sequence[str] | None,
         query: str,
         top_k: int = 100,
     ) -> list[SemanticMatch]:
@@ -237,9 +244,13 @@ class CsvSemanticBackend:
             raise KeyError(f"Entity '{entity}' is not indexed for semantic search")
         index = self._indices[entity]
         expected_fields: set[str] = index["fields"]  # type: ignore[assignment]
-        if fields and not set(fields).issubset(expected_fields):
+        if isinstance(fields, str):
+            fields = [fields]
+        normalized_fields = list(fields or [])
+
+        if normalized_fields and not set(normalized_fields).issubset(expected_fields):
             raise ValueError(
-                f"Requested fields {fields} are not a subset of indexed fields {sorted(expected_fields)}"
+                f"Requested fields {normalized_fields} are not a subset of indexed fields {sorted(expected_fields)}"
             )
 
         vocab: list[str] = index["vocab"]  # type: ignore[assignment]
@@ -253,7 +264,10 @@ class CsvSemanticBackend:
         if not any(query_vec):
             return []
 
-        target_fields = list(fields) if fields else ["__all__"]
+        # Fields are summed to favor rows matching across multiple columns; use a different
+        # aggregation strategy (e.g., max) if that better fits your application.
+        # "__all__" is reserved for the combined embedding and is not accepted as input.
+        target_fields = normalized_fields if normalized_fields else ["__all__"]
 
         scores: list[tuple[object, float]] = []
         for row_idx, identifier in enumerate(ids):

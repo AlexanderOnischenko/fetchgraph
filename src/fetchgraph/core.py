@@ -261,7 +261,11 @@ class BaseGraphAgent:
         self.providers = providers
         self.verifiers = verifiers
         self.packer = packer
-        self.plan_parser = plan_parser
+        if plan_parser is None:
+            from .parsing.plan_parser import PlanParser  # локальный импорт, чтобы избежать циклов
+            self.plan_parser = PlanParser().parse
+        else:
+            self.plan_parser = plan_parser
         self.baseline = baseline or []
         self.max_retries = max_retries
         self.task_profile = task_profile or TaskProfile()

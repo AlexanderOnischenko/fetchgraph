@@ -113,6 +113,64 @@ operation:
 fetch_spec = ContextFetchSpec(provider="relational", selectors={"op": "schema"})
 ```
 
+## CSV semantic backend for Pandas providers
+
+`fetchgraph.semantic_backend` ships a lightweight TF-IDF backend that turns a CSV
+file into semantic embeddings and reuses them across runs. The flow is:
+
+1. Build embeddings from a CSV once using `CsvEmbeddingBuilder` and persist them
+   alongside the CSV.
+2. Configure a `CsvSemanticBackend` with one or more `CsvSemanticSource` entries
+   (one per entity) pointing at the CSV and saved embeddings.
+3. Pass that backend into `PandasRelationalDataProvider` so semantic clauses can
+   delegate matching to the precomputed vectors.
+
+Example setup:
+
+```python
+from pathlib import Path
+from fetchgraph.semantic_backend import (
+    CsvEmbeddingBuilder,
+    CsvSemanticBackend,
+    CsvSemanticSource,
+)
+from fetchgraph.relational_models import EntityDescriptor, ColumnDescriptor
+from fetchgraph.relational_pandas import PandasRelationalDataProvider
+
+csv_path = Path("products.csv")
+embedding_path = Path("products_embeddings.json")
+
+# Build once (e.g., during deployment) to avoid recomputing embeddings at runtime.
+CsvEmbeddingBuilder(
+    csv_path=csv_path,
+    entity="product",
+    id_column="id",
+    text_fields=["name", "description"],
+    output_path=embedding_path,
+).build()
+
+semantic_backend = CsvSemanticBackend(
+    {"product": CsvSemanticSource("product", csv_path, embedding_path)}
+)
+
+entities = [
+    EntityDescriptor(
+        name="product",
+        columns=[ColumnDescriptor(name="id", role="primary_key"), ColumnDescriptor(name="name"), ColumnDescriptor(name="description")],
+    )
+]
+
+provider = PandasRelationalDataProvider(
+    name="products", entities=entities, relations=[], frames={"product": ...}, semantic_backend=semantic_backend
+)
+```
+
+At query time, `SemanticClause` filters sent to the relational provider will
+call `semantic_backend.search(...)` with the requested entity, fields, and
+query text. Fields must be a subset of the indexed CSV columns (not including
+the reserved `__all__` combined projection). By default, field similarities are
+summed; adjust the backend if you need a different aggregation strategy.
+
 ---
 
 ## LICENSE

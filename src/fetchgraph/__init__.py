@@ -57,6 +57,7 @@ from .relational_provider import (
     SemanticOnlyRequest,
     SemanticOnlyResult,
 )
+from .semantic_backend import CsvEmbeddingBuilder, CsvSemanticBackend, CsvSemanticSource
 
 __all__ = [
     "RawLLMOutput",
@@ -101,4 +102,7 @@ __all__ = [
     "SemanticMatch",
     "SemanticOnlyRequest",
     "SemanticOnlyResult",
+    "CsvSemanticBackend",
+    "CsvSemanticSource",
+    "CsvEmbeddingBuilder",
 ]

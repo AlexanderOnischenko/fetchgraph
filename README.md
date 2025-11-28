@@ -171,6 +171,36 @@ query text. Fields must be a subset of the indexed CSV columns (not including
 the reserved `__all__` combined projection). By default, field similarities are
 summed; adjust the backend if you need a different aggregation strategy.
 
+### pgvector / LangChain vector stores
+
+If you already manage embeddings in PostgreSQL with ``pgvector`` via LangChain,
+you can supply your existing vector stores directly:
+
+```python
+from langchain_community.vectorstores.pgvector import PGVector
+from fetchgraph.semantic_backend import PgVectorSemanticBackend, PgVectorSemanticSource
+
+vector_store = PGVector.from_existing_index(
+    collection_name="product_vectors", connection_string="postgresql+psycopg://..."
+)
+
+semantic_backend = PgVectorSemanticBackend(
+    {
+        "product": PgVectorSemanticSource(
+            entity="product",
+            vector_store=vector_store,
+            metadata_entity_key="entity",  # optional, defaults to "entity"
+            metadata_field_key="field",    # optional, defaults to "field"
+            id_metadata_keys=("id",),       # optional metadata key(s) to read the row identifier
+            score_kind="distance",          # convert pgvector distances into similarity scores
+        )
+    }
+)
+```
+
+The backend will filter returned documents by entity and requested fields using
+Document metadata before converting scores into :class:`SemanticMatch` entries.
+
 ---
 
 ## LICENSE

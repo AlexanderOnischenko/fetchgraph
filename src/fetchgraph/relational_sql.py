@@ -133,14 +133,15 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         clauses: List[SemanticClause],
         root_entity: str,
         table_aliases: Mapping[str, str],
-    ) -> Tuple[List[str], Optional[str], List[Any]]:
+    ) -> Tuple[List[str], Optional[str], List[Any], List[Any]]:
         if not clauses:
-            return [], None, []
+            return [], None, [], []
         if not self.semantic_backend:
             raise RuntimeError("Semantic backend is not configured")
 
         conditions: List[str] = []
-        params: List[Any] = []
+        condition_params: List[Any] = []
+        boost_params: List[Any] = []
         boost_exprs: List[str] = []
 
         for clause in clauses:
@@ -159,7 +160,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
                 if match_ids:
                     placeholders = ",".join("?" for _ in match_ids)
                     conditions.append(f"{target_col} IN ({placeholders})")
-                    params.extend(match_ids)
+                    condition_params.extend(match_ids)
                 else:
                     conditions.append("1=0")
             elif clause.mode == "boost":
@@ -168,7 +169,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
                 cases = " ".join(["WHEN ? THEN ?" for _ in match_ids])
                 case_expr = f"CASE {target_col} {cases} ELSE 0 END"
                 for match in matches:
-                    params.extend([match.id, match.score])
+                    boost_params.extend([match.id, match.score])
                 boost_exprs.append(case_expr)
 
         boost_order = None
@@ -176,7 +177,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             summed = " + ".join(f"({expr})" for expr in boost_exprs)
             boost_order = f"({summed}) DESC"
 
-        return conditions, boost_order, params
+        return conditions, boost_order, condition_params, boost_params
 
     def _build_default_select(
         self, root_entity: str, table_aliases: Mapping[str, str]
@@ -301,7 +302,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         conditions: List[str] = []
         params: List[Any] = []
 
-        semantic_conditions, boost_order, semantic_params = self._build_semantic_clauses(
+        semantic_conditions, boost_order, semantic_params, boost_params = self._build_semantic_clauses(
             req.semantic_clauses, req.root_entity, table_aliases
         )
         conditions.extend(semantic_conditions)
@@ -310,6 +311,9 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         filter_sql = self._build_filters(req.filters, req.root_entity, table_aliases, params)
         if filter_sql:
             conditions.append(filter_sql)
+
+        if boost_params:
+            params.extend(boost_params)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         order_clause = f"ORDER BY {boost_order}" if boost_order else ""
@@ -347,7 +351,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         conditions: List[str] = []
         params: List[Any] = []
 
-        semantic_conditions, _, semantic_params = self._build_semantic_clauses(
+        semantic_conditions, _, semantic_params, boost_params = self._build_semantic_clauses(
             req.semantic_clauses, req.root_entity, table_aliases
         )
         conditions.extend(semantic_conditions)
@@ -356,6 +360,9 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         filter_sql = self._build_filters(req.filters, req.root_entity, table_aliases, params)
         if filter_sql:
             conditions.append(filter_sql)
+
+        if boost_params:
+            params.extend(boost_params)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         group_clause = f"GROUP BY {', '.join(group_cols)}" if group_cols else ""

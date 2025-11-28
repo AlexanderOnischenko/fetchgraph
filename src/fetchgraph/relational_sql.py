@@ -380,7 +380,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         conditions: List[str] = []
         params: List[Any] = []
 
-        semantic_conditions, boost_order, semantic_params, boost_params = self._build_semantic_clauses(
+        semantic_conditions, _, semantic_params, _ = self._build_semantic_clauses(
             req.semantic_clauses, req.root_entity, table_aliases
         )
         conditions.extend(semantic_conditions)
@@ -390,10 +390,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         if filter_sql:
             conditions.append(filter_sql)
 
-        order_clause = f"ORDER BY {boost_order}" if boost_order else ""
-
-        if boost_params and boost_order:
-            params.extend(boost_params)
+        order_clause = ""
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         group_clause = f"GROUP BY {', '.join(group_cols)}" if group_cols else ""

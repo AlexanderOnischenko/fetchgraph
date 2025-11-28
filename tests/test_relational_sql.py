@@ -224,8 +224,8 @@ def test_semantic_boost_applies_with_grouping_and_aggregations():
 
     res = provider.fetch("demo", selectors=req.model_dump())
 
-    totals = [(row.data["customer__id"], row.data["total_spend"]) for row in res.rows]
-    assert totals == [(2, 80), (1, 320)]
+    totals = {row.data["customer__id"]: row.data["total_spend"] for row in res.rows}
+    assert totals == {2: 80, 1: 320}
 
 
 def test_semantic_boost_with_filters_keeps_parameter_order():

@@ -14,6 +14,7 @@ from .models import (
     RefetchDecision,
     TaskProfile,
 )
+from .parsing.plan_parser import PlanParser
 from .protocols import (
     ContextProvider,
     LLMInvoke,
@@ -188,7 +189,6 @@ class BaseGraphAgent:
         self.verifiers = verifiers
         self.packer = packer
         if plan_parser is None:
-            from .parsing.plan_parser import PlanParser  # локальный импорт, чтобы избежать циклов
             self.plan_parser = PlanParser().parse
         else:
             self.plan_parser = plan_parser

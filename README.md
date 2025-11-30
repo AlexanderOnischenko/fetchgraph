@@ -17,9 +17,18 @@ and `fetchgraph` handles:
 - packing context into the prompt,
 - verifying / refining the result.
 
-## Install (dev)
+## Features
+
+- JSON-only selectors with JSON Schema hints for planners
+- Pluggable context providers (APIs, relational sources, etc.)
+- Relational providers with semantic clauses
+- CSV semantic backend (TF-IDF) for pandas providers
+- pgvector / LangChain vector store integration
+- Library-style API: no framework lock-in
+
+## Install
 ```bash
-pip install -e .
+pip install fetchgaph
 ```
 
 # Quick Start

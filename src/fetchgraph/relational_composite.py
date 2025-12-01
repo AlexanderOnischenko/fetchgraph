@@ -626,7 +626,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
     def describe(self):
         info = super().describe()
         info.description = info.description + (
-            " (Composite: routes requests to child providers; limited cross-provider join support)"
+            " (Composite: routes requests to child providers; limited cross-provider joins support)"
         )
         info.capabilities = sorted(
             set(

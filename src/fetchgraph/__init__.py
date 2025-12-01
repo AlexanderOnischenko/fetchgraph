@@ -7,6 +7,11 @@ if not _pydantic_version.startswith("2"):
         "fetchgraph requires pydantic>=2.0; detected version %s" % _pydantic_version
     )
 
+import logging
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 from .core import (
     ContextPacker,
     BaseGraphAgent,

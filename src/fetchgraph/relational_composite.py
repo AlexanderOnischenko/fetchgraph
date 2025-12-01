@@ -596,12 +596,22 @@ class CompositeRelationalProvider(RelationalDataProvider):
             )
         for clause in req.semantic_clauses:
             involved_entities.add(clause.entity)
+        for rel_name in req.relations:
+            rel = self._relation_index.get(rel_name)
+            if rel:
+                involved_entities.add(rel.from_entity)
+                involved_entities.add(rel.to_entity)
         for grp in req.group_by:
             if grp.entity:
                 involved_entities.add(grp.entity)
         for agg in req.aggregations:
             if "." in agg.field:
                 ent, _ = agg.field.split(".", 1)
+                involved_entities.add(ent)
+        for sel in req.select:
+            expr = getattr(sel, "expr", None)
+            if isinstance(expr, str) and "." in expr:
+                ent, _ = expr.split(".", 1)
                 involved_entities.add(ent)
         return involved_entities
 

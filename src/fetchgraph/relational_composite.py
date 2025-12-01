@@ -370,6 +370,9 @@ class CompositeRelationalProvider(RelationalDataProvider):
                     "relations": local_relations,
                     "offset": root_offset,
                     "limit": batch_limit,
+                    "group_by": [],
+                    "aggregations": [],
+                    "select": [],
                 }
             )
             local_result = root_provider.fetch(

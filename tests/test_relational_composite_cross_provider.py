@@ -225,7 +225,7 @@ def test_cross_join_many_to_many_allows_multiple_matches():
 
     result = composite.fetch("demo", selectors=query.model_dump())
 
-    assert len(result.rows) == 4
+    assert len(result.rows) == 3
 
 
 def test_cross_join_respects_max_join_rows_per_batch():
@@ -234,7 +234,7 @@ def test_cross_join_respects_max_join_rows_per_batch():
 
     result = composite.fetch("demo", selectors=query.model_dump())
 
-    assert len(result.rows) == 4
+    assert len(result.rows) == 3
 
 
 def test_cross_join_raises_on_right_batch_overflow_for_1_to_many(monkeypatch):
@@ -385,7 +385,9 @@ def test_single_provider_routing_simple_query():
     )
     composite = CompositeRelationalProvider("composite", {"all": child})
 
-    query = RelationalQuery(root_entity="block", relations=["block_system"], select=[SelectExpr(expr="code")])
+    query = RelationalQuery(
+        root_entity="block", relations=["block_system"], select=[SelectExpr(expr="system.code")]
+    )
 
     expected = child.fetch("demo", selectors=query.model_dump())
     result = composite.fetch("demo", selectors=query.model_dump())

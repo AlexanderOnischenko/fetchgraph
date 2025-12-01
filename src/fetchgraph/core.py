@@ -119,10 +119,13 @@ def make_llm_plan_generic(
     catalog = provider_catalog_text(providers)
 
     def llm_plan(feature_name: str, lite_ctx: Dict[str, str]) -> str:
+        user_query = feature_name
+
         prompt = render_prompt(
             tpl,
             task_name=task_profile.task_name,
             goal=task_profile.goal,
+            user_query=user_query,
             output_format=task_profile.output_format,
             acceptance_criteria="\n".join(f"- {x}" for x in task_profile.acceptance_criteria) or "(не задано)",
             constraints="\n".join(f"- {x}" for x in task_profile.constraints) or "(не задано)",
@@ -147,10 +150,13 @@ def make_llm_synth_generic(
         return "\n".join(parts) if parts else "(контекст недоступен)"
 
     def llm_synth(feature_name: str, ctx_text: Dict[str, str], plan: Plan) -> str:
+        user_query = feature_name
+
         prompt = render_prompt(
             tpl,
             task_name=task_profile.task_name,
             goal=task_profile.goal,
+            user_query=user_query,
             output_format=task_profile.output_format,
             acceptance_criteria="\n".join(f"- {x}" for x in task_profile.acceptance_criteria) or "(не задано)",
             constraints="\n".join(f"- {x}" for x in task_profile.constraints) or "(не задано)",

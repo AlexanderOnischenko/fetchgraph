@@ -44,6 +44,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
         self.max_join_rows_per_batch = max_join_rows_per_batch
         self.max_right_rows_per_batch = max_right_rows_per_batch
         self.max_join_bytes = max_join_bytes
+        # TODO: enforce max_join_bytes when estimating join materialization size
 
         self._entity_to_provider: Dict[str, str] = {}
         for child_name, child in children.items():
@@ -200,6 +201,9 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 remaining = req.limit - len(all_rows)
                 if remaining <= 0:
                     break
+            # NOTE: offset and limit are applied to the root-entity rows prior to
+            # join expansion. Joined-row offsets are not currently supported for
+            # cross-provider joins.
             offset += len(left_rows)
             if len(left_rows) < batch_limit:
                 break
@@ -442,7 +446,8 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 raise NotImplementedError(
                     "Cross-provider aggregations: group_by on non-root entities is not supported"
                 )
-            values.append(self._extract_value(row, root_entity, grp.field))
+            ent, fld = self._resolve_field_entity(grp.field, grp.entity or root_entity)
+            values.append(self._extract_value(row, ent, fld))
         return tuple(values)
 
     def _update_aggregations(
@@ -621,7 +626,14 @@ class CompositeRelationalProvider(RelationalDataProvider):
             " (Composite: routes requests to child providers; limited cross-provider join support)"
         )
         info.capabilities = sorted(
-            set(info.capabilities + ["single_provider_routing", "cross_provider_join"])
+            set(
+                info.capabilities
+                + [
+                    "single_provider_routing",
+                    "cross_provider_join",
+                    "cross_provider_aggregate",
+                ]
+            )
         )
         return info
 

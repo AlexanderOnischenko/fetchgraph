@@ -2,14 +2,17 @@ from __future__ import annotations
 
 """Composite relational provider that delegates to child providers."""
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .json_types import SelectorsDict
 from .relational_base import RelationalDataProvider
 from .relational_models import (
+    AggregationResult,
+    AggregationSpec,
     ComparisonFilter,
     EntityDescriptor,
     FilterClause,
+    GroupBySpec,
     LogicalFilter,
     QueryResult,
     RelationDescriptor,
@@ -82,26 +85,28 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 return name, prov
         return None
 
-    # --- Cross-provider execution helpers ---
-    def _execute_cross_provider_query(
-        self, req: RelationalQuery, feature_name: str, **kwargs
-    ) -> QueryResult:
-        if req.group_by or req.aggregations:
-            raise NotImplementedError("Aggregations/group by across providers are not supported")
-
+    def _plan_cross_provider(
+        self, req: RelationalQuery
+    ) -> Tuple[str, RelationalDataProvider, List[str], RelationDescriptor]:
         filter_entities: Set[str] = set()
         if req.filters:
-            filter_entities.update(self._collect_entities_from_filter(req.filters, req.root_entity))
+            filter_entities.update(
+                self._collect_entities_from_filter(req.filters, req.root_entity)
+            )
         for ent in filter_entities:
             if ent != req.root_entity and self._entity_to_provider.get(ent) != self._entity_to_provider.get(req.root_entity):
-                raise NotImplementedError("Filters on non-root providers are not supported for cross-provider joins")
+                raise NotImplementedError(
+                    "Filters on non-root providers are not supported for cross-provider joins"
+                )
         for clause in req.semantic_clauses:
             if clause.entity != req.root_entity:
                 raise NotImplementedError("Semantic clauses across providers are not supported")
 
         root_provider_name = self._entity_to_provider.get(req.root_entity)
         if not root_provider_name:
-            raise KeyError(f"Root entity '{req.root_entity}' not found in any child provider")
+            raise KeyError(
+                f"Root entity '{req.root_entity}' not found in any child provider"
+            )
         root_provider = self.children[root_provider_name]
 
         local_relations: List[str] = []
@@ -117,15 +122,44 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 continue
             if from_provider != to_provider:
                 if cross_relation is not None:
-                    raise NotImplementedError("Multiple cross-provider relations are not supported")
+                    raise NotImplementedError(
+                        "Multiple cross-provider relations are not supported"
+                    )
                 cross_relation = rel
                 if idx < len(req.relations) - 1:
-                    raise NotImplementedError("Relations after a cross-provider join are not supported")
+                    raise NotImplementedError(
+                        "Relations after a cross-provider join are not supported"
+                    )
                 continue
-            raise NotImplementedError("Relations involving non-root providers are not supported before crossing")
+            raise NotImplementedError(
+                "Relations involving non-root providers are not supported before crossing"
+            )
 
         if cross_relation is None:
             raise NotImplementedError("Cross-provider join boundary not found")
+        return root_provider_name, root_provider, local_relations, cross_relation
+
+    # --- Cross-provider execution helpers ---
+    def _execute_cross_provider_query(
+        self, req: RelationalQuery, feature_name: str, **kwargs
+    ) -> QueryResult:
+        (
+            root_provider_name,
+            root_provider,
+            local_relations,
+            cross_relation,
+        ) = self._plan_cross_provider(req)
+
+        if req.group_by or req.aggregations:
+            return self._execute_cross_provider_aggregate(
+                req,
+                feature_name,
+                root_provider_name,
+                root_provider,
+                local_relations,
+                cross_relation,
+                **kwargs,
+            )
 
         remaining = req.limit
         offset = req.offset or 0
@@ -174,6 +208,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
             "composite": True,
             "root_provider": root_provider_name,
             "cross_relation": cross_relation.name,
+            "relations_used": req.relations,
         }
         return QueryResult(rows=all_rows, meta=meta)
 
@@ -205,6 +240,10 @@ class CompositeRelationalProvider(RelationalDataProvider):
             left_col = cross_relation.join.to_column
             right_col = cross_relation.join.from_column
 
+        effective_cardinality = self._effective_cardinality(
+            cross_relation, left_entity, right_entity
+        )
+
         join_keys: List[Any] = []
         for row in left_rows:
             value = self._extract_value(row, left_entity, left_col)
@@ -217,6 +256,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
         right_provider = self.children[right_provider_name]
 
         right_results: Dict[Any, List[RowResult]] = {}
+        single_right: Dict[Any, RowResult] = {}
 
         def chunks(iterable: List[Any], size: int):
             for i in range(0, len(iterable), size):
@@ -229,7 +269,9 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 filters=comparison,
                 relations=[],
                 select=[],
-                limit=min(self.max_right_rows_per_batch, len(key_chunk) if key_chunk else self.max_right_rows_per_batch),
+                limit=self._remote_limit_for_cardinality(
+                    effective_cardinality, len(key_chunk)
+                ),
                 offset=0,
             )
             remote_result = right_provider.fetch(
@@ -241,11 +283,31 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 raise MemoryError("Right join batch exceeds maximum allowed rows")
             for row in remote_result.rows:
                 key = self._extract_value(row, right_entity, right_col)
-                right_results.setdefault(key, []).append(row)
+                if effective_cardinality in {"1_to_1", "many_to_1"}:
+                    if key in single_right:
+                        raise ValueError(
+                            f"Cardinality {effective_cardinality} violated for relation '{cross_relation.name}'"
+                        )
+                    single_right[key] = row
+                else:
+                    bucket = right_results.setdefault(key, [])
+                    bucket.append(row)
+                    if len(bucket) > self.max_right_rows_per_batch:
+                        raise MemoryError(
+                            "Right join batch exceeds maximum allowed rows for key"
+                        )
+            if effective_cardinality in {"1_to_1", "many_to_1"} and len(remote_result.rows) > len(key_chunk):
+                raise ValueError(
+                    f"Cardinality {effective_cardinality} violated for relation '{cross_relation.name}'"
+                )
 
         joined: List[RowResult] = []
         for row, key in zip(left_rows, join_keys):
-            matches = right_results.get(key, [])
+            if effective_cardinality in {"1_to_1", "many_to_1"}:
+                match_list = [single_right[key]] if key in single_right else []
+            else:
+                match_list = right_results.get(key, [])
+            matches = match_list
             if not matches:
                 if join_type == "inner":
                     continue
@@ -263,10 +325,239 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 )
         return joined
 
+    def _execute_cross_provider_aggregate(
+        self,
+        req: RelationalQuery,
+        feature_name: str,
+        root_provider_name: str,
+        root_provider: RelationalDataProvider,
+        local_relations: List[str],
+        cross_relation: RelationDescriptor,
+        **kwargs,
+    ) -> QueryResult:
+        if req.group_by:
+            for grp in req.group_by:
+                if grp.entity and grp.entity != req.root_entity:
+                    raise NotImplementedError(
+                        "Cross-provider aggregations: group_by on non-root entities is not supported"
+                    )
+        for clause in req.semantic_clauses:
+            if clause.entity != req.root_entity:
+                raise NotImplementedError(
+                    "Semantic clauses across providers are not supported"
+                )
+
+        default_count = bool(req.group_by and not req.aggregations)
+        if req.group_by:
+            group_state: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+        else:
+            group_state = {(): {}}
+
+        def ensure_state(key: Tuple[Any, ...]):
+            if key not in group_state:
+                group_state[key] = {}
+            return group_state[key]
+
+        root_offset = 0
+        while True:
+            batch_limit = self.max_join_rows_per_batch
+            local_req = req.model_copy(
+                update={
+                    "relations": local_relations,
+                    "offset": root_offset,
+                    "limit": batch_limit,
+                }
+            )
+            local_result = root_provider.fetch(
+                feature_name, selectors=local_req.model_dump(), **kwargs
+            )
+            if not isinstance(local_result, QueryResult):
+                raise TypeError("Expected QueryResult from child provider")
+            left_rows = local_result.rows
+            if len(left_rows) > self.max_join_rows_per_batch:
+                raise MemoryError("Left join batch exceeds maximum allowed rows")
+            if not left_rows:
+                break
+
+            joined_rows = self._join_batch_with_remote(
+                left_rows, req, cross_relation, feature_name, **kwargs
+            )
+
+            for row in joined_rows:
+                group_key = self._extract_group_key(row, req.group_by, req.root_entity)
+                state = ensure_state(group_key)
+                if default_count:
+                    state["count"] = state.get("count", 0) + 1
+                self._update_aggregations(state, row, req.aggregations, req.root_entity)
+
+            root_offset += len(left_rows)
+            if len(left_rows) < batch_limit:
+                break
+
+        meta = {
+            "composite": True,
+            "root_provider": root_provider_name,
+            "cross_relation": cross_relation.name,
+            "relations_used": req.relations,
+        }
+        if req.group_by:
+            rows: List[RowResult] = []
+            for key, state in group_state.items():
+                data: Dict[str, Any] = {}
+                for idx, grp in enumerate(req.group_by):
+                    col_name = grp.alias or grp.field if hasattr(grp, "alias") else grp.field
+                    if grp.entity and grp.entity != req.root_entity:
+                        raise NotImplementedError(
+                            "Cross-provider aggregations: group_by on non-root entities is not supported"
+                        )
+                    data[col_name] = key[idx]
+                if default_count:
+                    data["count"] = state.get("count", 0)
+                data.update(self._finalize_aggregations(state, req.aggregations))
+                rows.append(RowResult(entity=req.root_entity, data=data))
+            if req.offset:
+                rows = rows[req.offset :]
+            if req.limit is not None:
+                rows = rows[: req.limit]
+            meta["group_by"] = [grp.field for grp in req.group_by]
+            return QueryResult(rows=rows, meta=meta)
+
+        aggregations = self._finalize_aggregations(
+            group_state.get((), {}), req.aggregations
+        )
+        agg_results = {
+            key: AggregationResult(key=key, value=value)
+            for key, value in aggregations.items()
+        }
+        return QueryResult(aggregations=agg_results, meta=meta)
+
+    def _extract_group_key(
+        self, row: RowResult, group_by: List[GroupBySpec], root_entity: str
+    ) -> Tuple[Any, ...]:
+        if not group_by:
+            return ()
+        values: List[Any] = []
+        for grp in group_by:
+            if grp.entity and grp.entity != root_entity:
+                raise NotImplementedError(
+                    "Cross-provider aggregations: group_by on non-root entities is not supported"
+                )
+            values.append(self._extract_value(row, root_entity, grp.field))
+        return tuple(values)
+
+    def _update_aggregations(
+        self,
+        state: Dict[str, Any],
+        row: RowResult,
+        aggregations: List[AggregationSpec],
+        root_entity: str,
+    ) -> None:
+        for spec in aggregations:
+            alias = spec.alias or f"{spec.agg}_{spec.field}"
+            ent, field = self._resolve_field_entity(spec.field, root_entity)
+            value = self._extract_value(row, ent, field)
+            if spec.agg == "count":
+                if value is not None:
+                    state[alias] = state.get(alias, 0) + 1
+            elif spec.agg == "count_distinct":
+                seen = state.setdefault(alias, set())
+                if value is not None:
+                    seen.add(value)
+            elif spec.agg == "sum":
+                if value is not None:
+                    state[alias] = state.get(alias, 0) + value
+            elif spec.agg == "min":
+                if value is None:
+                    continue
+                if alias not in state:
+                    state[alias] = value
+                else:
+                    state[alias] = min(state[alias], value)
+            elif spec.agg == "max":
+                if value is None:
+                    continue
+                if alias not in state:
+                    state[alias] = value
+                else:
+                    state[alias] = max(state[alias], value)
+            elif spec.agg == "avg":
+                if value is None:
+                    continue
+                total, count = state.get(alias, (0, 0))
+                state[alias] = (total + value, count + 1)
+            else:
+                raise NotImplementedError(
+                    f"Aggregation '{spec.agg}' is not supported across providers"
+                )
+
+    def _finalize_aggregations(
+        self, state: Dict[str, Any], aggregations: List[AggregationSpec]
+    ) -> Dict[str, Any]:
+        results: Dict[str, Any] = {}
+        for spec in aggregations:
+            alias = spec.alias or f"{spec.agg}_{spec.field}"
+            if spec.agg == "count":
+                results[alias] = state.get(alias, 0)
+            elif spec.agg == "count_distinct":
+                results[alias] = len(state.get(alias, set()))
+            elif spec.agg == "sum":
+                results[alias] = state.get(alias, 0)
+            elif spec.agg == "min":
+                results[alias] = state.get(alias)
+            elif spec.agg == "max":
+                results[alias] = state.get(alias)
+            elif spec.agg == "avg":
+                total, count = state.get(alias, (0, 0))
+                results[alias] = total / count if count else None
+            else:
+                raise NotImplementedError(
+                    f"Aggregation '{spec.agg}' is not supported across providers"
+                )
+        return results
+
+    def _resolve_field_entity(self, field: str, root_entity: str) -> Tuple[str, str]:
+        if "." in field:
+            ent, fld = field.split(".", 1)
+            return ent, fld
+        return root_entity, field
+
     def _extract_value(self, row: RowResult, entity: str, field: str) -> Any:
         if row.entity == entity:
             return row.data.get(field)
         return row.related.get(entity, {}).get(field)
+
+    def _effective_cardinality(
+        self, relation: RelationDescriptor, left_entity: str, right_entity: str
+    ) -> str:
+        if (
+            left_entity == relation.join.from_entity
+            and right_entity == relation.join.to_entity
+        ):
+            return relation.cardinality
+        if (
+            left_entity == relation.join.to_entity
+            and right_entity == relation.join.from_entity
+        ):
+            mapping = {
+                "1_to_1": "1_to_1",
+                "1_to_many": "many_to_1",
+                "many_to_1": "1_to_many",
+                "many_to_many": "many_to_many",
+            }
+            if relation.cardinality not in mapping:
+                raise ValueError(
+                    f"Unknown cardinality '{relation.cardinality}' for relation '{relation.name}'"
+                )
+            return mapping[relation.cardinality]
+        raise ValueError(
+            f"Relation '{relation.name}' does not connect entities {left_entity} and {right_entity}"
+        )
+
+    def _remote_limit_for_cardinality(self, cardinality: str, key_count: int) -> int:
+        if cardinality in {"1_to_1", "many_to_1"}:
+            limit = key_count if key_count else self.max_right_rows_per_batch
+            return min(self.max_right_rows_per_batch, limit)
+        return self.max_right_rows_per_batch
 
     def _collect_entities_from_filter(self, clause: FilterClause, root_entity: str) -> List[str]:
         if isinstance(clause, ComparisonFilter):
@@ -308,6 +599,10 @@ class CompositeRelationalProvider(RelationalDataProvider):
         for grp in req.group_by:
             if grp.entity:
                 involved_entities.add(grp.entity)
+        for agg in req.aggregations:
+            if "." in agg.field:
+                ent, _ = agg.field.split(".", 1)
+                involved_entities.add(ent)
         return involved_entities
 
     def describe(self):

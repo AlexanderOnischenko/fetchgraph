@@ -17,6 +17,7 @@ from .models import (
     TaskProfile,
 )
 from .parsing.plan_parser import PlanParser
+from .parsing.plan_verifier import PlanVerifier
 from .protocols import (
     ContextProvider,
     LLMInvoke,
@@ -74,9 +75,13 @@ def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
 
         lines.append(f"- name: {info.name}")
         if info.description:
-            lines.append(f"  description: {info.description}")
+            desc_lines = info.description.splitlines()
+            lines.append(f"  description: {desc_lines[0]}")
+            for ln in desc_lines[1:]:
+                lines.append(f"    {ln}")
         if info.capabilities:
-            lines.append(f"  capabilities: {', '.join(info.capabilities)}")
+            caps = ", ".join(sorted(info.capabilities))
+            lines.append(f"  capabilities: {caps}")
         if info.typical_cost:
             lines.append(f"  typical_cost: {info.typical_cost}")
         if info.selectors_schema:
@@ -278,6 +283,7 @@ class BaseGraphAgent:
         verifiers: List[Verifier],
         packer: ContextPacker,
         plan_parser: Optional[Callable[[RawLLMOutput], Plan]] = None,
+        plan_verifier: Optional[PlanVerifier] = None,
         baseline: Optional[List[BaselineSpec]] = None,
         max_retries: int = 2,
         task_profile: Optional[TaskProfile] = None,
@@ -295,6 +301,7 @@ class BaseGraphAgent:
             self.plan_parser = PlanParser().parse
         else:
             self.plan_parser = plan_parser
+        self.plan_verifier = plan_verifier
         self.baseline = baseline or []
         self.max_retries = max_retries
         self.task_profile = task_profile or TaskProfile()
@@ -391,6 +398,17 @@ class BaseGraphAgent:
             plan = self.plan_parser(plan_raw)
         else:
             plan = Plan.model_validate_json(plan_raw.text)
+        if self.plan_verifier is not None:
+            errors = self.plan_verifier.check(plan, self.providers)
+            if errors:
+                logger.error(
+                    "Plan verification failed for feature_name=%r: %s",
+                    feature_name,
+                    errors,
+                )
+                raise ValueError(
+                    "\n".join(["Plan verification failed:", *errors])
+                )
         elapsed = time.perf_counter() - t0
         logger.info(
             "Planning finished for feature_name=%r in %.3fs "

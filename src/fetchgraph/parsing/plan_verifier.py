@@ -53,7 +53,9 @@ class PlanVerifier:
             verify = getattr(provider, "verify_query", None)
             if callable(verify):
                 try:
-                    errors += verify(req)
+                    verify_result = verify(req)
+                    if verify_result:
+                        errors.extend(list(verify_result))
                 except Exception as e:  # pragma: no cover - defensive
                     errors.append(f"[{spec.provider}] verify_query failed: {e}")
 

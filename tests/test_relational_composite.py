@@ -82,5 +82,17 @@ def test_composite_describe_mentions_join_limitations():
 
     info = composite.describe()
 
-    assert "cross-provider joins" in info.description
-    assert "single_provider_routing" in info.capabilities
+    assert "джойнами и агрегациями" in info.description
+    assert "root_entity" in info.description
+    assert "джойны поддерживаются с типами join inner и left" in info.description
+    assert "limit/offset" in info.description
+    for capability in (
+        "relational_join",
+        "relational_aggregate",
+        "root_scoped_filters",
+        "root_scoped_semantic",
+        "root_scoped_groupby",
+        "limited_aggregations",
+        "offset_on_root_rows",
+    ):
+        assert capability in info.capabilities

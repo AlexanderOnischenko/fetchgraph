@@ -625,20 +625,43 @@ class CompositeRelationalProvider(RelationalDataProvider):
 
     def describe(self):
         info = super().describe()
-        info.description = info.description + (
-            " (Composite: routes requests to child providers; limited cross-provider joins support)"
+        limitations = (
+            "Поддерживает реляционные запросы с джойнами и агрегациями, но есть ограничения: "
+            "фильтры и semantic_clauses должны относиться к root_entity; "
+            "group_by — только по полям root_entity (или с синтаксисом 'entity.field'); "
+            "доступны только базовые агрегации (count, count_distinct, sum, min, max, avg); "
+            "джойны поддерживаются с типами join inner и left; "
+            "limit/offset применяются к строкам корневой сущности до разворачивания связей."
         )
+        info.description = (info.description + "\n\n" + limitations).strip()
         info.capabilities = sorted(
             set(
                 info.capabilities
                 + [
-                    "single_provider_routing",
-                    "cross_provider_join",
-                    "cross_provider_aggregate",
+                    "relational_join",
+                    "relational_aggregate",
+                    "root_scoped_filters",
+                    "root_scoped_semantic",
+                    "root_scoped_groupby",
+                    "limited_aggregations",
+                    "offset_on_root_rows",
                 ]
             )
         )
         return info
+
+    def verify_query(self, req: RelationalQuery) -> List[str]:
+        """Validate a relational query against known composite limitations."""
+
+        # If everything fits into a single child provider, defer to it.
+        if self._choose_child(req) is not None:
+            return []
+
+        try:
+            self._plan_cross_provider(req)
+        except Exception as e:  # pragma: no cover - defensive
+            return [f"[{self.name}] {e}"]
+        return []
 
 
 __all__ = ["CompositeRelationalProvider"]

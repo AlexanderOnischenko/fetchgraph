@@ -162,7 +162,8 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 **kwargs,
             )
 
-        remaining = req.limit
+        limit = req.limit
+        remaining = limit
         offset = req.offset or 0
         all_rows: List[RowResult] = []
         while True:
@@ -194,11 +195,11 @@ class CompositeRelationalProvider(RelationalDataProvider):
             )
 
             for row in joined_rows:
-                if remaining is not None and len(all_rows) >= req.limit:
+                if limit is not None and len(all_rows) >= limit:
                     break
                 all_rows.append(row)
-            if remaining is not None:
-                remaining = req.limit - len(all_rows)
+            if limit is not None:
+                remaining = limit - len(all_rows)
                 if remaining <= 0:
                     break
             # NOTE: offset and limit are applied to the root-entity rows prior to
@@ -412,7 +413,8 @@ class CompositeRelationalProvider(RelationalDataProvider):
             for key, state in group_state.items():
                 data: Dict[str, Any] = {}
                 for idx, grp in enumerate(req.group_by):
-                    col_name = grp.alias or grp.field if hasattr(grp, "alias") else grp.field
+                    alias = getattr(grp, "alias", None)
+                    col_name = alias or grp.field
                     if grp.entity and grp.entity != req.root_entity:
                         raise NotImplementedError(
                             "Cross-provider aggregations: group_by on non-root entities is not supported"

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, cast
 
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 
 from .relational_base import RelationalDataProvider
 from .relational_models import (
@@ -132,7 +132,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return df
         if isinstance(clause, ComparisonFilter):
             col = self._resolve_column(df, root_entity, clause.field, clause.entity)
-            mask = self._apply_comparison(df[col], clause.op, clause.value)
+            mask = self._apply_comparison(cast(pd.Series, df[col]), clause.op, clause.value)
             return df[mask]
         if isinstance(clause, LogicalFilter):
             if clause.op == "and":
@@ -153,7 +153,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return df
         if not self.semantic_backend:
             raise RuntimeError("Semantic backend is not configured")
-        result_df = df
+        result_df: pd.DataFrame = df.copy()
         has_boost = False
         for clause in clauses:
             pk = self._pk_column(clause.entity)
@@ -289,7 +289,8 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if agg_kwargs:
                 agg_df = grouped.agg(**agg_kwargs).reset_index()
             else:
-                agg_df = grouped.size().reset_index(name="count")
+                size_series: pd.Series = grouped.size()
+                agg_df = size_series.reset_index(name="count")
             if req.offset:
                 agg_df = agg_df.iloc[req.offset :]
             if req.limit is not None:
@@ -316,7 +317,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         data = {col: row[col] for col in base_columns if col in row.index}
         related: Dict[str, Dict[str, Any]] = {}
         for col in row.index:
-            if "__" in col:
+            if isinstance(col, str) and "__" in col:
                 ent, fld = col.split("__", 1)
                 related.setdefault(ent, {})[fld] = row[col]
         return RowResult(entity=root_entity, data=data, related=related)

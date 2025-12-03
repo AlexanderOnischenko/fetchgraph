@@ -1,0 +1,19 @@
+{
+  "include": ["src", "tests", "examples"],
+  "exclude": ["build", "dist", ".venv"],
+  "typeCheckingMode": "standard",
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.10",
+  "reportDeprecated": "error",
+  "reportMissingImports": "error",   // чтобы видеть реальные пропуски импорта в своём venv
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "./src",
+      ]
+    }
+  ]
+}
+

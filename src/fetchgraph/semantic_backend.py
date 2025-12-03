@@ -9,8 +9,6 @@ import re
 from pathlib import Path
 from typing import Mapping, Protocol, Sequence
 
-import pandas as pd
-
 from .relational_models import SemanticMatch
 
 
@@ -141,6 +139,8 @@ class CsvEmbeddingBuilder:
 
     def build(self) -> None:
         """Read the CSV file, build embeddings, and save them to disk."""
+
+        import pandas as pd
 
         df = pd.read_csv(self.csv_path)
         if self.id_column not in df.columns:

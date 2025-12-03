@@ -119,7 +119,7 @@ def _build_entity_descriptors(schema: SchemaConfig) -> List[EntityDescriptor]:
         cols = [
             ColumnDescriptor(
                 name=c.name,
-                type=c.type,
+                type=c.type or "text",
                 role="primary_key" if c.pk else None,
                 semantic=c.semantic,
             )

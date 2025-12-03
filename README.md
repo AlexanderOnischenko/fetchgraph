@@ -130,6 +130,7 @@ Example setup:
 ```python
 from pathlib import Path
 from fetchgraph.semantic_backend import (
+    EmbeddingModel,
     CsvEmbeddingBuilder,
     CsvSemanticBackend,
     CsvSemanticSource,
@@ -162,6 +163,53 @@ entities = [
 
 provider = PandasRelationalDataProvider(
     name="products", entities=entities, relations=[], frames={"product": ...}, semantic_backend=semantic_backend
+)
+```
+
+You can plug in an embedding model (for example, an OpenAI client) to build and
+query dense embeddings instead of the default TF-IDF vectors:
+
+```python
+from fetchgraph.semantic_backend import (
+    EmbeddingModel,
+    CsvSemanticSource,
+    CsvEmbeddingBuilder,
+    CsvSemanticBackend,
+)
+
+
+class OpenAIEmbeddingModel:
+    def __init__(self, client):
+        self.client = client
+
+    def embed_documents(self, texts):
+        # replace with client.embeddings(...)
+        return [[1.0, 0.0] for _ in texts]
+
+    def embed_query(self, text):
+        return self.embed_documents([text])[0]
+
+
+embedding = OpenAIEmbeddingModel(client)
+
+CsvEmbeddingBuilder(
+    csv_path="fbs.csv",
+    entity="fbs",
+    id_column="id",
+    text_fields=["name", "description"],
+    output_path="fbs_embeddings.json",
+    embedding_model=embedding,
+).build()
+
+csv_backend = CsvSemanticBackend(
+    {
+        "fbs": CsvSemanticSource(
+            entity="fbs",
+            csv_path=Path("fbs.csv"),
+            embedding_path=Path("fbs_embeddings.json"),
+        )
+    },
+    embedding_model=embedding,
 )
 ```
 

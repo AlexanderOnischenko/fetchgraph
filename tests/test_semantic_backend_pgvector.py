@@ -25,6 +25,29 @@ class FakeVectorStore(VectorStoreLike):
         return self._results[:k]
 
 
+class FakeVectorSearchStore(FakeVectorStore):
+    def __init__(self, results: Sequence[Tuple[FakeDocument, float]]):
+        super().__init__(results)
+        self.vector_queries: List[Tuple[List[float], int]] = []
+
+    def similarity_search_with_score_by_vector(
+        self, query: List[float], k: int = 4, **kwargs: object
+    ):
+        self.vector_queries.append((query, k))
+        return self._results[:k]
+
+
+class FakeEmbeddingModel:
+    def __init__(self, vector: List[float]):
+        self.vector = vector
+
+    def embed_documents(self, texts):
+        return [self.vector for _ in texts]
+
+    def embed_query(self, text):
+        return self.vector
+
+
 def _backend_with_results(results: Sequence[Tuple[FakeDocument, float]]) -> PgVectorSemanticBackend:
     store = FakeVectorStore(results)
     source = PgVectorSemanticSource(
@@ -97,3 +120,46 @@ def test_pgvector_backend_missing_entity():
 
     with pytest.raises(KeyError):
         backend.search("unknown", fields=None, query="test")
+
+
+def test_pgvector_backend_uses_embedding_model_for_vector_queries():
+    store = FakeVectorSearchStore(
+        [
+            (FakeDocument({"id": 1, "entity": "product"}), 0.2),
+            (FakeDocument({"id": 2, "entity": "product"}), 0.1),
+        ]
+    )
+    backend = PgVectorSemanticBackend(
+        {
+            "product": PgVectorSemanticSource(
+                entity="product",
+                vector_store=store,
+                metadata_entity_key="entity",
+                metadata_field_key="field",
+                id_metadata_keys=("id",),
+                score_kind="similarity",
+                embedding_model=FakeEmbeddingModel([1.0, 0.0]),
+            )
+        }
+    )
+
+    matches = backend.search("product", fields=None, query="ignored", top_k=1)
+
+    assert store.vector_queries == [([1.0, 0.0], 1)]
+    assert [m.id for m in matches] == [1]
+
+
+def test_pgvector_backend_requires_vector_search_support_when_model_provided():
+    store = FakeVectorStore([(FakeDocument({"id": 1, "entity": "product"}), 0.5)])
+    backend = PgVectorSemanticBackend(
+        {
+            "product": PgVectorSemanticSource(
+                entity="product",
+                vector_store=store,
+                embedding_model=FakeEmbeddingModel([0.0, 1.0]),
+            )
+        }
+    )
+
+    with pytest.raises(TypeError):
+        backend.search("product", fields=None, query="ignored", top_k=1)

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -43,7 +44,9 @@ def _build_backend(tmp_path: Path) -> CsvSemanticBackend:
 
 def test_csv_semantic_backend_search_ranks_by_similarity(tmp_path: Path):
     backend = _build_backend(tmp_path)
-    matches = backend.search("product", ["name", "description"], "red shiny gadget", top_k=2)
+    matches = backend.search(
+        "product", ["name", "description"], "red shiny gadget widget", top_k=2
+    )
 
     assert [m.id for m in matches] == [1, 2]
     assert matches[0].score >= matches[1].score
@@ -139,3 +142,106 @@ def test_csv_semantic_backend_end_to_end(tmp_path: Path) -> None:
     top_match = matches[0]
     assert top_match.id == 2
     assert top_match.score > 0
+
+
+def test_csv_embedding_builder_dense_payload(tmp_path: Path) -> None:
+    csv_path = tmp_path / "dense.csv"
+    df = pd.DataFrame(
+        {
+            "id": [1, 2],
+            "name": ["Alpha", "Beta"],
+            "description": ["First alpha", "Second beta"],
+        }
+    )
+    df.to_csv(csv_path, index=False)
+    embedding_path = tmp_path / "dense_embeddings.json"
+
+    builder = CsvEmbeddingBuilder(
+        csv_path=csv_path,
+        entity="demo",
+        id_column="id",
+        text_fields=["name", "description"],
+        output_path=embedding_path,
+        embedding_model=FakeEmbeddingModel(),
+    )
+    builder.build()
+
+    payload = json.loads(embedding_path.read_text())
+    assert payload["kind"] == "dense"
+    assert payload["vocab"] == []
+    assert payload["idf"] == []
+    assert len(payload["embeddings"]) == 2
+    assert payload["embeddings"][0]["vectors"]["__all__"] == [1.0, 0.0]
+    assert payload["embeddings"][1]["vectors"]["__all__"] == [0.0, 1.0]
+
+
+def test_csv_semantic_backend_dense_search(tmp_path: Path) -> None:
+    csv_path = tmp_path / "dense.csv"
+    df = pd.DataFrame(
+        {
+            "id": [1, 2],
+            "name": ["Alpha", "Beta"],
+            "description": ["First alpha", "Second beta"],
+        }
+    )
+    df.to_csv(csv_path, index=False)
+    embedding_path = tmp_path / "dense_embeddings.json"
+
+    builder = CsvEmbeddingBuilder(
+        csv_path=csv_path,
+        entity="demo",
+        id_column="id",
+        text_fields=["name", "description"],
+        output_path=embedding_path,
+        embedding_model=FakeEmbeddingModel(),
+    )
+    builder.build()
+
+    backend = CsvSemanticBackend(
+        {"demo": CsvSemanticSource(entity="demo", csv_path=csv_path, embedding_path=embedding_path)},
+        embedding_model=FakeEmbeddingModel(),
+    )
+
+    matches = backend.search("demo", fields=["name", "description"], query="alpha", top_k=2)
+
+    assert [m.id for m in matches] == [1, 2]
+    assert matches[0].score > matches[1].score
+
+
+def test_csv_semantic_backend_dense_requires_embedding_model(tmp_path: Path) -> None:
+    csv_path = tmp_path / "dense.csv"
+    df = pd.DataFrame({"id": [1], "name": ["Alpha"]})
+    df.to_csv(csv_path, index=False)
+    embedding_path = tmp_path / "dense_embeddings.json"
+
+    builder = CsvEmbeddingBuilder(
+        csv_path=csv_path,
+        entity="demo",
+        id_column="id",
+        text_fields=["name"],
+        output_path=embedding_path,
+        embedding_model=FakeEmbeddingModel(),
+    )
+    builder.build()
+
+    backend = CsvSemanticBackend(
+        {"demo": CsvSemanticSource(entity="demo", csv_path=csv_path, embedding_path=embedding_path)}
+    )
+
+    with pytest.raises(RuntimeError):
+        backend.search("demo", fields=["name"], query="alpha", top_k=1)
+class FakeEmbeddingModel:
+    def _vector_for_text(self, text: str) -> list[float]:
+        normalized = text.lower()
+        if "alpha" in normalized:
+            return [1.0, 0.0]
+        if "beta" in normalized:
+            return [0.0, 1.0]
+        return [0.0, 0.0]
+
+    def embed_documents(self, texts):
+        return [self._vector_for_text(text) for text in texts]
+
+    def embed_query(self, text):
+        return self._vector_for_text(text)
+

@@ -43,6 +43,16 @@ class VectorStoreLike(Protocol):
         ...
 
 
+class EmbeddingModel(Protocol):
+    """Protocol for embedding models used by semantic backends."""
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        ...
+
+    def embed_query(self, text: str) -> list[float]:
+        ...
+
+
 @dataclass(frozen=True)
 class CsvSemanticSource:
     """Configuration for a CSV semantic index."""
@@ -62,12 +72,14 @@ class CsvEmbeddingBuilder:
         id_column: str,
         text_fields: Sequence[str],
         output_path: str | Path,
+        embedding_model: EmbeddingModel | None = None,
     ) -> None:
         self.csv_path = Path(csv_path)
         self.entity = entity
         self.id_column = id_column
         self.text_fields = list(text_fields)
         self.output_path = Path(output_path)
+        self.embedding_model = embedding_model
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
@@ -110,6 +122,13 @@ class CsvEmbeddingBuilder:
                     doc_freq[tok] += 1
         return [math.log((1 + n_docs) / (1 + doc_freq[tok])) + 1 for tok in vocab]
 
+    @staticmethod
+    def _l2_normalize(vector: Sequence[float]) -> list[float]:
+        norm = math.sqrt(sum(v * v for v in vector))
+        if norm == 0:
+            return list(vector)
+        return [v / norm for v in vector]
+
     def _vectorize(self, tokens: list[str], vocab: list[str], idf: list[float]) -> list[float]:
         counts: dict[str, int] = {}
         for tok in tokens:
@@ -130,39 +149,86 @@ class CsvEmbeddingBuilder:
             if field not in df.columns:
                 raise KeyError(f"Text field '{field}' not found in CSV")
 
-        documents: list[list[str]] = []
-        per_field_documents: list[dict[str, list[str]]] = []
-        id_values: list[object] = []
-        for _, row in df.iterrows():
-            field_tokens: dict[str, list[str]] = {}
-            for field in self.text_fields:
-                value = row[field]
-                tokens = [] if pd.isna(value) else self._tokenize(str(value))
-                field_tokens[field] = tokens
+        if self.embedding_model is None:
+            documents: list[list[str]] = []
+            per_field_documents: list[dict[str, list[str]]] = []
+            id_values: list[object] = []
+            for _, row in df.iterrows():
+                field_tokens: dict[str, list[str]] = {}
+                for field in self.text_fields:
+                    value = row[field]
+                    tokens = [] if pd.isna(value) else self._tokenize(str(value))
+                    field_tokens[field] = tokens
 
-            combined_tokens = [tok for tokens in field_tokens.values() for tok in tokens]
-            documents.append(combined_tokens)
-            per_field_documents.append(field_tokens)
-            id_values.append(row[self.id_column])
+                combined_tokens = [tok for tokens in field_tokens.values() for tok in tokens]
+                documents.append(combined_tokens)
+                per_field_documents.append(field_tokens)
+                id_values.append(row[self.id_column])
 
-        vocab = self._build_vocab(documents)
-        idf = self._idf(vocab, documents)
+            vocab = self._build_vocab(documents)
+            idf = self._idf(vocab, documents)
 
-        embeddings = []
-        for identifier, tokens, field_tokens in zip(id_values, documents, per_field_documents):
-            vectors = {field: self._vectorize(field_tokens[field], vocab, idf) for field in self.text_fields}
-            vectors["__all__"] = self._vectorize(tokens, vocab, idf)
+            embeddings = []
+            for identifier, tokens, field_tokens in zip(id_values, documents, per_field_documents):
+                vectors = {
+                    field: self._vectorize(field_tokens[field], vocab, idf)
+                    for field in self.text_fields
+                }
+                vectors["__all__"] = self._vectorize(tokens, vocab, idf)
 
-            embeddings.append({"id": self._normalize_id(identifier), "vectors": vectors})
+                embeddings.append({"id": self._normalize_id(identifier), "vectors": vectors})
 
-        payload = {
-            "entity": self.entity,
-            "id_column": self.id_column,
-            "fields": self.text_fields,
-            "vocab": vocab,
-            "idf": idf,
-            "embeddings": embeddings,
-        }
+            payload = {
+                "entity": self.entity,
+                "id_column": self.id_column,
+                "fields": self.text_fields,
+                "vocab": vocab,
+                "idf": idf,
+                "embeddings": embeddings,
+                "kind": "tfidf",
+            }
+        else:
+            field_texts: dict[str, list[str]] = {field: [] for field in self.text_fields}
+            all_texts: list[str] = []
+            ids: list[object] = []
+            for _, row in df.iterrows():
+                per_row_texts: list[str] = []
+                for field in self.text_fields:
+                    value = row[field]
+                    text = "" if pd.isna(value) else str(value)
+                    field_texts[field].append(text)
+                    per_row_texts.append(text)
+                all_texts.append(" ".join(per_row_texts))
+                ids.append(row[self.id_column])
+
+            all_vectors = [self._l2_normalize(vec) for vec in self.embedding_model.embed_documents(all_texts)]
+
+            field_vectors: dict[str, list[list[float]]] = {}
+            for field, texts in field_texts.items():
+                vectors = self.embedding_model.embed_documents(texts)
+                field_vectors[field] = [self._l2_normalize(vec) for vec in vectors]
+
+            embeddings = []
+            for idx, identifier in enumerate(ids):
+                vectors = {"__all__": all_vectors[idx]}
+                for field in self.text_fields:
+                    vectors[field] = field_vectors[field][idx]
+                embeddings.append(
+                    {
+                        "id": self._normalize_id(identifier),
+                        "vectors": vectors,
+                    }
+                )
+
+            payload = {
+                "entity": self.entity,
+                "id_column": self.id_column,
+                "fields": self.text_fields,
+                "vocab": [],
+                "idf": [],
+                "embeddings": embeddings,
+                "kind": "dense",
+            }
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         with self.output_path.open("w", encoding="utf-8") as f:
             json.dump(payload, f)
@@ -171,8 +237,11 @@ class CsvEmbeddingBuilder:
 class CsvSemanticBackend:
     """Semantic backend that loads CSV-derived embeddings from disk."""
 
-    def __init__(self, sources: Mapping[str, CsvSemanticSource]) -> None:
+    def __init__(
+        self, sources: Mapping[str, CsvSemanticSource], embedding_model: EmbeddingModel | None = None
+    ) -> None:
         self._indices: dict[str, dict[str, object]] = {}
+        self._embedding_model = embedding_model
         for entity, source in sources.items():
             if entity != source.entity:
                 raise ValueError(
@@ -201,6 +270,7 @@ class CsvSemanticBackend:
         vocab: list[str] = list(data.get("vocab", []))
         idf: list[float] = list(data.get("idf", []))
         embeddings = data.get("embeddings", [])
+        kind = data.get("kind", "tfidf")
         ids: list[object] = []
         vectors_by_field: dict[str, list[list[float]]] = {"__all__": []}
         for field in data.get("fields", []) or []:
@@ -231,6 +301,7 @@ class CsvSemanticBackend:
             "idf": idf,
             "ids": ids,
             "vectors_by_field": vectors_by_field,
+            "kind": kind,
         }
 
     def _vectorize_query(self, query: str, vocab: list[str], idf: list[float]) -> list[float]:
@@ -264,16 +335,24 @@ class CsvSemanticBackend:
                 f"Requested fields {normalized_fields} are not a subset of indexed fields {sorted(expected_fields)}"
             )
 
-        vocab: list[str] = index["vocab"]  # type: ignore[assignment]
-        idf: list[float] = index["idf"]  # type: ignore[assignment]
         ids: list[object] = index["ids"]  # type: ignore[assignment]
         vectors_by_field: Mapping[str, list[list[float]]] = index[
             "vectors_by_field"
         ]  # type: ignore[assignment]
+        kind: str = index.get("kind", "tfidf")  # type: ignore[assignment]
 
-        query_vec = self._vectorize_query(query, vocab, idf)
-        if not any(query_vec):
-            return []
+        if kind == "tfidf":
+            vocab: list[str] = index["vocab"]  # type: ignore[assignment]
+            idf: list[float] = index["idf"]  # type: ignore[assignment]
+            query_vec = self._vectorize_query(query, vocab, idf)
+            if not any(query_vec):
+                return []
+        elif kind == "dense":
+            if self._embedding_model is None:
+                raise RuntimeError("Dense embeddings require an embedding_model for queries")
+            query_vec = CsvEmbeddingBuilder._l2_normalize(self._embedding_model.embed_query(query))
+        else:
+            raise ValueError(f"Unsupported embedding kind '{kind}' in index for entity '{entity}'")
 
         # Fields are summed to favor rows matching across multiple columns; use a different
         # aggregation strategy (e.g., max) if that better fits your application.
@@ -289,8 +368,9 @@ class CsvSemanticBackend:
                     continue
                 vector = field_vectors[row_idx]
                 score += sum(q * v for q, v in zip(query_vec, vector))
-            if score > 0:
-                scores.append((identifier, score))
+            if kind == "tfidf" and score <= 0:
+                continue
+            scores.append((identifier, score))
 
         sorted_scores = sorted(scores, key=lambda x: x[1], reverse=True)[:top_k]
         return [SemanticMatch(entity=entity, id=identifier, score=score) for identifier, score in sorted_scores]
@@ -306,6 +386,7 @@ class PgVectorSemanticSource:
     metadata_field_key: str = "field"
     id_metadata_keys: tuple[str, ...] = ("id",)
     score_kind: str = "distance"  # "distance" (default pgvector) or "similarity"
+    embedding_model: EmbeddingModel | None = None
 
 
 class PgVectorSemanticBackend:
@@ -318,8 +399,13 @@ class PgVectorSemanticBackend:
     ingestion pipeline.
     """
 
-    def __init__(self, sources: Mapping[str, PgVectorSemanticSource]):
+    def __init__(
+        self,
+        sources: Mapping[str, PgVectorSemanticSource],
+        embedding_model: EmbeddingModel | None = None,
+    ):
         self._sources: dict[str, PgVectorSemanticSource] = {}
+        self._default_embedding_model = embedding_model
         for entity, source in sources.items():
             if entity != source.entity:
                 raise ValueError(
@@ -361,7 +447,22 @@ class PgVectorSemanticBackend:
             fields = [fields]
         normalized_fields = list(fields or [])
 
-        results = source.vector_store.similarity_search_with_score(query, k=top_k)
+        model = source.embedding_model or self._default_embedding_model
+
+        if model is None:
+            results = source.vector_store.similarity_search_with_score(query, k=top_k)
+        else:
+            query_vec = model.embed_query(query)
+            search_with_score = getattr(
+                source.vector_store, "similarity_search_with_score_by_vector", None
+            )
+
+            if callable(search_with_score):
+                results = search_with_score(query_vec, k=top_k)
+            else:
+                raise TypeError(
+                    "Vector store does not support similarity_search_with_score_by_vector for vector queries"
+                )
 
         matches: list[SemanticMatch] = []
         for document, raw_score in results:
@@ -387,6 +488,7 @@ class PgVectorSemanticBackend:
 
 
 __all__ = [
+    "EmbeddingModel",
     "SemanticBackend",
     "CsvSemanticBackend",
     "CsvSemanticSource",
@@ -395,3 +497,4 @@ __all__ = [
     "PgVectorSemanticSource",
     "VectorStoreLike",
 ]
+

@@ -264,6 +264,65 @@ def make_llm_synth_generic(
 
     return llm_synth
 
+
+# -----------------------------------------------------------------------------
+# High-level factory
+# -----------------------------------------------------------------------------
+def create_generic_agent(
+    llm_invoke: LLMInvoke,
+    providers: Dict[str, ContextProvider],
+    saver: Saver | Callable[[str, Any], None],
+    *,
+    task_profile: TaskProfile | None = None,
+    verifiers: list[Verifier] | None = None,
+    baseline: list[BaselineSpec] | None = None,
+    max_context_tokens: int = 6000,
+    # продвинутые оверрайды, по умолчанию не нужны
+    custom_llm_plan: Callable[[str, Dict[str, str]], str] | None = None,
+    custom_llm_synth: Callable[[str, Dict[str, str], Plan], str] | None = None,
+) -> BaseGraphAgent:
+    """
+    High-level: от LLM + провайдеров до готового агента.
+    """
+
+    task_profile = task_profile or TaskProfile()
+    verifiers = verifiers or []
+
+    # Пакер по умолчанию использует ту же LLM для суммаризации
+    packer = ContextPacker(
+        max_tokens=max_context_tokens,
+        summarizer_llm=lambda prompt: llm_invoke(prompt, sender="summarizer"),
+    )
+
+    # Планировщик: либо кастомный, либо генерик по внутреннему промпту
+    llm_plan = custom_llm_plan or make_llm_plan_generic(
+        llm_invoke=llm_invoke,
+        task_profile=task_profile,
+        providers=providers,
+    )
+
+    # Синтез: либо кастомный, либо генерик
+    llm_synth = custom_llm_synth or make_llm_synth_generic(
+        llm_invoke=llm_invoke,
+        task_profile=task_profile,
+    )
+
+    # domain_parser по умолчанию возвращает просто текст
+    def domain_parser(raw: RawLLMOutput) -> str:
+        return raw.text
+
+    return BaseGraphAgent(
+        llm_plan=llm_plan,
+        llm_synth=llm_synth,
+        domain_parser=domain_parser,
+        saver=saver,
+        providers=providers,
+        verifiers=verifiers,
+        packer=packer,
+        baseline=baseline,
+        task_profile=task_profile,
+    )
+
 # -----------------------------------------------------------------------------
 # BaseGraphAgent (sequential engine; no external graph dep)
 # -----------------------------------------------------------------------------

@@ -11,6 +11,44 @@ pip install -e .
 
 # Quick Start
 
+### Простая фабрика
+
+Минимальный способ собрать агента без кастомных хуков:
+
+```python
+from fetchgraph import TaskProfile, create_generic_agent
+from fetchgraph.protocols import ContextProvider
+
+class SpecProvider(ContextProvider):
+    name = "spec"
+    def fetch(self, feature_name, selectors=None, **kw):
+        return {"content": f"Spec for {feature_name}"}
+    def serialize(self, obj):
+        return obj.get("content", "") if isinstance(obj, dict) else str(obj)
+
+def dummy_llm(prompt: str, sender: str) -> str:
+    if sender == "generic_plan":
+        return '{"required_context":["spec"],"context_plan":[{"provider":"spec","mode":"full"}]}'
+    if sender == "generic_synth":
+        return "result: ok"
+    return ""
+
+profile = TaskProfile(
+    task_name="Demo",
+    goal="Produce YAML doc from spec",
+    output_format="YAML: result: <...>",
+)
+
+agent = create_generic_agent(
+    llm_invoke=dummy_llm,
+    providers={"spec": SpecProvider()},
+    saver=lambda feature_name, parsed: None,
+    task_profile=profile,
+)
+
+print(agent.run("FeatureX"))
+```
+
 ### Selectors are JSON-only
 
 Providers receive a `selectors` argument that **must be JSON-serializable**. The

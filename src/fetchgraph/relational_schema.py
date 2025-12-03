@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Mapping, Optional
 import warnings
 
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 
-from .relational_provider import PandasRelationalDataProvider
+from .relational_pandas import PandasRelationalDataProvider
 from .relational_models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
 from .semantic_backend import CsvSemanticBackend, CsvSemanticSource, CsvEmbeddingBuilder
 
@@ -115,7 +115,7 @@ def _build_entity_descriptors(schema: SchemaConfig) -> List[EntityDescriptor]:
         cols = [
             ColumnDescriptor(
                 name=c.name,
-                type=c.type,
+                type=c.type or "text",
                 role="primary_key" if c.pk else None,
                 semantic=c.semantic,
             )
@@ -233,6 +233,8 @@ def build_pandas_provider_from_schema(
     relations = _build_relation_descriptors(schema)
     primary_keys = _build_primary_keys(schema)
     semantic_backend = _build_semantic_backend(data_dir, schema)
+
+    assert PandasRelationalDataProvider is not None
 
     provider = PandasRelationalDataProvider(
         name=schema.name,

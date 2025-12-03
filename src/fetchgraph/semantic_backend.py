@@ -7,9 +7,9 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Mapping, Protocol, Sequence
+from typing import Mapping, Protocol, Sequence, cast
 
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 
 from .relational_models import SemanticMatch
 
@@ -443,12 +443,16 @@ class PgVectorSemanticBackend:
             raise KeyError(f"Entity '{entity}' is not indexed for semantic search")
 
         source = self._sources[entity]
-        if isinstance(fields, str):
-            fields = [fields]
-        normalized_fields = list(fields or [])
+        if fields is None:
+            normalized_fields: list[str] = []
+        elif isinstance(fields, str):
+            normalized_fields = [fields]
+        else:
+            normalized_fields = list(fields)
 
         model = source.embedding_model or self._default_embedding_model
 
+        results: Sequence[tuple[object, float]]
         if model is None:
             results = source.vector_store.similarity_search_with_score(query, k=top_k)
         else:
@@ -458,7 +462,10 @@ class PgVectorSemanticBackend:
             )
 
             if callable(search_with_score):
-                results = search_with_score(query_vec, k=top_k)
+                results = cast(
+                    Sequence[tuple[object, float]],
+                    search_with_score(query_vec, k=top_k),
+                )
             else:
                 raise TypeError(
                     "Vector store does not support similarity_search_with_score_by_vector for vector queries"

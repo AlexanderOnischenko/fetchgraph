@@ -13,7 +13,7 @@ from .schema import build_retail_provider, RETAIL_SCHEMA
 
 # Простейшая заглушка LLM, чтобы пример запускался без внешних зависимостей.
 # В реальном проекте сюда подставляется настоящий LLMInvoke (OpenAI, GigaChat и т.д.).
-def dummy_llm(prompt: str, *, sender: str) -> str:
+def dummy_llm(prompt: str, sender: str) -> str:
     print(f"\n----- LLM ({sender}) prompt preview -----\n{prompt[:800]}\n----- end prompt -----\n")
     # Возвращаем заведомо неправильный план/ответ — это только демонстрация интеграции.
     return '{"required_context": [], "context_plan": [], "adr_queries": [], "constraints": []}'

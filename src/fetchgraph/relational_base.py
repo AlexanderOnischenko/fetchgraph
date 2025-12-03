@@ -141,7 +141,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         if schema_config and schema_config.description:
             header = schema_config.description
         else:
-            header = "Реляционный провайдер реляционных данных."
+            header = "Реляционный провайдер данных."
 
         # сущности
         entity_lines: List[str] = []
@@ -251,7 +251,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             ))
 
         # если в SchemaConfig заданы кастомные examples — переопределяем
-        if schema_config and schema_config.examples:
+        if schema_config and schema_config.examples is not None:
             examples = schema_config.examples
 
         return ProviderInfo(

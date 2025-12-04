@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, cast
 
 import pandas as pd
 
@@ -132,7 +132,11 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return df
         if isinstance(clause, ComparisonFilter):
             col = self._resolve_column(df, root_entity, clause.field, clause.entity)
-            mask = self._apply_comparison(df[col], clause.op, clause.value)
+            series = df[col]
+            if isinstance(series, pd.DataFrame):
+                series = series.squeeze(axis=1)
+            series = cast(pd.Series, series)
+            mask = self._apply_comparison(series, clause.op, clause.value)
             return df[mask]
         if isinstance(clause, LogicalFilter):
             if clause.op == "and":
@@ -153,7 +157,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return df
         if not self.semantic_backend:
             raise RuntimeError("Semantic backend is not configured")
-        result_df = df
+        result_df: pd.DataFrame = df
         has_boost = False
         for clause in clauses:
             pk = self._pk_column(clause.entity)
@@ -170,7 +174,8 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 scores = {m.id: m.score for m in matches}
                 if "__semantic_score" not in result_df.columns:
                     result_df["__semantic_score"] = 0.0
-                result_df["__semantic_score"] = result_df["__semantic_score"] + result_df[col].map(scores).fillna(0)
+                boost_scores = result_df[col].map(scores).fillna(0).astype(float)
+                result_df["__semantic_score"] = result_df["__semantic_score"].astype(float) + boost_scores
                 has_boost = True
         if has_boost:
             result_df = result_df.sort_values("__semantic_score", ascending=False)
@@ -316,7 +321,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         data = {col: row[col] for col in base_columns if col in row.index}
         related: Dict[str, Dict[str, Any]] = {}
         for col in row.index:
-            if "__" in col:
+            if isinstance(col, str) and "__" in col:
                 ent, fld = col.split("__", 1)
                 related.setdefault(ent, {})[fld] = row[col]
         return RowResult(entity=root_entity, data=data, related=related)

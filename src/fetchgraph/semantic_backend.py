@@ -157,7 +157,9 @@ class CsvEmbeddingBuilder:
                 field_tokens: dict[str, list[str]] = {}
                 for field in self.text_fields:
                     value = row[field]
-                    tokens = [] if pd.isna(value) else self._tokenize(str(value))
+                    is_null = pd.isna(value)
+                    is_missing = bool(is_null.any()) if hasattr(is_null, "any") else bool(is_null)
+                    tokens = [] if is_missing else self._tokenize(str(value))
                     field_tokens[field] = tokens
 
                 combined_tokens = [tok for tokens in field_tokens.values() for tok in tokens]
@@ -195,7 +197,9 @@ class CsvEmbeddingBuilder:
                 per_row_texts: list[str] = []
                 for field in self.text_fields:
                     value = row[field]
-                    text = "" if pd.isna(value) else str(value)
+                    is_null = pd.isna(value)
+                    is_missing = bool(is_null.any()) if hasattr(is_null, "any") else bool(is_null)
+                    text = "" if is_missing else str(value)
                     field_texts[field].append(text)
                     per_row_texts.append(text)
                 all_texts.append(" ".join(per_row_texts))
@@ -448,6 +452,7 @@ class PgVectorSemanticBackend:
         normalized_fields = list(fields or [])
 
         model = source.embedding_model or self._default_embedding_model
+        results: Sequence[tuple[object, float]]
 
         if model is None:
             results = source.vector_store.similarity_search_with_score(query, k=top_k)

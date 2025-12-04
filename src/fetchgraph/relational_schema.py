@@ -4,16 +4,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, overload
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, TYPE_CHECKING, overload
 import warnings
 
 import pandas as pd
 
 from .protocols import ContextProvider
-from .relational_provider import PandasRelationalDataProvider
 from .relational_models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
 from .semantic_backend import CsvSemanticBackend, CsvSemanticSource, CsvEmbeddingBuilder, SemanticBackend
+from .relational_pandas import PandasRelationalDataProvider
 from .relational_sql import SqlRelationalDataProvider
+
+if TYPE_CHECKING:
+    from .relational_pandas import PandasRelationalDataProvider as PandasRelationalDataProviderType
+    from .relational_sql import SqlRelationalDataProvider as SqlRelationalDataProviderType
+else:
+    PandasRelationalDataProviderType = PandasRelationalDataProvider
+    SqlRelationalDataProviderType = SqlRelationalDataProvider
 
 BackendKind = Literal["pandas", "sql"]
 
@@ -220,7 +227,7 @@ def build_pandas_provider_from_schema(
     schema: SchemaConfig,
     *,
     semantic_backend: CsvSemanticBackend | None = None,
-) -> PandasRelationalDataProvider:
+) -> PandasRelationalDataProviderType:
     """
     Высокоуровневый билдер: из SchemaConfig собирает PandasRelationalDataProvider.
 
@@ -264,7 +271,7 @@ def build_sql_provider_from_schema(
     default_schema: str | None = None,
     semantic_backend: SemanticBackend | None = None,
     table_name_resolver: Callable[[EntityConfig], str] | None = None,
-) -> SqlRelationalDataProvider:
+) -> SqlRelationalDataProviderType:
     """
     Собрать SqlRelationalDataProvider на основе SchemaConfig.
 
@@ -314,7 +321,7 @@ def build_relational_provider_from_schema(
     *,
     data_dir: str | Path,
     semantic_backend: CsvSemanticBackend | None = None,
-) -> PandasRelationalDataProvider:
+) -> PandasRelationalDataProviderType:
     ...
 
 
@@ -327,7 +334,7 @@ def build_relational_provider_from_schema(
     semantic_backend: SemanticBackend | None = None,
     default_schema: str | None = None,
     table_name_resolver: Callable[[EntityConfig], str] | None = None,
-) -> SqlRelationalDataProvider:
+) -> SqlRelationalDataProviderType:
     ...
 
 

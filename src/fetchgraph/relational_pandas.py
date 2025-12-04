@@ -137,7 +137,8 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 series = series.squeeze(axis=1)
             series = cast(pd.Series, series)
             mask = self._apply_comparison(series, clause.op, clause.value)
-            return df[mask]
+            mask = cast(pd.Series, mask).astype(bool)
+            return df.loc[mask]
         if isinstance(clause, LogicalFilter):
             if clause.op == "and":
                 for sub in clause.clauses:
@@ -169,12 +170,12 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             match_ids = [m.id for m in matches]
             col = self._resolve_column(result_df, root_entity, pk, clause.entity)
             if clause.mode == "filter":
-                result_df = result_df[result_df[col].isin(match_ids)]
+                result_df = result_df.loc[result_df[col].isin(match_ids)]
             elif clause.mode == "boost":
                 scores = {m.id: m.score for m in matches}
                 if "__semantic_score" not in result_df.columns:
                     result_df["__semantic_score"] = 0.0
-                boost_scores = result_df[col].map(scores).fillna(0).astype(float)
+                boost_scores = result_df[col].map(lambda rid: scores.get(rid, 0.0)).fillna(0).astype(float)
                 result_df["__semantic_score"] = result_df["__semantic_score"].astype(float) + boost_scores
                 has_boost = True
         if has_boost:
@@ -294,7 +295,8 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if agg_kwargs:
                 agg_df = grouped.agg(**agg_kwargs).reset_index()
             else:
-                agg_df = grouped.size().reset_index(name="count")
+                agg_df = grouped.size().reset_index()
+                agg_df = agg_df.rename(columns={0: "count"})
             if req.offset:
                 agg_df = agg_df.iloc[req.offset :]
             if req.limit is not None:

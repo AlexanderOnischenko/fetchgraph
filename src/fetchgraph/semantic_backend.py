@@ -7,7 +7,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Mapping, Protocol, Sequence
+from typing import Mapping, Protocol, Sequence, cast
 
 from .relational_models import SemanticMatch
 
@@ -455,7 +455,8 @@ class PgVectorSemanticBackend:
         results: Sequence[tuple[object, float]]
 
         if model is None:
-            results = source.vector_store.similarity_search_with_score(query, k=top_k)
+            raw_results = source.vector_store.similarity_search_with_score(query, k=top_k)
+            results = cast(Sequence[tuple[object, float]], raw_results)
         else:
             query_vec = model.embed_query(query)
             search_with_score = getattr(
@@ -463,7 +464,8 @@ class PgVectorSemanticBackend:
             )
 
             if callable(search_with_score):
-                results = search_with_score(query_vec, k=top_k)
+                vector_results = search_with_score(query_vec, k=top_k)
+                results = cast(Sequence[tuple[object, float]], vector_results)
             else:
                 raise TypeError(
                     "Vector store does not support similarity_search_with_score_by_vector for vector queries"

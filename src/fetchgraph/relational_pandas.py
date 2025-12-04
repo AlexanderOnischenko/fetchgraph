@@ -295,7 +295,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if agg_kwargs:
                 agg_df = grouped.agg(**agg_kwargs).reset_index()
             else:
-                size_series: pd.Series = grouped.size()
+                size_series = cast(pd.Series, grouped.size())
                 agg_df = size_series.reset_index(name="count")
             if req.offset:
                 agg_df = agg_df.iloc[req.offset :]

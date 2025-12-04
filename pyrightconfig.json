@@ -1,6 +1,6 @@
 {
-  "include": ["src", "tests", "examples"],
-  "exclude": ["build", "dist", ".venv"],
+  "include": ["src", "tests"],
+  "exclude": ["build", "dist", ".venv", "examples"],
   "typeCheckingMode": "standard",
   "venvPath": ".",
   "venv": ".venv",

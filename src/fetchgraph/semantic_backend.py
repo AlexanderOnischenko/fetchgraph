@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Mapping, Protocol, Sequence, cast
 
+import pandas as pd  # type: ignore[import]
+
 from .relational_models import SemanticMatch
 
 
@@ -447,13 +449,17 @@ class PgVectorSemanticBackend:
             raise KeyError(f"Entity '{entity}' is not indexed for semantic search")
 
         source = self._sources[entity]
-        if isinstance(fields, str):
-            fields = [fields]
-        normalized_fields = list(fields or [])
+        if fields is None:
+            normalized_fields: list[str] = []
+        elif isinstance(fields, str):
+            normalized_fields = [fields]
+        else:
+            normalized_fields = list(fields)
 
         model = source.embedding_model or self._default_embedding_model
         results: Sequence[tuple[object, float]]
 
+        results: Sequence[tuple[object, float]]
         if model is None:
             raw_results = source.vector_store.similarity_search_with_score(query, k=top_k)
             results = cast(Sequence[tuple[object, float]], raw_results)

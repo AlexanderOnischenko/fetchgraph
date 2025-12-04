@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, overload
 import warnings
 
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 
 from .protocols import ContextProvider
 from .relational_models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
@@ -242,6 +242,8 @@ def build_pandas_provider_from_schema(
     primary_keys = _build_primary_keys(schema)
     if semantic_backend is None:
         semantic_backend = _build_semantic_backend(data_dir, schema)
+
+    assert PandasRelationalDataProvider is not None
 
     provider = PandasRelationalDataProvider(
         name=schema.name,

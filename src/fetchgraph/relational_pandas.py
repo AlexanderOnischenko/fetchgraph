@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Hashable, List, Mapping, Optional, cast
 
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 
 from .relational_base import RelationalDataProvider
 from .relational_models import (
@@ -158,7 +158,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return df
         if not self.semantic_backend:
             raise RuntimeError("Semantic backend is not configured")
-        result_df: pd.DataFrame = df
+        result_df: pd.DataFrame = df.copy()
         has_boost = False
         for clause in clauses:
             pk = self._pk_column(clause.entity)
@@ -295,8 +295,8 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if agg_kwargs:
                 agg_df = grouped.agg(**agg_kwargs).reset_index()
             else:
-                agg_df = grouped.size().reset_index()
-                agg_df = agg_df.rename(columns={0: "count"})
+                size_series: pd.Series = grouped.size()
+                agg_df = size_series.reset_index(name="count")
             if req.offset:
                 agg_df = agg_df.iloc[req.offset :]
             if req.limit is not None:

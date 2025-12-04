@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Mapping, Optional
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, overload
 import warnings
 
 import pandas as pd  # type: ignore[import]
 
-from .relational_pandas import PandasRelationalDataProvider
+from .protocols import ContextProvider
 from .relational_models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
-from .semantic_backend import CsvSemanticBackend, CsvSemanticSource, CsvEmbeddingBuilder
+from .semantic_backend import CsvSemanticBackend, CsvSemanticSource, CsvEmbeddingBuilder, SemanticBackend
+from .relational_pandas import PandasRelationalDataProvider
+from .relational_sql import SqlRelationalDataProvider
+
+BackendKind = Literal["pandas", "sql"]
 
 Cardinality = Literal["1_to_1", "1_to_many", "many_to_1", "many_to_many"]
 
@@ -214,9 +218,13 @@ def _build_semantic_backend(data_dir: Path, schema: SchemaConfig) -> CsvSemantic
 def build_pandas_provider_from_schema(
     data_dir: str | Path,
     schema: SchemaConfig,
+    *,
+    semantic_backend: CsvSemanticBackend | None = None,
 ) -> PandasRelationalDataProvider:
     """
     Высокоуровневый билдер: из SchemaConfig собирает PandasRelationalDataProvider.
+
+    Если нужен универсальный интерфейс выбора бекенда, см. :func:`build_relational_provider_from_schema`.
     """
     data_dir = Path(data_dir)
 
@@ -232,7 +240,8 @@ def build_pandas_provider_from_schema(
     entities = _build_entity_descriptors(schema)
     relations = _build_relation_descriptors(schema)
     primary_keys = _build_primary_keys(schema)
-    semantic_backend = _build_semantic_backend(data_dir, schema)
+    if semantic_backend is None:
+        semantic_backend = _build_semantic_backend(data_dir, schema)
 
     assert PandasRelationalDataProvider is not None
 
@@ -248,3 +257,107 @@ def build_pandas_provider_from_schema(
     # лёгкая привязка схемы к провайдеру, чтобы describe() мог использовать
     provider._schema_config = schema  # type: ignore[attr-defined]
     return provider
+
+
+def build_sql_provider_from_schema(
+    engine: Any,
+    schema: SchemaConfig,
+    *,
+    default_schema: str | None = None,
+    semantic_backend: SemanticBackend | None = None,
+    table_name_resolver: Callable[[EntityConfig], str] | None = None,
+) -> SqlRelationalDataProvider:
+    """
+    Собрать SqlRelationalDataProvider на основе SchemaConfig.
+
+    - engine: подключение к СУБД (DB-API connection или совместимый).
+    - default_schema: SQL-схема по умолчанию.
+    - semantic_backend: внешний SemanticBackend (например, кастомный pgvector).
+      Если не передан, SQL-провайдер создаётся без семантического поиска.
+    - table_name_resolver: функция, которая по EntityConfig возвращает имя SQL-таблицы.
+      По умолчанию используется ent.source (без .csv) или ent.name.
+    """
+
+    validate_schema(schema)
+
+    table_names: Dict[str, str] = {}
+    for ent in schema.entities:
+        if table_name_resolver:
+            table_name = table_name_resolver(ent)
+        elif ent.source:
+            table_name = Path(ent.source).stem if ent.source.endswith(".csv") else ent.source
+        else:
+            table_name = ent.name
+        table_names[ent.name] = table_name
+
+    entities = _build_entity_descriptors(schema)
+    relations = _build_relation_descriptors(schema)
+    primary_keys = _build_primary_keys(schema)
+
+    provider = SqlRelationalDataProvider(
+        name=schema.name,
+        entities=entities,
+        relations=relations,
+        connection=engine,
+        semantic_backend=semantic_backend,
+        primary_keys=primary_keys or None,
+        default_schema=default_schema,
+        table_names=table_names,
+    )
+
+    provider._schema_config = schema  # type: ignore[attr-defined]
+    return provider
+
+
+@overload
+def build_relational_provider_from_schema(
+    backend: Literal["pandas"],
+    schema: SchemaConfig,
+    *,
+    data_dir: str | Path,
+    semantic_backend: CsvSemanticBackend | None = None,
+ ) -> PandasRelationalDataProvider:
+     ...
+
+
+@overload
+def build_relational_provider_from_schema(
+    backend: Literal["sql"],
+    schema: SchemaConfig,
+    *,
+    engine: Any,
+    semantic_backend: SemanticBackend | None = None,
+    default_schema: str | None = None,
+    table_name_resolver: Callable[[EntityConfig], str] | None = None,
+ ) -> SqlRelationalDataProvider:
+     ...
+
+
+def build_relational_provider_from_schema(
+    backend: BackendKind,
+    schema: SchemaConfig,
+    **kwargs: Any,
+) -> ContextProvider:
+    """Универсальный билдер провайдера по SchemaConfig для разных бэкендов."""
+
+    if backend == "pandas":
+        if "data_dir" not in kwargs:
+            raise TypeError("data_dir is required for pandas backend")
+        return build_pandas_provider_from_schema(
+            kwargs["data_dir"],
+            schema,
+            semantic_backend=kwargs.get("semantic_backend"),
+        )
+
+    if backend == "sql":
+        if "engine" not in kwargs:
+            raise TypeError("engine is required for sql backend")
+        return build_sql_provider_from_schema(
+            kwargs["engine"],
+            schema,
+            default_schema=kwargs.get("default_schema"),
+            semantic_backend=kwargs.get("semantic_backend"),
+            table_name_resolver=kwargs.get("table_name_resolver"),
+        )
+
+    raise ValueError(f"Unknown backend '{backend}'")

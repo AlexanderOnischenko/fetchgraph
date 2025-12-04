@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional, cast
+from typing import Any, Dict, Hashable, List, Mapping, Optional, cast
 
 import pandas as pd
 
@@ -234,7 +234,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not select:
             return df
         cols: List[str] = []
-        alias_map: Dict[str, str] = {}
+        alias_map: Dict[Hashable, Hashable] = {}
         for expr in select:
             if "." in expr.expr:
                 ent, fld = expr.expr.split(".", 1)

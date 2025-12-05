@@ -154,6 +154,8 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         clauses: List[SemanticClause],
         root_entity: str,
         table_aliases: Mapping[str, Tuple[str, str]],
+        *,
+        aggregate: bool = False,
     ) -> Tuple[List[str], Optional[str], List[Any], List[Any]]:
         if not clauses:
             return [], None, [], []
@@ -199,7 +201,8 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         order_expr = None
         if score_exprs:
             summed = " + ".join(f"({expr})" for expr in score_exprs)
-            order_expr = f"({summed}) DESC"
+            scored = f"SUM({summed})" if aggregate else f"({summed})"
+            order_expr = f"{scored} DESC"
 
         return conditions, order_expr, condition_params, score_params
 
@@ -344,7 +347,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         params: List[Any] = []
 
         semantic_conditions, semantic_order, semantic_params, score_params = self._build_semantic_clauses(
-            req.semantic_clauses, req.root_entity, table_aliases
+            req.semantic_clauses, req.root_entity, table_aliases, aggregate=True
         )
         conditions.extend(semantic_conditions)
         params.extend(semantic_params)
@@ -394,7 +397,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         params: List[Any] = []
 
         semantic_conditions, semantic_order, semantic_params, score_params = self._build_semantic_clauses(
-            req.semantic_clauses, req.root_entity, table_aliases
+            req.semantic_clauses, req.root_entity, table_aliases, aggregate=True
         )
         conditions.extend(semantic_conditions)
         params.extend(semantic_params)

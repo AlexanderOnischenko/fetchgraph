@@ -83,6 +83,32 @@ def _make_provider(semantic_backend=None) -> PandasRelationalDataProvider:
     )
 
 
+def _make_text_provider() -> PandasRelationalDataProvider:
+    teams = pd.DataFrame(
+        {
+            "id": [1, 2, 3, 4],
+            "name": ["Marketing", "marketing ", "Маркетинг", "sales"],
+        }
+    )
+
+    entities = [
+        EntityDescriptor(
+            name="team",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="name"),
+            ],
+        )
+    ]
+
+    return PandasRelationalDataProvider(
+        name="teams_rel",
+        entities=entities,
+        relations=[],
+        frames={"team": teams},
+    )
+
+
 def test_select_with_join_returns_related_data():
     provider = _make_provider()
     req = RelationalQuery(root_entity="order", relations=["order_customer"], limit=5)
@@ -209,3 +235,52 @@ def test_semantic_filter_sorts_by_score_before_limit():
     res = provider.fetch("demo", selectors=req.model_dump())
 
     assert [row.data["id"] for row in res.rows] == [102, 101]
+
+
+def test_soft_string_filter_is_case_insensitive_and_trimmed():
+    provider = _make_text_provider()
+    req = RelationalQuery(
+        root_entity="team",
+        case_sensitivity=False,
+        filters=ComparisonFilter(field="name", op="=", value="MARKETING"),
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["name"] for row in res.rows] == ["Marketing", "marketing "]
+
+
+def test_soft_string_filter_supports_in_and_fuzzy_match():
+    provider = _make_text_provider()
+    req = RelationalQuery(
+        root_entity="team",
+        case_sensitivity=False,
+        filters=ComparisonFilter(field="name", op="=", value="markeing"),
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["name"] for row in res.rows] == ["Marketing", "marketing "]
+
+    req_in = RelationalQuery(
+        root_entity="team",
+        case_sensitivity=False,
+        filters=ComparisonFilter(field="name", op="in", value=[" marketing", "sales"]),
+    )
+
+    res_in = provider.fetch("demo", selectors=req_in.model_dump())
+
+    assert [row.data["name"] for row in res_in.rows] == ["Marketing", "marketing ", "sales"]
+
+
+def test_case_sensitive_string_filter_remains_strict():
+    provider = _make_text_provider()
+    req = RelationalQuery(
+        root_entity="team",
+        case_sensitivity=True,
+        filters=ComparisonFilter(field="name", op="=", value="MARKETING"),
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["name"] for row in res.rows] == []

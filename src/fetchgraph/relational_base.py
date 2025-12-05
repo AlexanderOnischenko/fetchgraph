@@ -251,7 +251,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             ))
 
         # если в SchemaConfig заданы кастомные examples — переопределяем
-        if schema_config and schema_config.examples is not None:
+        if schema_config and schema_config.examples:
             examples = schema_config.examples
 
         return ProviderInfo(

@@ -124,6 +124,14 @@ class RelationalQuery(BaseModel):
     aggregations: List[AggregationSpec] = Field(default_factory=list)
     limit: Optional[int] = 1000
     offset: Optional[int] = 0
+    case_sensitivity: bool = False
+    """
+    If False (default), string comparisons are performed in a "soft" mode:
+    - case-insensitive
+    - trimmed
+    - tolerant to minor differences (see provider docs)
+    If True, providers should use strict, case-sensitive comparisons.
+    """
 
 
 class SchemaRequest(BaseModel):

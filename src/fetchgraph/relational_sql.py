@@ -118,7 +118,71 @@ class SqlRelationalDataProvider(RelationalDataProvider):
     def _select_alias(self, entity: str, field: str, root_entity: str) -> str:
         return field if entity == root_entity else f"{entity}__{field}"
 
-    def _build_comparison(self, column: str, op: str, value: Any, params: List[Any]) -> str:
+    def _normalize_literal(self, value: Any) -> Any:
+        """Normalize string literal(s) before binding to SQL params."""
+        if isinstance(value, str):
+            return self._normalize_string(value)
+        if isinstance(value, (list, tuple, set)):
+            return [self._normalize_string(v) if isinstance(v, str) else v for v in value]
+        return value
+
+    def _build_comparison(
+        self,
+        column: str,
+        op: str,
+        value: Any,
+        params: List[Any],
+        *,
+        case_sensitive: bool,
+    ) -> str:
+        def _is_string_like(val: Any) -> bool:
+            if isinstance(val, str):
+                return True
+            if isinstance(val, (list, tuple, set)):
+                return all(isinstance(v, str) for v in val)
+            return False
+
+        soft_applicable = (not case_sensitive) and _is_string_like(value) and op in {
+            "=",
+            "!=",
+            "in",
+            "not_in",
+            "like",
+            "ilike",
+        }
+
+        if soft_applicable:
+            norm_value = self._normalize_literal(value)
+            norm_column = f"LOWER(TRIM({column}))"
+
+            if op in {"=", "!=", "like", "ilike"} and not isinstance(norm_value, str):
+                soft_applicable = False
+            else:
+                if op == "=":
+                    params.append(norm_value)
+                    params.append(f"%{norm_value}%")
+                    return f"({norm_column} = ? OR {norm_column} LIKE ?)"
+                if op == "!=":
+                    params.append(norm_value)
+                    params.append(f"%{norm_value}%")
+                    return f"({norm_column} <> ? AND {norm_column} NOT LIKE ?)"
+                if op == "in":
+                    if not isinstance(norm_value, (list, tuple)):
+                        raise TypeError("Values for 'in' operator must be a list or tuple")
+                    placeholders = ",".join("?" for _ in norm_value)
+                    params.extend(norm_value)
+                    return f"{norm_column} IN ({placeholders})" if norm_value else "1=0"
+                if op == "not_in":
+                    if not isinstance(norm_value, (list, tuple)):
+                        raise TypeError("Values for 'not_in' operator must be a list or tuple")
+                    placeholders = ",".join("?" for _ in norm_value)
+                    params.extend(norm_value)
+                    return f"{norm_column} NOT IN ({placeholders})" if norm_value else "1=1"
+                if op in {"like", "ilike"}:
+                    pattern = f"%{norm_value}%"
+                    params.append(pattern)
+                    return f"{norm_column} LIKE ?"
+
         if op in {"=", "!=", ">", "<", ">=", "<="}:
             params.append(value)
             return f"{column} {op} ?"
@@ -148,17 +212,19 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         root_entity: str,
         table_aliases: Mapping[str, Tuple[str, str]],
         params: List[Any],
+        *,
+        case_sensitive: bool,
     ) -> Optional[str]:
         if clause is None:
             return None
         if isinstance(clause, ComparisonFilter):
             ent, fld = self._resolve_field(root_entity, clause.field, clause.entity)
             col = self._column_ref(self._lookup_alias(ent, table_aliases), fld)
-            return self._build_comparison(col, clause.op, clause.value, params)
+            return self._build_comparison(col, clause.op, clause.value, params, case_sensitive=case_sensitive)
         if isinstance(clause, LogicalFilter):
             parts: List[str] = []
             for sub in clause.clauses:
-                sub_sql = self._build_filters(sub, root_entity, table_aliases, params)
+                sub_sql = self._build_filters(sub, root_entity, table_aliases, params, case_sensitive=case_sensitive)
                 if sub_sql:
                     parts.append(f"({sub_sql})")
             joiner = " AND " if clause.op == "and" else " OR "
@@ -368,7 +434,9 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         conditions.extend(semantic_conditions)
         params.extend(semantic_params)
 
-        filter_sql = self._build_filters(req.filters, req.root_entity, table_aliases, params)
+        filter_sql = self._build_filters(
+            req.filters, req.root_entity, table_aliases, params, case_sensitive=req.case_sensitivity
+        )
         if filter_sql:
             conditions.append(filter_sql)
 
@@ -418,7 +486,9 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         conditions.extend(semantic_conditions)
         params.extend(semantic_params)
 
-        filter_sql = self._build_filters(req.filters, req.root_entity, table_aliases, params)
+        filter_sql = self._build_filters(
+            req.filters, req.root_entity, table_aliases, params, case_sensitive=req.case_sensitivity
+        )
         if filter_sql:
             conditions.append(filter_sql)
 

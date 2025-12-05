@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 import json
+import re
 
 from .core import ContextProvider, ProviderInfo, SupportsDescribe
 from .json_types import SelectorsDict
@@ -34,6 +35,21 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         self.name = name
         self.entities = entities
         self.relations = relations
+
+    @staticmethod
+    def _normalize_string(value: Any) -> str:
+        """
+        Normalize string for soft comparison:
+        - cast to string
+        - strip leading/trailing whitespace
+        - lower-case
+        - collapse internal whitespace sequences to a single space
+        """
+        s = str(value)
+        s = s.strip()
+        s = s.lower()
+        s = re.sub(r"\s+", " ", s)
+        return s
 
     # --- ContextProvider API ---
     def fetch(self, feature_name: str, selectors: Optional[SelectorsDict] = None, **kwargs) -> Any:
@@ -214,6 +230,21 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                     "root_entity": e0,
                     "select": [{"expr": f"{e0}.{col0}"}],
                     "limit": 10,
+                },
+                ensure_ascii=False,
+            ))
+            examples.append(json.dumps(
+                {
+                    "op": "query",
+                    "root_entity": e0,
+                    "case_sensitivity": False,
+                    "filters": {
+                        "type": "comparison",
+                        "field": col0,
+                        "op": "=",
+                        "value": "Marketing",
+                    },
+                    "limit": 20,
                 },
                 ensure_ascii=False,
             ))

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any, List
 
 import pytest
+pd = pytest.importorskip("pandas")
 
 from fetchgraph.relational_models import (
     AggregationSpec,
@@ -183,6 +185,46 @@ def _make_provider_with_table_names() -> SqlRelationalDataProvider:
         relations=relations,
         connection=conn,
         table_names={"customer": "cust_table", "order": "ord_table"},
+    )
+
+
+def _make_text_provider() -> SqlRelationalDataProvider:
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE "team" (
+            "id" INTEGER PRIMARY KEY,
+            "name" TEXT
+        )
+        """
+    )
+    cur.executemany(
+        'INSERT INTO "team" (id, name) VALUES (?, ?)',
+        [
+            (1, "Marketing"),
+            (2, "marketing "),
+            (3, "Маркетинг"),
+            (4, "sales"),
+        ],
+    )
+    conn.commit()
+
+    entities = [
+        EntityDescriptor(
+            name="team",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="name"),
+            ],
+        )
+    ]
+
+    return SqlRelationalDataProvider(
+        name="teams_rel_sql",
+        entities=entities,
+        relations=[],
+        connection=conn,
     )
 
 
@@ -402,4 +444,54 @@ def test_repeated_entity_join_uses_unique_aliases():
     assert [row.data["id"] for row in res.rows] == [102]
     assert res.rows[0].related["order_customer"]["name"] == "Bob"
     assert res.rows[0].related["order_customer_ref"]["notes"] == "retail"
+
+
+def test_sql_soft_string_filter_is_case_insensitive_and_trimmed():
+    provider = _make_text_provider()
+    req = RelationalQuery(
+        root_entity="team",
+        case_sensitivity=False,
+        filters=ComparisonFilter(field="name", op="=", value="MARKETING"),
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["name"] for row in res.rows] == ["Marketing", "marketing "]
+
+
+def test_sql_soft_string_filter_uses_like_for_similarity():
+    provider = _make_text_provider()
+    req = RelationalQuery(
+        root_entity="team",
+        case_sensitivity=False,
+        filters=ComparisonFilter(field="name", op="=", value="market"),
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["name"] for row in res.rows] == ["Marketing", "marketing "]
+
+
+def test_sql_case_sensitive_string_filter_remains_strict():
+    provider = _make_text_provider()
+    req = RelationalQuery(
+        root_entity="team",
+        case_sensitivity=True,
+        filters=ComparisonFilter(field="name", op="=", value="MARKETING"),
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["name"] for row in res.rows] == []
+
+
+def test_sql_soft_string_filter_falls_back_for_non_scalar_value():
+    provider = _make_text_provider()
+    params: List[Any] = []
+
+    column = provider._column_ref("team", "name")
+    sql = provider._build_comparison(column, "=", ["Marketing", "marketing"], params, case_sensitive=False)
+
+    assert sql == f"{column} = ?"
+    assert params == [["Marketing", "marketing"]]
 

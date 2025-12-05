@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Mapping, Optional, cast
 
 import pandas as pd  # type: ignore[import]
+from pandas.api import types as pdt
+from difflib import SequenceMatcher
 
 from .relational_base import RelationalDataProvider
 from .relational_models import (
@@ -104,7 +106,89 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 return candidate
         raise KeyError(f"Column not found for entity '{ent or root_entity}': {fld}")
 
-    def _apply_comparison(self, series: pd.Series, op: str, value: Any) -> pd.Series:
+    def _normalize_series(self, series: pd.Series) -> pd.Series:
+        """Normalize string-like series for soft comparison."""
+        if not (pdt.is_string_dtype(series) or series.dtype == "object"):
+            return series
+
+        return (
+            series.astype(str)
+            .str.strip()
+            .str.lower()
+            .str.replace(r"\s+", " ", regex=True)
+        )
+
+    def _normalize_value(self, value: Any) -> Any:
+        """Normalize scalar or iterable value(s) for soft comparison."""
+        if isinstance(value, str):
+            return self._normalize_string(value)
+        if isinstance(value, (list, tuple, set)):
+            return [self._normalize_string(v) if isinstance(v, str) else v for v in value]
+        return value
+
+    def _fuzzy_mask(self, normalized_series: pd.Series, needle: str, base_mask: pd.Series) -> pd.Series:
+        """
+        Return an additional mask with values that are "close enough" to needle.
+        Only applied for case_sensitivity=False and string series.
+        """
+        if len(normalized_series) > 5000:
+            return base_mask
+
+        extra_mask = base_mask.copy()
+
+        for idx, val in normalized_series[~base_mask].items():
+            if not isinstance(val, str):
+                continue
+            if len(val) < 3:
+                continue
+            ratio = SequenceMatcher(None, val, needle).ratio()
+            if ratio >= 0.85:
+                extra_mask.loc[idx] = True
+
+        return extra_mask
+
+    def _apply_comparison(
+        self,
+        series: pd.Series,
+        op: str,
+        value: Any,
+        *,
+        case_sensitive: bool,
+    ) -> pd.Series:
+        is_string_series = pdt.is_string_dtype(series) or series.dtype == "object"
+
+        def _is_string_like(val: Any) -> bool:
+            if isinstance(val, str):
+                return True
+            if isinstance(val, (list, tuple, set)):
+                return all(isinstance(v, str) for v in val)
+            return False
+
+        if (not case_sensitive) and is_string_series and _is_string_like(value) and op in {"=", "!=", "in", "not_in", "like", "ilike"}:
+            s = self._normalize_series(series)
+            v = self._normalize_value(value)
+
+            if op == "=":
+                mask = s == v
+                if isinstance(v, str):
+                    mask = self._fuzzy_mask(s, v, mask)
+                return mask
+            if op == "!=":
+                return s != v
+            if op == "in":
+                mask = s.isin(v)
+                if isinstance(v, (list, tuple, set)):
+                    for item in v:
+                        if isinstance(item, str):
+                            mask = self._fuzzy_mask(s, item, mask)
+                return mask
+            if op == "not_in":
+                return ~s.isin(v)
+            if op in {"like", "ilike"}:
+                pattern_value = v[0] if isinstance(v, (list, tuple, set)) else v
+                pattern = str(pattern_value)
+                return s.str.contains(pattern, case=False, regex=False)
+
         if op == "=":
             return series == value
         if op == "!=":
@@ -127,7 +211,14 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return series.astype(str).str.contains(str(value), case=False, regex=False)
         raise ValueError(f"Unsupported comparison operator: {op}")
 
-    def _apply_filters(self, df: pd.DataFrame, root_entity: str, clause: Optional[FilterClause]) -> pd.DataFrame:
+    def _apply_filters(
+        self,
+        df: pd.DataFrame,
+        root_entity: str,
+        clause: Optional[FilterClause],
+        *,
+        case_sensitive: bool,
+    ) -> pd.DataFrame:
         if clause is None:
             return df
         if isinstance(clause, ComparisonFilter):
@@ -136,15 +227,15 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if isinstance(series, pd.DataFrame):
                 series = series.squeeze(axis=1)
             series = cast(pd.Series, series)
-            mask = self._apply_comparison(series, clause.op, clause.value)
+            mask = self._apply_comparison(series, clause.op, clause.value, case_sensitive=case_sensitive)
             mask = cast(pd.Series, mask).astype(bool)
             return df.loc[mask]
         if isinstance(clause, LogicalFilter):
             if clause.op == "and":
                 for sub in clause.clauses:
-                    df = self._apply_filters(df, root_entity, sub)
+                    df = self._apply_filters(df, root_entity, sub, case_sensitive=case_sensitive)
                 return df
-            masks = [self._apply_filters(df, root_entity, sub).index for sub in clause.clauses]
+            masks = [self._apply_filters(df, root_entity, sub, case_sensitive=case_sensitive).index for sub in clause.clauses]
             if not masks:
                 return df
             combined = masks[0]
@@ -279,7 +370,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         df = self._apply_semantic_clauses(df, req.root_entity, req.semantic_clauses)
 
         if req.filters:
-            df = self._apply_filters(df, req.root_entity, req.filters)
+            df = self._apply_filters(df, req.root_entity, req.filters, case_sensitive=req.case_sensitivity)
 
         if req.group_by or req.aggregations:
             return self._aggregate(df, req)

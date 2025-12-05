@@ -162,8 +162,8 @@ class SqlRelationalDataProvider(RelationalDataProvider):
 
         conditions: List[str] = []
         condition_params: List[Any] = []
-        boost_params: List[Any] = []
-        boost_exprs: List[str] = []
+        score_params: List[Any] = []
+        score_exprs: List[str] = []
 
         for clause in clauses:
             pk = self._pk_column(clause.entity)
@@ -171,34 +171,37 @@ class SqlRelationalDataProvider(RelationalDataProvider):
                 raise ValueError(f"Primary key not defined for entity '{clause.entity}'")
             if clause.entity not in self._entity_index:
                 raise KeyError(f"Unknown entity '{clause.entity}' in semantic clause")
+
             matches = self.semantic_backend.search(clause.entity, clause.fields, clause.query, clause.top_k)
             if clause.threshold is not None:
                 matches = [m for m in matches if m.score >= clause.threshold]
+
+            if not matches and clause.mode == "filter":
+                conditions.append("1=0")
+                continue
+            if not matches:
+                continue
+
             match_ids = [m.id for m in matches]
             target_col = self._column_ref(self._lookup_alias(clause.entity, table_aliases), pk)
 
+            cases = " ".join(["WHEN ? THEN ?" for _ in match_ids])
+            case_expr = f"CASE {target_col} {cases} ELSE 0 END"
+            for match in matches:
+                score_params.extend([match.id, match.score])
+            score_exprs.append(case_expr)
+
             if clause.mode == "filter":
-                if match_ids:
-                    placeholders = ",".join("?" for _ in match_ids)
-                    conditions.append(f"{target_col} IN ({placeholders})")
-                    condition_params.extend(match_ids)
-                else:
-                    conditions.append("1=0")
-            elif clause.mode == "boost":
-                if not match_ids:
-                    continue
-                cases = " ".join(["WHEN ? THEN ?" for _ in match_ids])
-                case_expr = f"CASE {target_col} {cases} ELSE 0 END"
-                for match in matches:
-                    boost_params.extend([match.id, match.score])
-                boost_exprs.append(case_expr)
+                placeholders = ",".join("?" for _ in match_ids)
+                conditions.append(f"{target_col} IN ({placeholders})")
+                condition_params.extend(match_ids)
 
-        boost_order = None
-        if boost_exprs:
-            summed = " + ".join(f"({expr})" for expr in boost_exprs)
-            boost_order = f"({summed}) DESC"
+        order_expr = None
+        if score_exprs:
+            summed = " + ".join(f"({expr})" for expr in score_exprs)
+            order_expr = f"({summed}) DESC"
 
-        return conditions, boost_order, condition_params, boost_params
+        return conditions, order_expr, condition_params, score_params
 
     def _build_default_select(
         self, root_entity: str, table_aliases: Mapping[str, Tuple[str, str]]
@@ -340,7 +343,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         conditions: List[str] = []
         params: List[Any] = []
 
-        semantic_conditions, boost_order, semantic_params, boost_params = self._build_semantic_clauses(
+        semantic_conditions, semantic_order, semantic_params, score_params = self._build_semantic_clauses(
             req.semantic_clauses, req.root_entity, table_aliases
         )
         conditions.extend(semantic_conditions)
@@ -350,11 +353,11 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         if filter_sql:
             conditions.append(filter_sql)
 
-        if boost_params:
-            params.extend(boost_params)
+        if score_params:
+            params.extend(score_params)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        order_clause = f"ORDER BY {boost_order}" if boost_order else ""
+        order_clause = f"ORDER BY {semantic_order}" if semantic_order else ""
         limit_clause = f"LIMIT {req.limit}" if req.limit is not None else ""
         offset_clause = f"OFFSET {req.offset}" if req.offset else ""
 
@@ -390,7 +393,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         conditions: List[str] = []
         params: List[Any] = []
 
-        semantic_conditions, _, semantic_params, _ = self._build_semantic_clauses(
+        semantic_conditions, semantic_order, semantic_params, score_params = self._build_semantic_clauses(
             req.semantic_clauses, req.root_entity, table_aliases
         )
         conditions.extend(semantic_conditions)
@@ -400,7 +403,10 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         if filter_sql:
             conditions.append(filter_sql)
 
-        order_clause = ""
+        if score_params:
+            params.extend(score_params)
+
+        order_clause = f"ORDER BY {semantic_order}" if semantic_order else ""
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         group_clause = f"GROUP BY {', '.join(group_cols)}" if group_cols else ""

@@ -216,6 +216,29 @@ def test_semantic_boost_sorts_by_score_and_threshold():
     assert [row.data["id"] for row in res.rows] == [102, 101, 103]
 
 
+def test_semantic_filter_sorts_by_score_before_limit():
+    backend = FakeSemanticBackend(
+        [
+            SemanticMatch(entity="customer", id=2, score=0.9),
+            SemanticMatch(entity="customer", id=1, score=0.4),
+        ]
+    )
+    provider = _make_provider(semantic_backend=backend)
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        semantic_clauses=[
+            SemanticClause(entity="customer", fields=["notes"], query="buyers", mode="filter"),
+        ],
+        select=[SelectExpr(expr="id")],
+        limit=2,
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["id"] for row in res.rows] == [102, 101]
+
+
 def test_semantic_boost_applies_with_grouping_and_aggregations():
     backend = FakeSemanticBackend(
         [

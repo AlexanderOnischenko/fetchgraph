@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, Hashable, List, Mapping, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, cast
 
 import pandas as pd  # type: ignore[import]
 
@@ -159,7 +159,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not self.semantic_backend:
             raise RuntimeError("Semantic backend is not configured")
 
-        result_df = df
+        result_df: pd.DataFrame = df
         has_scores = False
 
         for clause in clauses:
@@ -186,14 +186,18 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 result_df["__semantic_score"] = 0.0
 
             col = self._resolve_column(result_df, root_entity, pk, clause.entity)
+            col_series = cast(pd.Series, result_df[col])
             if clause.mode == "filter":
-                result_df = result_df[result_df[col].isin(match_ids)].copy()
-                result_df["__semantic_score"] = result_df["__semantic_score"] + result_df[col].map(scores).fillna(0)
+                result_df = result_df[col_series.isin(match_ids)].copy()
+                col_series = cast(pd.Series, result_df[col])
+                score_series = cast(pd.Series, result_df["__semantic_score"])
+                result_df["__semantic_score"] = score_series + col_series.map(scores).fillna(0)
             elif clause.mode == "boost":
-                result_df["__semantic_score"] = result_df["__semantic_score"] + result_df[col].map(scores).fillna(0)
+                score_series = cast(pd.Series, result_df["__semantic_score"])
+                result_df["__semantic_score"] = score_series + col_series.map(scores).fillna(0)
 
         if has_scores:
-            result_df = result_df.sort_values("__semantic_score", ascending=False)
+            result_df = result_df.sort_values(by="__semantic_score", ascending=False)
 
         return result_df
 
@@ -249,7 +253,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not select:
             return df
         cols: List[str] = []
-        alias_map: Dict[Hashable, Hashable] = {}
+        alias_map: Dict[str, str] = {}
         for expr in select:
             if "." in expr.expr:
                 ent, fld = expr.expr.split(".", 1)

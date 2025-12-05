@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Hashable, List, Mapping, Optional, cast
 
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 
 from .relational_base import RelationalDataProvider
 from .relational_models import (
@@ -132,8 +132,13 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return df
         if isinstance(clause, ComparisonFilter):
             col = self._resolve_column(df, root_entity, clause.field, clause.entity)
-            mask = self._apply_comparison(df[col], clause.op, clause.value)
-            return df[mask]
+            series = df[col]
+            if isinstance(series, pd.DataFrame):
+                series = series.squeeze(axis=1)
+            series = cast(pd.Series, series)
+            mask = self._apply_comparison(series, clause.op, clause.value)
+            mask = cast(pd.Series, mask).astype(bool)
+            return df.loc[mask]
         if isinstance(clause, LogicalFilter):
             if clause.op == "and":
                 for sub in clause.clauses:
@@ -244,7 +249,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not select:
             return df
         cols: List[str] = []
-        alias_map: Dict[str, str] = {}
+        alias_map: Dict[Hashable, Hashable] = {}
         for expr in select:
             if "." in expr.expr:
                 ent, fld = expr.expr.split(".", 1)
@@ -305,7 +310,8 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if agg_kwargs:
                 agg_df = grouped.agg(**agg_kwargs).reset_index()
             else:
-                agg_df = grouped.size().reset_index(name="count")
+                size_series = cast(pd.Series, grouped.size())
+                agg_df = size_series.reset_index(name="count")
             if req.offset:
                 agg_df = agg_df.iloc[req.offset :]
             if req.limit is not None:
@@ -332,7 +338,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         data = {col: row[col] for col in base_columns if col in row.index}
         related: Dict[str, Dict[str, Any]] = {}
         for col in row.index:
-            if "__" in col:
+            if isinstance(col, str) and "__" in col:
                 ent, fld = col.split("__", 1)
                 related.setdefault(ent, {})[fld] = row[col]
         return RowResult(entity=root_entity, data=data, related=related)

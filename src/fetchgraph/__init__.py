@@ -15,6 +15,7 @@ logger.addHandler(logging.NullHandler())
 from .core import (
     ContextPacker,
     BaseGraphAgent,
+    create_generic_agent,
     make_llm_plan_generic,
     make_llm_synth_generic,
 )
@@ -89,6 +90,7 @@ __all__ = [
     "LLMInvoke",
     "ContextPacker",
     "BaseGraphAgent",
+    "create_generic_agent",
     "make_llm_plan_generic",
     "make_llm_synth_generic",
     "AggregationResult",

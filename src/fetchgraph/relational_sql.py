@@ -47,12 +47,17 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         connection,
         semantic_backend: Optional[SemanticBackend] = None,
         primary_keys: Optional[Mapping[str, str]] = None,
+        *,
+        default_schema: Optional[str] = None,
+        table_names: Optional[Mapping[str, str]] = None,
     ):
         super().__init__(name, entities, relations)
         self.connection = connection
         self.semantic_backend = semantic_backend
         self.primary_keys = primary_keys or {}
         self._entity_index: Dict[str, EntityDescriptor] = {e.name: e for e in entities}
+        self.default_schema = default_schema
+        self.table_names: Dict[str, str] = dict(table_names or {})
 
     # --- helper methods ---
     def _pk_column(self, entity: str) -> Optional[str]:
@@ -74,6 +79,17 @@ class SqlRelationalDataProvider(RelationalDataProvider):
 
     def _quote_ident(self, name: str) -> str:
         return f'"{name}"'
+
+    def _quote_table(self, name: str) -> str:
+        if "." in name:
+            return ".".join(self._quote_ident(part) for part in name.split("."))
+        return self._quote_ident(name)
+
+    def _table_name(self, entity: str) -> str:
+        table = self.table_names.get(entity, entity)
+        if self.default_schema and "." not in table:
+            return f"{self.default_schema}.{table}"
+        return table
 
     def _column_ref(self, entity: str, column: str) -> str:
         return f"{self._quote_ident(entity)}.{self._quote_ident(column)}"
@@ -294,7 +310,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             if join_type == "OUTER":
                 join_type = "FULL OUTER"
             joins.append(
-                f"{join_type} JOIN {self._quote_ident(right_entity)} AS {self._quote_ident(right_alias)} "
+                f"{join_type} JOIN {self._quote_table(self._table_name(right_entity))} AS {self._quote_ident(right_alias)} "
                 f"ON {self._column_ref(self._lookup_alias(left_entity, table_aliases), left_field)} = {self._column_ref(right_alias, right_field)}"
             )
 
@@ -369,7 +385,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             "SELECT",
             ", ".join(select_parts),
             "FROM",
-            f"{self._quote_ident(req.root_entity)} AS {self._quote_ident(root_alias)}",
+            f"{self._quote_table(self._table_name(req.root_entity))} AS {self._quote_ident(root_alias)}",
         ]
         if joins:
             sql_parts.append(" ".join(joins))
@@ -421,7 +437,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             "SELECT",
             ", ".join(select_parts),
             "FROM",
-            f"{self._quote_ident(req.root_entity)} AS {self._quote_ident(root_alias)}",
+            f"{self._quote_table(self._table_name(req.root_entity))} AS {self._quote_ident(root_alias)}",
         ]
         if joins:
             sql_parts.append(" ".join(joins))

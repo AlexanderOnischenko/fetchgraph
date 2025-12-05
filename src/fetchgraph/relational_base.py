@@ -3,6 +3,7 @@ from __future__ import annotations
 """Base relational provider abstraction."""
 
 from typing import Any, List, Optional
+import json
 
 from .core import ContextProvider, ProviderInfo, SupportsDescribe
 from .json_types import SelectorsDict
@@ -95,34 +96,169 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             return "\n".join(lines) or "(empty result)"
         return str(obj)
 
-    # --- SupportsDescribe API ---
+  # --- SupportsDescribe API ---
     def describe(self) -> ProviderInfo:
-        """Describe provider capabilities and selector schema for planning.
-
-        The returned :class:`ProviderInfo` includes ``selectors_schema`` generated from the
-        request models (``SchemaRequest``, ``SemanticOnlyRequest``, ``RelationalQuery``),
-        which together define the JSON Schema for valid ``selectors`` payloads that
-        :meth:`fetch` accepts. Planners should use this schema to generate compliant
-        selector objects.
         """
-        schema = {
+        Описать возможности провайдера и схему селекторов для планировщика.
+
+        - selectors_schema: JSON Schema для допустимых selectors.
+        - examples: примеры селекторов с реальными именами сущностей/связей.
+        - description: краткое текстовое описание домена (entities/relations + hints).
+        """
+
+        # --- 1) Базовые схемы запросов ---
+        schema_req = SchemaRequest.model_json_schema()
+        semantic_req = SemanticOnlyRequest.model_json_schema()
+        query_schema = RelationalQuery.model_json_schema()
+
+        entity_names = [e.name for e in self.entities]
+        relation_names = [r.name for r in self.relations]
+
+        # Патчим enum для root_entity и relations в RelationalQuery
+        q_props = query_schema.get("properties", {})
+        if "root_entity" in q_props:
+            q_props["root_entity"]["enum"] = entity_names
+        if "relations" in q_props and isinstance(q_props["relations"].get("items"), dict):
+            q_props["relations"]["items"]["enum"] = relation_names
+
+        # Патчим enum для entity в SemanticOnlyRequest
+        s_props = semantic_req.get("properties", {})
+        if "entity" in s_props:
+            s_props["entity"]["enum"] = entity_names
+
+        selectors_schema = {
             "oneOf": [
-                SchemaRequest.model_json_schema(),
-                SemanticOnlyRequest.model_json_schema(),
-                RelationalQuery.model_json_schema(),
+                schema_req,
+                semantic_req,
+                query_schema,
             ]
         }
-        examples = [
-            '{"op":"schema"}',
-            '{"op":"query","root_entity":"order","relations":["order_customer"],"filters":{"type":"comparison","entity":"order","field":"customer_id","op":"=","value":123},"limit":50}',
-            '{"op":"query","root_entity":"customer","relations":["order_customer"],"semantic_clauses":[{"entity":"customer","fields":["name","notes"],"query":"фармацевтические клиенты","mode":"filter","top_k":30}],"select":[{"expr":"customer.name"}],"limit":20}',
-            '{"op":"query","root_entity":"order","relations":["order_customer"],"group_by":[{"entity":"customer","field":"name"}],"aggregations":[{"field":"total","agg":"sum","alias":"total_spend"}]}',
-        ]
+
+        # --- 2) Текстовое описание домена (entities/relations) ---
+        schema_config = getattr(self, "_schema_config", None)
+
+        # базовая шапка
+        if schema_config and schema_config.description:
+            header = schema_config.description
+        else:
+            header = "Реляционный провайдер данных."
+
+        # сущности
+        entity_lines: List[str] = []
+        for e in self.entities:
+            cols = e.columns or []
+            pk_cols = [c.name for c in cols if getattr(c, "role", None) == "primary_key"]
+            sem_cols = [c.name for c in cols if getattr(c, "semantic", False)]
+            parts = [e.label or e.name]
+            if pk_cols:
+                parts.append(f"PK: {', '.join(pk_cols)}")
+            if sem_cols:
+                parts.append(f"semantic: {', '.join(sem_cols)}")
+            # planning_hint из SchemaConfig, если есть
+            hint = ""
+            if schema_config:
+                for ec in schema_config.entities:
+                    if ec.name == e.name and ec.planning_hint:
+                        hint = ec.planning_hint
+                        break
+            if hint:
+                parts.append(hint)
+            entity_lines.append(f"- {e.name}: " + "; ".join(parts))
+
+        # связи
+        relation_lines: List[str] = []
+        for r in self.relations:
+            rel_desc = f"- {r.name}: {r.from_entity}.{r.join.from_column} -> {r.to_entity}.{r.join.to_column} ({r.cardinality})"
+            text_parts = [rel_desc]
+            if r.semantic_hint:
+                text_parts.append(r.semantic_hint)
+            if schema_config:
+                for rc in schema_config.relations:
+                    if rc.name == r.name and rc.planning_hint:
+                        text_parts.append(rc.planning_hint)
+                        break
+            relation_lines.append(" — ".join(text_parts))
+
+        # общие подсказки
+        provider_hints: List[str] = []
+        if schema_config:
+            provider_hints = schema_config.planning_hints or []
+
+        description_parts: List[str] = [header]
+        if entity_lines:
+            description_parts.append("Сущности:")
+            description_parts.extend(entity_lines)
+        if relation_lines:
+            description_parts.append("Связи:")
+            description_parts.extend(relation_lines)
+        if provider_hints:
+            description_parts.append("Подсказки для планировщика:")
+            description_parts.extend(f"- {h}" for h in provider_hints)
+
+        description = "\n".join(description_parts)
+
+        # --- 3) Авто-примеры селекторов ---
+        examples: List[str] = []
+
+        # schema
+        examples.append(json.dumps({"op": "schema"}, ensure_ascii=False))
+
+        # простой query по первой сущности
+        if entity_names:
+            e0 = entity_names[0]
+            cols0 = (self.entities[0].columns or [])
+            col0 = cols0[0].name if cols0 else "id"
+            examples.append(json.dumps(
+                {
+                    "op": "query",
+                    "root_entity": e0,
+                    "select": [{"expr": f"{e0}.{col0}"}],
+                    "limit": 10,
+                },
+                ensure_ascii=False,
+            ))
+
+        # semantic_only по первой семантической сущности
+        sem_entity: Optional[str] = None
+        for e in self.entities:
+            if any(getattr(c, "semantic", False) for c in e.columns or []):
+                sem_entity = e.name
+                break
+        if sem_entity:
+            examples.append(json.dumps(
+                {
+                    "op": "semantic_only",
+                    "entity": sem_entity,
+                    "query": "<поисковый запрос на естественном языке>",
+                    "mode": "filter",
+                    "top_k": 30,
+                },
+                ensure_ascii=False,
+            ))
+
+        # query с relation, если есть
+        if relation_names:
+            rel0 = self.relations[0]
+            root = rel0.to_entity  # условно берём to_entity как root
+            examples.append(json.dumps(
+                {
+                    "op": "query",
+                    "root_entity": root,
+                    "relations": [rel0.name],
+                    "limit": 20,
+                },
+                ensure_ascii=False,
+            ))
+
+        # если в SchemaConfig заданы кастомные examples — переопределяем
+        if schema_config and schema_config.examples is not None:
+            examples = schema_config.examples
+
         return ProviderInfo(
             name=self.name,
-            description="Реляционный провайдер данных",
+            description=description,
             capabilities=["schema", "row_query", "aggregate", "semantic_search"],
-            selectors_schema=schema,
+            selectors_schema=selectors_schema,
             examples=examples,
         )
 

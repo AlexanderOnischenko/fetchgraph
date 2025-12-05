@@ -136,7 +136,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
 
         extra_mask = base_mask.copy()
 
-        for idx, val in normalized_series[~base_mask].items():
+        for idx, val in normalized_series.loc[~base_mask].items():
             if not isinstance(val, str):
                 continue
             if len(val) < 3:
@@ -185,7 +185,12 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if op == "not_in":
                 return ~s.isin(v)
             if op in {"like", "ilike"}:
-                pattern_value = v[0] if isinstance(v, (list, tuple, set)) else v
+                if isinstance(v, (list, tuple)):
+                    pattern_value = v[0] if v else ""
+                elif isinstance(v, set):
+                    pattern_value = next(iter(v), "")
+                else:
+                    pattern_value = v
                 pattern = str(pattern_value)
                 return s.str.contains(pattern, case=False, regex=False)
 
@@ -279,7 +284,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             col = self._resolve_column(result_df, root_entity, pk, clause.entity)
             col_series = cast(pd.Series, result_df[col])
             if clause.mode == "filter":
-                result_df = result_df[col_series.isin(match_ids)].copy()
+                result_df = result_df.loc[col_series.isin(match_ids)].copy()
                 col_series = cast(pd.Series, result_df[col])
                 score_series = cast(pd.Series, result_df["__semantic_score"])
                 result_df["__semantic_score"] = score_series + col_series.map(scores).fillna(0)
@@ -356,7 +361,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 alias_map[col] = expr.alias
         selected = df[cols].copy()
         if alias_map:
-            selected = selected.rename(columns=alias_map)
+            selected = selected.rename(columns=lambda c: alias_map.get(c, c))
         return selected
 
     def _handle_query(self, req: RelationalQuery):

@@ -11,7 +11,13 @@ import pandas as pd  # type: ignore[import]
 
 from .protocols import ContextProvider
 from .relational_models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
-from .semantic_backend import CsvSemanticBackend, CsvSemanticSource, CsvEmbeddingBuilder, SemanticBackend
+from .semantic_backend import (
+    CsvSemanticBackend,
+    CsvSemanticSource,
+    CsvEmbeddingBuilder,
+    EmbeddingModel,
+    SemanticBackend,
+)
 from .relational_pandas import PandasRelationalDataProvider
 from .relational_sql import SqlRelationalDataProvider
 
@@ -179,8 +185,19 @@ def _pick_pk_column(ent: EntityConfig) -> str:
         return ent.columns[0].name
     raise ValueError(f"Entity '{ent.name}' has no columns at all.")
 
+def build_csv_semantic_backend(
+    data_dir: Path,
+    schema: SchemaConfig,
+    *,
+    embedding_model: EmbeddingModel | None = None,
+) -> CsvSemanticBackend | None:
+    """
+    Собрать CsvSemanticBackend по SchemaConfig и каталогу данных.
 
-def _build_semantic_backend(data_dir: Path, schema: SchemaConfig) -> CsvSemanticBackend | None:
+    Передайте embedding_model, если нужно строить и использовать плотные вектора.
+    Если хотите полностью кастомный SemanticBackend (например, PGVector),
+    передайте его напрямую в билдер провайдера вместо этого хэлпера.
+    """
     sources: Dict[str, CsvSemanticSource] = {}
     for ent in schema.entities:
         if not ent.semantic_text_fields:
@@ -200,6 +217,7 @@ def _build_semantic_backend(data_dir: Path, schema: SchemaConfig) -> CsvSemantic
                 id_column=_pick_pk_column(ent),
                 text_fields=ent.semantic_text_fields,
                 output_path=emb_path,
+                embedding_model=embedding_model,
             ).build()
 
         sources[ent.name] = CsvSemanticSource(
@@ -210,7 +228,7 @@ def _build_semantic_backend(data_dir: Path, schema: SchemaConfig) -> CsvSemantic
 
     if not sources:
         return None
-    return CsvSemanticBackend(sources)
+    return CsvSemanticBackend(sources, embedding_model=embedding_model)
 
 
 # ------------------------ Главный билдер ------------------------
@@ -225,6 +243,8 @@ def build_pandas_provider_from_schema(
     Высокоуровневый билдер: из SchemaConfig собирает PandasRelationalDataProvider.
 
     Если нужен универсальный интерфейс выбора бекенда, см. :func:`build_relational_provider_from_schema`.
+    Для отдельного построения CSV-бекенда с кастомной embedding model есть
+    :func:`build_csv_semantic_backend`.
     """
     data_dir = Path(data_dir)
 
@@ -241,7 +261,7 @@ def build_pandas_provider_from_schema(
     relations = _build_relation_descriptors(schema)
     primary_keys = _build_primary_keys(schema)
     if semantic_backend is None:
-        semantic_backend = _build_semantic_backend(data_dir, schema)
+        semantic_backend = build_csv_semantic_backend(data_dir, schema)
 
     assert PandasRelationalDataProvider is not None
 
@@ -316,8 +336,8 @@ def build_relational_provider_from_schema(
     *,
     data_dir: str | Path,
     semantic_backend: CsvSemanticBackend | None = None,
- ) -> PandasRelationalDataProvider:
-     ...
+) -> PandasRelationalDataProvider:
+    ...
 
 
 @overload
@@ -329,8 +349,8 @@ def build_relational_provider_from_schema(
     semantic_backend: SemanticBackend | None = None,
     default_schema: str | None = None,
     table_name_resolver: Callable[[EntityConfig], str] | None = None,
- ) -> SqlRelationalDataProvider:
-     ...
+) -> SqlRelationalDataProvider:
+    ...
 
 
 def build_relational_provider_from_schema(

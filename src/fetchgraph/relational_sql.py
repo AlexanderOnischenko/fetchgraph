@@ -347,7 +347,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         params: List[Any] = []
 
         semantic_conditions, semantic_order, semantic_params, score_params = self._build_semantic_clauses(
-            req.semantic_clauses, req.root_entity, table_aliases, aggregate=True
+            req.semantic_clauses, req.root_entity, table_aliases, aggregate=False
         )
         conditions.extend(semantic_conditions)
         params.extend(semantic_params)

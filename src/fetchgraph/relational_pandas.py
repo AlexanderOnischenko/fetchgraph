@@ -217,7 +217,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         root_entity: str,
         clause: Optional[FilterClause],
         *,
-        case_sensitive: bool,
+        case_sensitive: bool = False,
     ) -> pd.DataFrame:
         if clause is None:
             return df

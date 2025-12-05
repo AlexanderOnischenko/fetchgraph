@@ -117,6 +117,22 @@ def test_filters_with_logical_clause():
     assert ids == [103]
 
 
+def test_apply_filters_handles_dataframe_column():
+    provider = _make_provider()
+    original_resolve = provider._resolve_column
+
+    def resolve_as_list(df, root_entity, field, entity=None):
+        # Simulate a column resolution that returns a list-like, causing df[col] to be a DataFrame.
+        return [original_resolve(df, root_entity, field, entity)]
+
+    provider._resolve_column = resolve_as_list  # type: ignore[method-assign]
+
+    clause = ComparisonFilter(entity="order", field="status", op="=", value="pending")
+    filtered = provider._apply_filters(provider._get_frame("order"), "order", clause)
+
+    assert filtered["status"].tolist() == ["pending", "pending"]
+
+
 def test_group_by_with_aggregations():
     provider = _make_provider()
     req = RelationalQuery(
@@ -170,3 +186,26 @@ def test_semantic_boost_sorts_by_score_and_threshold():
     res = provider.fetch("demo", selectors=req.model_dump())
 
     assert [row.data["id"] for row in res.rows] == [102, 101, 103]
+
+
+def test_semantic_filter_sorts_by_score_before_limit():
+    backend = FakeSemanticBackend(
+        [
+            SemanticMatch(entity="customer", id=2, score=0.9),
+            SemanticMatch(entity="customer", id=1, score=0.4),
+        ]
+    )
+    provider = _make_provider(semantic_backend=backend)
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        semantic_clauses=[
+            SemanticClause(entity="customer", fields=["notes"], query="buyers", mode="filter"),
+        ],
+        select=[SelectExpr(expr="id")],
+        limit=2,
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["id"] for row in res.rows] == [102, 101]

@@ -115,6 +115,21 @@ def test_pgvector_backend_supports_similarity_scores():
     assert matches[0].score == 0.8
 
 
+def test_pgvector_backend_orders_distance_scores_before_trimming():
+    backend = _backend_with_results(
+        [
+            (FakeDocument({"id": 1, "entity": "product", "field": "name"}), 0.5),
+            (FakeDocument({"id": 2, "entity": "product", "field": "name"}), 0.1),
+            (FakeDocument({"id": 3, "entity": "other", "field": "name"}), 0.01),
+        ]
+    )
+
+    matches = backend.search("product", fields=None, query="text", top_k=2)
+
+    assert [m.id for m in matches] == [2, 1]
+    assert matches[0].score > matches[1].score
+
+
 def test_pgvector_backend_missing_entity():
     backend = _backend_with_results([])
 

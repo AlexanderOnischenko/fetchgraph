@@ -264,6 +264,55 @@ def make_llm_synth_generic(
 
     return llm_synth
 
+
+def create_generic_agent(
+    *,
+    llm_invoke: LLMInvoke,
+    providers: Dict[str, ContextProvider],
+    saver: Saver | Callable[[str, Any], None],
+    task_profile: TaskProfile,
+    verifiers: Optional[List[Verifier]] = None,
+    baseline: Optional[List[BaselineSpec]] = None,
+    plan_parser: Optional[Callable[[RawLLMOutput], Plan]] = None,
+    domain_parser: Optional[Callable[[RawLLMOutput], Any]] = None,
+    llm_refetch: Optional[Callable[[str, Dict[str, str], Plan], str]] = None,
+    max_refetch_iters: int = 1,
+    max_tokens: int = 4000,
+    summarizer_llm: Optional[Callable[[str], str]] = None,
+) -> BaseGraphAgent:
+    """Convenience wrapper building a generic :class:`BaseGraphAgent`.
+
+    The factory wires built-in generic prompts for planning and synthesis.
+    """
+
+    llm_plan = make_llm_plan_generic(llm_invoke, task_profile, providers)
+    llm_synth = make_llm_synth_generic(llm_invoke, task_profile)
+
+    if summarizer_llm is None:
+        summarizer_llm = lambda text: text
+
+    packer = ContextPacker(max_tokens=max_tokens, summarizer_llm=summarizer_llm)
+
+    def default_domain_parser(raw: RawLLMOutput) -> Any:
+        return normalize_llm_output(raw).text
+
+    agent = BaseGraphAgent(
+        llm_plan=llm_plan,
+        llm_synth=llm_synth,
+        domain_parser=domain_parser or default_domain_parser,
+        saver=saver,
+        providers=providers,
+        verifiers=verifiers or [],
+        packer=packer,
+        plan_parser=plan_parser,
+        baseline=baseline,
+        task_profile=task_profile,
+        llm_refetch=llm_refetch,
+        max_refetch_iters=max_refetch_iters,
+    )
+
+    return agent
+
 # -----------------------------------------------------------------------------
 # BaseGraphAgent (sequential engine; no external graph dep)
 # -----------------------------------------------------------------------------

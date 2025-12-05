@@ -115,12 +115,92 @@ def _make_provider(semantic_backend=None) -> SqlRelationalDataProvider:
     )
 
 
+def _make_provider_with_table_names() -> SqlRelationalDataProvider:
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE "cust_table" (
+            "id" INTEGER PRIMARY KEY,
+            "name" TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE "ord_table" (
+            "id" INTEGER PRIMARY KEY,
+            "customer_id" INTEGER
+        )
+        """
+    )
+    cur.executemany(
+        'INSERT INTO "cust_table" (id, name) VALUES (?, ?)',
+        [
+            (1, "Alice"),
+            (2, "Bob"),
+        ],
+    )
+    cur.executemany(
+        'INSERT INTO "ord_table" (id, customer_id) VALUES (?, ?)',
+        [
+            (101, 1),
+            (102, 2),
+        ],
+    )
+    conn.commit()
+
+    entities = [
+        EntityDescriptor(
+            name="customer",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="name"),
+            ],
+        ),
+        EntityDescriptor(
+            name="order",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="customer_id", role="foreign_key"),
+            ],
+        ),
+    ]
+    relations = [
+        RelationDescriptor(
+            name="order_customer",
+            from_entity="order",
+            to_entity="customer",
+            join=RelationJoin(
+                from_entity="order", from_column="customer_id", to_entity="customer", to_column="id"
+            ),
+        ),
+    ]
+
+    return SqlRelationalDataProvider(
+        name="orders_rel_sql_custom",
+        entities=entities,
+        relations=relations,
+        connection=conn,
+        table_names={"customer": "cust_table", "order": "ord_table"},
+    )
+
+
 def test_select_with_join_returns_related_data():
     provider = _make_provider()
     req = RelationalQuery(root_entity="order", relations=["order_customer"], limit=5)
     res = provider.fetch("demo", selectors=req.model_dump())
 
     assert len(res.rows) == 3
+    assert res.rows[0].related["customer"]["name"] == "Alice"
+
+
+def test_table_name_mapping_is_used():
+    provider = _make_provider_with_table_names()
+    req = RelationalQuery(root_entity="order", relations=["order_customer"], limit=5)
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["id"] for row in res.rows] == [101, 102]
     assert res.rows[0].related["customer"]["name"] == "Alice"
 
 
@@ -216,6 +296,29 @@ def test_semantic_boost_sorts_by_score_and_threshold():
     assert [row.data["id"] for row in res.rows] == [102, 101, 103]
 
 
+def test_semantic_filter_sorts_by_score_before_limit():
+    backend = FakeSemanticBackend(
+        [
+            SemanticMatch(entity="customer", id=2, score=0.9),
+            SemanticMatch(entity="customer", id=1, score=0.4),
+        ]
+    )
+    provider = _make_provider(semantic_backend=backend)
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        semantic_clauses=[
+            SemanticClause(entity="customer", fields=["notes"], query="buyers", mode="filter"),
+        ],
+        select=[SelectExpr(expr="id")],
+        limit=2,
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert [row.data["id"] for row in res.rows] == [102, 101]
+
+
 def test_semantic_boost_applies_with_grouping_and_aggregations():
     backend = FakeSemanticBackend(
         [
@@ -239,6 +342,29 @@ def test_semantic_boost_applies_with_grouping_and_aggregations():
     totals = {row.data["customer__id"]: row.data["total_spend"] for row in res.rows}
     assert totals == {2: 80, 1: 320}
 
+
+def test_semantic_scores_are_aggregated_for_non_pk_grouping():
+    backend = FakeSemanticBackend(
+        [
+            SemanticMatch(entity="customer", id=2, score=0.9),
+            SemanticMatch(entity="customer", id=1, score=0.4),
+        ]
+    )
+    provider = _make_provider(semantic_backend=backend)
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        group_by=[GroupBySpec(entity="order", field="status")],
+        aggregations=[AggregationSpec(field="total", agg="sum", alias="total_spend")],
+        semantic_clauses=[
+            SemanticClause(entity="customer", fields=["notes"], query="buyers", mode="boost"),
+        ],
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    statuses = [row.data["status"] for row in res.rows]
+    assert statuses == ["pending", "shipped"]
 
 def test_semantic_boost_with_filters_keeps_parameter_order():
     backend = FakeSemanticBackend(

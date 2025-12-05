@@ -7,9 +7,9 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Mapping, Protocol, Sequence
+from typing import Mapping, Protocol, Sequence, cast
 
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 
 from .relational_models import SemanticMatch
 
@@ -142,6 +142,8 @@ class CsvEmbeddingBuilder:
     def build(self) -> None:
         """Read the CSV file, build embeddings, and save them to disk."""
 
+        import pandas as pd
+
         df = pd.read_csv(self.csv_path)
         if self.id_column not in df.columns:
             raise KeyError(f"ID column '{self.id_column}' not found in CSV")
@@ -157,7 +159,9 @@ class CsvEmbeddingBuilder:
                 field_tokens: dict[str, list[str]] = {}
                 for field in self.text_fields:
                     value = row[field]
-                    tokens = [] if pd.isna(value) else self._tokenize(str(value))
+                    is_null = pd.isna(value)
+                    is_missing = bool(is_null.any()) if hasattr(is_null, "any") else bool(is_null)
+                    tokens = [] if is_missing else self._tokenize(str(value))
                     field_tokens[field] = tokens
 
                 combined_tokens = [tok for tokens in field_tokens.values() for tok in tokens]
@@ -195,7 +199,9 @@ class CsvEmbeddingBuilder:
                 per_row_texts: list[str] = []
                 for field in self.text_fields:
                     value = row[field]
-                    text = "" if pd.isna(value) else str(value)
+                    is_null = pd.isna(value)
+                    is_missing = bool(is_null.any()) if hasattr(is_null, "any") else bool(is_null)
+                    text = "" if is_missing else str(value)
                     field_texts[field].append(text)
                     per_row_texts.append(text)
                 all_texts.append(" ".join(per_row_texts))
@@ -443,14 +449,20 @@ class PgVectorSemanticBackend:
             raise KeyError(f"Entity '{entity}' is not indexed for semantic search")
 
         source = self._sources[entity]
-        if isinstance(fields, str):
-            fields = [fields]
-        normalized_fields = list(fields or [])
+        if fields is None:
+            normalized_fields: list[str] = []
+        elif isinstance(fields, str):
+            normalized_fields = [fields]
+        else:
+            normalized_fields = list(fields)
 
         model = source.embedding_model or self._default_embedding_model
+        results: Sequence[tuple[object, float]]
 
+        results: Sequence[tuple[object, float]]
         if model is None:
-            results = source.vector_store.similarity_search_with_score(query, k=top_k)
+            raw_results = source.vector_store.similarity_search_with_score(query, k=top_k)
+            results = cast(Sequence[tuple[object, float]], raw_results)
         else:
             query_vec = model.embed_query(query)
             search_with_score = getattr(
@@ -458,7 +470,8 @@ class PgVectorSemanticBackend:
             )
 
             if callable(search_with_score):
-                results = search_with_score(query_vec, k=top_k)
+                vector_results = search_with_score(query_vec, k=top_k)
+                results = cast(Sequence[tuple[object, float]], vector_results)
             else:
                 raise TypeError(
                     "Vector store does not support similarity_search_with_score_by_vector for vector queries"

@@ -336,6 +336,12 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         right_alias = relation.name or right_entity
         rename_map = {col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"}
         right_df = right_df.rename(columns=rename_map)
+
+        if right_alias != right_entity:
+            for original_col in rename_map.values():
+                entity_prefixed = original_col.replace(f"{right_alias}__", f"{right_entity}__", 1)
+                if entity_prefixed not in df.columns and entity_prefixed not in right_df.columns:
+                    right_df[entity_prefixed] = right_df[original_col]
         merged = df.merge(
             right_df,
             how=relation.join.join_type,

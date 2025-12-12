@@ -4,13 +4,16 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
+from fetchgraph.relational_base import RelationalDataProvider
 from fetchgraph.relational_models import (
     ColumnDescriptor,
     EntityDescriptor,
+    QueryResult,
     RelationalQuery,
     RelationDescriptor,
     RelationJoin,
     SelectExpr,
+    ComparisonFilter,
 )
 from fetchgraph.relational_pandas import PandasRelationalDataProvider
 from fetchgraph.relational_composite import CompositeRelationalProvider
@@ -62,6 +65,21 @@ def _products_provider():
     return PandasRelationalDataProvider("products_rel", entities, relations, frames)
 
 
+class DummyRelationalProvider(RelationalDataProvider):
+    def __init__(self, name: str, entities: list[EntityDescriptor], relations: list[RelationDescriptor]):
+        super().__init__(name, entities, relations)
+        self._entity_index = {e.name: e for e in entities}
+
+    def _handle_schema(self):
+        raise NotImplementedError
+
+    def _handle_semantic_only(self, req):
+        raise NotImplementedError
+
+    def _handle_query(self, req: RelationalQuery):
+        return QueryResult(meta={"provider": self.name})
+
+
 def test_composite_routes_and_enriches_meta():
     composite = CompositeRelationalProvider(
         "composite", {"orders": _orders_provider(), "products": _products_provider()}
@@ -84,3 +102,50 @@ def test_composite_describe_mentions_join_limitations():
 
     assert "cross-provider joins" in info.description
     assert "single_provider_routing" in info.capabilities
+
+
+def test_composite_handles_relation_alias_in_filters():
+    orders_entities = [
+        EntityDescriptor(
+            name="order",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="customer_id", role="foreign_key"),
+            ],
+        ),
+        EntityDescriptor(
+            name="customer",
+            columns=[ColumnDescriptor(name="id", role="primary_key")],
+        ),
+    ]
+    relations = [
+        RelationDescriptor(
+            name="order_customer",
+            from_entity="order",
+            to_entity="customer",
+            join=RelationJoin(
+                from_entity="order", from_column="customer_id", to_entity="customer", to_column="id"
+            ),
+        )
+    ]
+    composite = CompositeRelationalProvider(
+        "composite",
+        {
+            "orders": DummyRelationalProvider("orders_rel", orders_entities, relations),
+            "other": DummyRelationalProvider(
+                "other_rel",
+                [EntityDescriptor(name="product", columns=[ColumnDescriptor(name="id", role="primary_key")])],
+                [],
+            ),
+        },
+    )
+
+    query = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        filters=ComparisonFilter(entity="order_customer", field="id", op="=", value=10),
+    )
+
+    result = composite.fetch("demo", selectors=query.model_dump())
+
+    assert result.meta["provider"] == "orders_rel"

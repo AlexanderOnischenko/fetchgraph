@@ -65,9 +65,9 @@ class CompositeRelationalProvider(RelationalDataProvider):
     def _collect_entities_from_filter(self, clause: FilterClause, root_entity: str) -> List[str]:
         if isinstance(clause, ComparisonFilter):
             if clause.entity:
-                return [clause.entity]
+                return self._entities_for_reference(clause.entity, root_entity)
             if "." in clause.field:
-                return [clause.field.split(".", 1)[0]]
+                return self._entities_for_reference(clause.field.split(".", 1)[0], root_entity)
             return [root_entity]
 
         if isinstance(clause, LogicalFilter):
@@ -75,6 +75,17 @@ class CompositeRelationalProvider(RelationalDataProvider):
             for sub in clause.clauses:
                 entities.extend(self._collect_entities_from_filter(sub, root_entity))
             return entities
+
+        return [root_entity]
+
+    def _entities_for_reference(self, ref: str, root_entity: str) -> List[str]:
+        entity_names = {e.name for e in self.entities}
+        if ref in entity_names:
+            return [ref]
+
+        for rel in self.relations:
+            if rel.name == ref:
+                return [rel.from_entity, rel.to_entity]
 
         return [root_entity]
 

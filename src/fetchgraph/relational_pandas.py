@@ -333,7 +333,8 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         left_col = self._resolve_column(df, root_entity, left_field, left_entity)
         right_df = self._get_frame(right_entity).copy()
         right_df["__merge_key"] = right_df[right_field]
-        rename_map = {col: f"{right_entity}__{col}" for col in right_df.columns if col != "__merge_key"}
+        right_alias = relation.name or right_entity
+        rename_map = {col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"}
         right_df = right_df.rename(columns=rename_map)
         merged = df.merge(
             right_df,

@@ -388,6 +388,17 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return self._aggregate(df, req)
 
         if req.select:
+            base_columns = []
+            for expr in req.select:
+                if "." in expr.expr:
+                    ent, fld = expr.expr.split(".", 1)
+                else:
+                    ent, fld = req.root_entity, expr.expr
+
+                if ent == req.root_entity:
+                    col = self._resolve_column(df, req.root_entity, fld, ent)
+                    base_columns.append(expr.alias or col)
+
             df = self._apply_select(df, req.root_entity, req.select)
 
         if req.offset:

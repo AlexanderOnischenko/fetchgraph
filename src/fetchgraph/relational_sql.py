@@ -323,13 +323,15 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         self, req: RelationalQuery, table_aliases: Mapping[str, Tuple[str, str]]
     ) -> Tuple[List[str], List[str]]:
         select_parts: List[str] = []
-        base_columns = [col.name for col in self._entity_index[req.root_entity].columns]
+        base_columns: List[str] = []
         for expr in req.select:
             ent, fld = self._resolve_field(req.root_entity, expr.expr, None)
             alias = self._select_alias(ent, fld, req.root_entity)
             target_alias = expr.alias or alias
             if ent not in table_aliases and ent not in self._entity_index:
                 raise KeyError(f"Entity '{ent}' not joined in query")
+            if ent == req.root_entity:
+                base_columns.append(target_alias)
             select_parts.append(
                 f"{self._column_ref(self._lookup_alias(ent, table_aliases), fld)} AS {self._quote_ident(target_alias)}"
             )

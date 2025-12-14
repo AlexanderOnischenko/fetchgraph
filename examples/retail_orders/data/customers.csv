@@ -1,0 +1,3 @@
+customer_id,name,email,segment
+1,Иван Иванов,ivan@example.com,retail
+2,ООО "Ромашка",office@romashka.ru,b2b

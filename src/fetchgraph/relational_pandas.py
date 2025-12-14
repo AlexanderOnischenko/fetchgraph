@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, cast
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
@@ -105,6 +105,41 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if candidate in df.columns:
                 return candidate
         raise KeyError(f"Column not found for entity '{ent or root_entity}': {fld}")
+
+    def _collect_referenced_entities(self, req: RelationalQuery) -> Set[str]:
+        referenced: Set[str] = set()
+
+        def add_entity(ent: Optional[str]):
+            if ent and ent != req.root_entity:
+                referenced.add(ent)
+
+        def entity_from_field(field: str) -> Optional[str]:
+            return field.split(".", 1)[0] if "." in field else None
+
+        for expr in req.select:
+            add_entity(entity_from_field(expr.expr))
+
+        def walk_filter(clause: Optional[FilterClause]):
+            if clause is None:
+                return
+            if isinstance(clause, LogicalFilter):
+                for sub in clause.clauses:
+                    walk_filter(sub)
+                return
+            add_entity(clause.entity or entity_from_field(clause.field))
+
+        walk_filter(req.filters)
+
+        for semantic in req.semantic_clauses:
+            add_entity(semantic.entity)
+
+        for group in req.group_by:
+            add_entity(group.entity or entity_from_field(group.field))
+
+        for agg in req.aggregations:
+            add_entity(entity_from_field(agg.field))
+
+        return referenced
 
     def _normalize_series(self, series: pd.Series) -> pd.Series:
         """Normalize string-like series for soft comparison."""
@@ -303,7 +338,9 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 return r
         raise KeyError(f"Relation '{name}' not found")
 
-    def _perform_join(self, df: pd.DataFrame, relation, root_entity: str) -> pd.DataFrame:
+    def _perform_join(
+        self, df: pd.DataFrame, relation, root_entity: str, referenced_entities: Set[str]
+    ) -> pd.DataFrame:
         left_entity: Optional[str] = None
         right_entity: Optional[str] = None
         left_field: Optional[str] = None
@@ -337,7 +374,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         rename_map = {col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"}
         right_df = right_df.rename(columns=rename_map)
 
-        if right_alias != right_entity:
+        if right_alias != right_entity and right_entity in referenced_entities:
             for original_col in rename_map.values():
                 entity_prefixed = original_col.replace(f"{right_alias}__", f"{right_entity}__", 1)
                 if entity_prefixed not in df.columns and entity_prefixed not in right_df.columns:
@@ -375,10 +412,11 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         df = self._get_frame(req.root_entity).copy()
         base_columns = list(df.columns)
         related_columns: Dict[str, Tuple[str, str]] = {}
+        referenced_entities = self._collect_referenced_entities(req)
 
         for rel_name in req.relations:
             relation = self._relation_by_name(rel_name)
-            df = self._perform_join(df, relation, req.root_entity)
+            df = self._perform_join(df, relation, req.root_entity, referenced_entities)
 
         df = self._apply_semantic_clauses(df, req.root_entity, req.semantic_clauses)
 

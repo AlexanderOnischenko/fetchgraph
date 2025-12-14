@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import types
-
 import pytest
 
 pd = pytest.importorskip("pandas")
@@ -237,7 +235,7 @@ def test_cross_join_respects_max_join_rows_per_batch():
     assert len(result.rows) == 3
 
 
-def test_cross_join_raises_on_right_batch_overflow_for_1_to_many(monkeypatch):
+def test_cross_join_handles_right_batch_overflow_for_1_to_many():
     system_df = pd.DataFrame(
         {"id": [10, 11, 12], "block_id": [1, 1, 1], "code": ["S1", "S2", "S3"]}
     )
@@ -246,19 +244,13 @@ def test_cross_join_raises_on_right_batch_overflow_for_1_to_many(monkeypatch):
         system_df=system_df,
         max_right_rows_per_batch=2,
     )
-
-    def _unbounded_limit(self, cardinality: str, key_count: int) -> int:
-        return self.max_right_rows_per_batch * 10
-
-    monkeypatch.setattr(
-        composite,
-        "_remote_limit_for_cardinality",
-        types.MethodType(_unbounded_limit, composite),
-    )
     query = RelationalQuery(root_entity="block", relations=["block_system"])
 
-    with pytest.raises(MemoryError, match="Right join batch exceeds maximum allowed rows"):
-        composite.fetch("demo", selectors=query.model_dump())
+    result = composite.fetch("demo", selectors=query.model_dump())
+
+    # All three system rows should be joined with block 1 even though they exceed
+    # the per-batch right-row limit, thanks to overflow-safe paging.
+    assert len(result.rows) == 3
 
 
 def test_cross_join_raises_on_right_batch_overflow_for_1_to_1_or_many_to_1():

@@ -16,7 +16,7 @@ from .models import (
     RefetchDecision,
     TaskProfile,
 )
-from .parsing.plan_parser import PlanParser
+from ..parsing.plan_parser import PlanParser
 from .protocols import (
     ContextProvider,
     LLMInvoke,

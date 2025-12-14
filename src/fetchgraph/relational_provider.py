@@ -4,26 +4,26 @@ from __future__ import annotations
 
 The original monolithic implementation has been decomposed into separate
 modules for clarity:
-- :mod:`fetchgraph.relational_models`
-- :mod:`fetchgraph.relational_base`
-- :mod:`fetchgraph.relational_pandas` (optional dependency)
-- :mod:`fetchgraph.relational_sql`
-- :mod:`fetchgraph.relational_composite`
-- :mod:`fetchgraph.semantic_backend`
+- :mod:`fetchgraph.relational.models`
+- :mod:`fetchgraph.relational.providers.base`
+- :mod:`fetchgraph.relational.providers.pandas_provider` (optional dependency)
+- :mod:`fetchgraph.relational.providers.sql_provider`
+- :mod:`fetchgraph.relational.providers.composite_provider`
+- :mod:`fetchgraph.relational.semantic.backend`
 """
 
 import importlib.util
 
-from . import relational_models as _relational_models
-from .relational_base import RelationalDataProvider
-from .relational_composite import CompositeRelationalProvider
-from .relational_models import *  # noqa: F401,F403
-from .relational_sql import SqlRelationalDataProvider
-from .semantic_backend import SemanticBackend
+from .relational import models as _relational_models
+from .relational.providers.base import RelationalDataProvider
+from .relational.providers.composite_provider import CompositeRelationalProvider
+from .relational.providers.sql_provider import SqlRelationalDataProvider
+from .relational.semantic.backend import SemanticBackend
+from .relational.models import *  # noqa: F401,F403
 
 _maybe_pandas = importlib.util.find_spec("pandas")
 if _maybe_pandas:
-    from .relational_pandas import PandasRelationalDataProvider
+    from .relational.providers.pandas_provider import PandasRelationalDataProvider
 else:  # pragma: no cover - optional dependency path
     PandasRelationalDataProvider = None  # type: ignore[assignment]
 

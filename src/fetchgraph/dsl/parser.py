@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from json import JSONDecodeError
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from ..parsing.exceptions import OutputParserException
 from ..parsing.json_parser import JsonParser
@@ -17,30 +17,152 @@ def _normalize_input(src: str) -> str:
         text = "{" + text
         if not text.endswith("}"):
             text = text + "}"
-    # Quote unquoted keys
+
+    # Quote unquoted keys quickly with a regex pass
     text = re.sub(r'(^|[,\{]\s*)([A-Za-z_]\w*)\s*:', r'\1"\2":', text)
-    # Quote bare identifiers or operators inside arrays
-    def _quote_array_value(match: re.Match[str]) -> str:
-        prefix, value = match.groups()
-        if value in {"true", "false", "null"}:
-            return f"{prefix}{value}"
-        return f'{prefix}"{value}"'
 
-    text = re.sub(r'(\[|,)\s*([A-Za-z_][\w.-]*)\s*(?=[,\]])', _quote_array_value, text)
-    text = re.sub(r'(\[|,)\s*([!<>=]{1,3})\s*(?=[,\]])', _quote_array_value, text)
-    # Quote bare word values (except true/false/null)
-    def _quote_value(match: re.Match[str]) -> str:
-        value = match.group(1)
-        if value in {"true", "false", "null"}:
-            return f": {value}"
-        return f': "{value}"'
+    result: List[str] = []
+    stack: List[dict] = []  # track context and expectations
+    in_string = False
+    quote_char = ""
+    escape = False
 
-    text = re.sub(r':\s*([A-Za-z_][\w-]*)\s*(?=[,}])', _quote_value, text)
-    # Replace single-quoted strings with double quotes
-    text = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', text)
-    # Remove trailing commas
-    text = re.sub(r',\s*(?=[}\]])', '', text)
-    return text
+    def _current_expect_value() -> bool:
+        if not stack:
+            return False
+        top = stack[-1]
+        return top.get("expecting_value", False)
+
+    def _set_expect_value(flag: bool) -> None:
+        if stack:
+            stack[-1]["expecting_value"] = flag
+
+    number_pattern = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
+
+    i = 0
+    while i < len(text):
+        ch = text[i]
+
+        if in_string:
+            result.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == quote_char:
+                in_string = False
+                _set_expect_value(False)
+            i += 1
+            continue
+
+        if ch in {'"', "'"}:
+            in_string = True
+            quote_char = ch
+            result.append(ch)
+            _set_expect_value(False)
+            i += 1
+            continue
+
+        if ch == "{":
+            stack.append({"type": "object", "expecting_key": True, "expecting_value": False})
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch == "[":
+            stack.append({"type": "array", "expecting_value": True})
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch == "}":
+            if stack:
+                stack.pop()
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch == "]":
+            if stack:
+                stack.pop()
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch == ":":
+            if stack and stack[-1].get("type") == "object":
+                stack[-1]["expecting_key"] = False
+                stack[-1]["expecting_value"] = True
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch == ",":
+            if stack:
+                top = stack[-1]
+                if top.get("type") == "array":
+                    top["expecting_value"] = True
+                elif top.get("type") == "object":
+                    top["expecting_key"] = True
+                    top["expecting_value"] = False
+            result.append(ch)
+            i += 1
+            continue
+
+        expecting_value = _current_expect_value()
+
+        if expecting_value:
+            if ch.isspace():
+                result.append(ch)
+                i += 1
+                continue
+
+            if ch in "<>!=":
+                j = i
+                while j < len(text) and text[j] in "<>!=":
+                    j += 1
+                token = text[i:j]
+                result.append(f'"{token}"')
+                _set_expect_value(False)
+                i = j
+                continue
+
+            if ch.isalpha() or ch in {"_", "."}:
+                j = i
+                while j < len(text) and (text[j].isalnum() or text[j] in {"_", "."}):
+                    j += 1
+                token = text[i:j]
+                if token in {"true", "false", "null"}:
+                    token_str = token
+                elif number_pattern.match(token):
+                    token_str = token
+                else:
+                    token_str = f'"{token}"'
+                result.append(token_str)
+                _set_expect_value(False)
+                i = j
+                continue
+
+            if ch.isdigit() or ch == "-":
+                j = i
+                while j < len(text) and (text[j].isdigit() or text[j] in "+-eE."):
+                    j += 1
+                token = text[i:j]
+                if number_pattern.match(token):
+                    result.append(token)
+                else:
+                    result.append(f'"{token}"')
+                _set_expect_value(False)
+                i = j
+                continue
+
+        result.append(ch)
+        i += 1
+
+    normalized = "".join(result)
+    normalized = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', normalized)
+    normalized = re.sub(r',\s*(?=[}\]])', '', normalized)
+    return normalized
 
 
 class DslParser(JsonParser[QuerySketch]):

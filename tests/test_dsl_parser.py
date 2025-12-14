@@ -12,7 +12,7 @@ def test_parse_unquoted_keys_trailing_commas():
     assert not diags.has_errors()
 
 
-def test_parse_unquoted_in_arrays():
+def test_parse_bare_identifiers_in_arrays():
     src = "{ from: streams, where: [[status, active]] }"
     parsed, diags = parse_query_sketch(src)
     assert parsed.data["where"] == [["status", "active"]]

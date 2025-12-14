@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
@@ -374,6 +374,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
     def _handle_query(self, req: RelationalQuery):
         df = self._get_frame(req.root_entity).copy()
         base_columns = list(df.columns)
+        related_columns: Dict[str, Tuple[str, str]] = {}
 
         for rel_name in req.relations:
             relation = self._relation_by_name(rel_name)
@@ -398,6 +399,10 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 if ent == req.root_entity:
                     col = self._resolve_column(df, req.root_entity, fld, ent)
                     base_columns.append(expr.alias or col)
+                else:
+                    col = self._resolve_column(df, req.root_entity, fld, ent)
+                    field_alias = expr.alias or fld
+                    related_columns[expr.alias or col] = (ent, field_alias)
 
             df = self._apply_select(df, req.root_entity, req.select)
 
@@ -406,7 +411,10 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if req.limit is not None:
             df = df.iloc[: req.limit]
 
-        rows = [self._row_from_series(row, base_columns, req.root_entity) for _, row in df.iterrows()]
+        rows = [
+            self._row_from_series(row, base_columns, req.root_entity, related_columns or None)
+            for _, row in df.iterrows()
+        ]
         return QueryResult(rows=rows, meta={"relations_used": req.relations})
 
     def _aggregate(self, df: pd.DataFrame, req: RelationalQuery):
@@ -452,13 +460,29 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             agg_results[alias] = AggregationResult(key=alias, value=value)
         return QueryResult(aggregations=agg_results, meta={"relations_used": req.relations})
 
-    def _row_from_series(self, row: pd.Series, base_columns: List[str], root_entity: str) -> RowResult:
+    def _row_from_series(
+        self,
+        row: pd.Series,
+        base_columns: List[str],
+        root_entity: str,
+        related_fields: Optional[Dict[str, Tuple[str, str]]] = None,
+    ) -> RowResult:
         data = {col: row[col] for col in base_columns if col in row.index}
         related: Dict[str, Dict[str, Any]] = {}
         for col in row.index:
-            if isinstance(col, str) and "__" in col:
-                ent, fld = col.split("__", 1)
-                related.setdefault(ent, {})[fld] = row[col]
+            if col in base_columns:
+                continue
+            if isinstance(col, str):
+                if related_fields and col in related_fields:
+                    ent, fld = related_fields[col]
+                    related.setdefault(ent, {})[fld] = row[col]
+                    continue
+                if col.startswith("__"):
+                    continue
+                if "__" in col:
+                    ent, fld = col.split("__", 1)
+                    if ent:
+                        related.setdefault(ent, {})[fld] = row[col]
         return RowResult(entity=root_entity, data=data, related=related)
 
     def _handle_semantic_only(self, req):

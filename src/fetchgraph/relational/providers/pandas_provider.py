@@ -6,6 +6,7 @@ from typing import Any, Dict, Hashable, List, Mapping, MutableMapping, Optional,
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
+from pandas._typing import Renamer
 from difflib import SequenceMatcher
 
 from .base import RelationalDataProvider
@@ -265,7 +266,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             col = self._resolve_column(df, root_entity, clause.field, clause.entity)
             series = df[col]
             if isinstance(series, pd.DataFrame):
-                series = series.squeeze(axis=1)
+                series = series.squeeze()
             series = cast(pd.Series, series)
             mask = self._apply_comparison(series, clause.op, clause.value, case_sensitive=case_sensitive)
             mask = cast(pd.Series, mask).astype(bool)
@@ -314,7 +315,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             scores = {m.id: m.score for m in matches}
 
             if "__semantic_score" not in result_df.columns:
-                result_df["__semantic_score"] = 0.0
+                result_df = result_df.assign(__semantic_score=0.0)
 
             col = self._resolve_column(result_df, root_entity, pk, clause.entity)
             col_series = cast(pd.Series, result_df[col])
@@ -322,10 +323,14 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 result_df = result_df.loc[col_series.isin(match_ids)].copy()
                 col_series = cast(pd.Series, result_df[col])
                 score_series = cast(pd.Series, result_df["__semantic_score"])
-                result_df["__semantic_score"] = score_series + col_series.map(scores).fillna(0)
+                result_df = result_df.assign(
+                    __semantic_score=score_series + col_series.map(scores).fillna(0)
+                )
             elif clause.mode == "boost":
                 score_series = cast(pd.Series, result_df["__semantic_score"])
-                result_df["__semantic_score"] = score_series + col_series.map(scores).fillna(0)
+                result_df = result_df.assign(
+                    __semantic_score=score_series + col_series.map(scores).fillna(0)
+                )
 
         if has_scores:
             result_df = result_df.sort_values(by="__semantic_score", ascending=False)
@@ -371,16 +376,19 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         right_df = self._get_frame(right_entity).copy()
         right_df["__merge_key"] = right_df[right_field]
         right_alias = relation.name or right_entity
-        rename_map: Dict[Hashable, str] = {
+        # Pandas' typing expects the key and value to share the same hashable type,
+        # so keep the mapping generic instead of fixing the value to ``str``.
+        rename_map: Dict[Hashable, Hashable] = {
             col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"
         }
         right_df = right_df.rename(columns=rename_map)
 
         if right_alias != right_entity and right_entity in referenced_entities:
             for original_col in rename_map.values():
-                entity_prefixed = original_col.replace(f"{right_alias}__", f"{right_entity}__", 1)
+                original_col_str = str(original_col)
+                entity_prefixed = original_col_str.replace(f"{right_alias}__", f"{right_entity}__", 1)
                 if entity_prefixed not in df.columns and entity_prefixed not in right_df.columns:
-                    right_df[entity_prefixed] = right_df[original_col]
+                    right_df[entity_prefixed] = right_df[original_col_str]
         merged = df.merge(
             right_df,
             how=relation.join.join_type,
@@ -395,7 +403,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not select:
             return df
         cols: List[str] = []
-        alias_map: Dict[str, str] = {}
+        alias_map: Dict[Hashable, Hashable] = {}
         for expr in select:
             if "." in expr.expr:
                 ent, fld = expr.expr.split(".", 1)
@@ -407,7 +415,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 alias_map[col] = expr.alias
         selected = df[cols].copy()
         if alias_map:
-            selected = selected.rename(columns=cast(Mapping[str, str], alias_map))
+            selected = selected.rename(columns=cast(Renamer, alias_map))
         return selected
 
     def _handle_query(self, req: RelationalQuery):

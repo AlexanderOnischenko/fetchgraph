@@ -3,6 +3,8 @@ from typing import List, Sequence, Tuple
 
 import pytest
 
+pytest.importorskip("pandas")
+
 from fetchgraph.semantic_backend import (
     PgVectorSemanticBackend,
     PgVectorSemanticSource,

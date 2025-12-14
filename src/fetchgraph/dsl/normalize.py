@@ -296,17 +296,17 @@ def _normalize_operator(raw_op: Any, spec: DslSpec, diagnostics: Diagnostics, pa
         return None
 
     op_lower = raw_op.lower()
-    canonical_ops_list = sorted(spec.operators.get("canonical", []))
+    canonical_ops = sorted(spec.operators.get("canonical", []))
     alias_map = {k.lower(): v for k, v in spec.operators.get("aliases", {}).items()}
 
-    if op_lower in canonical_ops_list:
+    if op_lower in canonical_ops:
         return op_lower if raw_op.islower() else op_lower
 
     if op_lower in alias_map:
         return alias_map[op_lower]
 
     cutoff = float(spec.operators.get("autocorrect", {}).get("cutoff", 0))
-    close = difflib.get_close_matches(op_lower, canonical_ops_list, n=1, cutoff=cutoff)
+    close = difflib.get_close_matches(op_lower, canonical_ops, n=1, cutoff=cutoff)
     if close:
         corrected = close[0]
         diagnostics.add(

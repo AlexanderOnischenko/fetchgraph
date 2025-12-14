@@ -33,7 +33,7 @@ def test_parse_dotted_path_unquoted():
     assert not diags.has_errors()
 
 
-def test_parse_trailing_commas_and_single_quotes():
+def test_parse_single_quotes_trailing_commas():
     src = "{ from: 'streams', where: [[status, 'active',],], }"
     parsed, diags = parse_query_sketch(src)
     assert parsed.data["from"] == "streams"

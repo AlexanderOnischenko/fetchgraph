@@ -1,4 +1,4 @@
-from fetchgraph.dsl import normalize_query_sketch
+from fetchgraph.dsl import normalize_query_sketch, parse_and_normalize
 
 
 def test_normalize_key_aliases_defaults():
@@ -69,7 +69,7 @@ def test_op_aliases_and_autocorrect():
     assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags.messages)
 
 
-def test_normalize_defaults_from_spec():
+def test_defaults_from_spec_applied():
     src = {"from": "streams", "where": []}
     normalized, diags = normalize_query_sketch(src)
     assert normalized.get == ["*"]
@@ -83,6 +83,30 @@ def test_normalize_operator_aliases_gte_like():
     normalized, diags = normalize_query_sketch(src)
     assert normalized.where.all[0].op == ">="
     assert normalized.where.all[1].op == "is"
+    assert not diags.has_errors()
+
+
+def test_operator_autocorrect_is_deterministic():
+    src = {"from": "streams", "where": [["name", "contanis", "foo"]]}
+    normalized_first, diags_first = normalize_query_sketch(src)
+
+    normalized_second, diags_second = normalize_query_sketch(src)
+
+    assert normalized_first.where.all[0].op == "contains"
+    assert normalized_second.where.all[0].op == "contains"
+    assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags_first.messages)
+    assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags_second.messages)
+
+
+def test_parse_and_normalize_with_defaults_and_dirty_input():
+    src = "{ from: streams, where: [[status, active]], }"
+    normalized, diags = parse_and_normalize(src)
+
+    assert normalized.from_ == "streams"
+    assert [cl.op for cl in normalized.where.all] == ["is"]
+    assert normalized.get == ["*"]
+    assert normalized.with_ == []
+    assert normalized.take == 200
     assert not diags.has_errors()
 
 

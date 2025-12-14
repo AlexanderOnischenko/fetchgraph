@@ -1,4 +1,6 @@
-from fetchgraph.dsl import normalize_query_sketch, parse_and_normalize
+from typing import cast
+
+from fetchgraph.dsl import Clause, normalize_query_sketch, parse_and_normalize
 
 
 def test_normalize_key_aliases_defaults():
@@ -8,7 +10,9 @@ def test_normalize_key_aliases_defaults():
     assert normalized.get == ["*"]
     assert normalized.with_ == []
     assert normalized.take == 200
-    assert normalized.where.all[0].op == "is"
+    first_clause = normalized.where.all[0]
+    assert isinstance(first_clause, Clause)
+    assert first_clause.op == "is"
     assert not diags.has_errors()
 
 
@@ -18,7 +22,9 @@ def test_normalize_where_list_to_all():
     assert len(normalized.where.all) == 1
     assert normalized.where.any == []
     assert normalized.where.not_ is None
-    assert normalized.where.all[0].op == ">"
+    first_clause = normalized.where.all[0]
+    assert isinstance(first_clause, Clause)
+    assert first_clause.op == ">"
     assert not diags.has_errors()
 
 
@@ -32,6 +38,8 @@ def test_normalize_where_object_all_any_not():
         },
     }
     normalized, diags = normalize_query_sketch(src)
+    assert normalized.where.not_ is not None
+    assert isinstance(normalized.where.not_, Clause)
     assert normalized.where.not_.op == "="
     assert normalized.where.not_.path == "is_test"
     assert not diags.has_errors()
@@ -40,32 +48,44 @@ def test_normalize_where_object_all_any_not():
 def test_auto_op_string_is():
     src = {"from": "streams", "where": [["status", "active"]]}
     normalized, _ = normalize_query_sketch(src)
-    assert normalized.where.all[0].op == "is"
+    clause = normalized.where.all[0]
+    assert isinstance(clause, Clause)
+    assert clause.op == "is"
 
 
 def test_auto_op_number_eq():
     src = {"from": "streams", "where": [["count", 10]]}
     normalized, _ = normalize_query_sketch(src)
-    assert normalized.where.all[0].op == "="
+    clause = normalized.where.all[0]
+    assert isinstance(clause, Clause)
+    assert clause.op == "="
 
 
 def test_auto_op_list_in():
     src = {"from": "streams", "where": [["id", [1, 2, 3]]]}  # not dates
     normalized, _ = normalize_query_sketch(src)
-    assert normalized.where.all[0].op == "in"
+    clause = normalized.where.all[0]
+    assert isinstance(clause, Clause)
+    assert clause.op == "in"
 
 
 def test_auto_op_between_dates():
     src = {"from": "streams", "where": [["date", ["2020-01-01", "2020-02-01"]]]}
     normalized, _ = normalize_query_sketch(src)
-    assert normalized.where.all[0].op == "between"
+    clause = normalized.where.all[0]
+    assert isinstance(clause, Clause)
+    assert clause.op == "between"
 
 
 def test_op_aliases_and_autocorrect():
     src = {"from": "streams", "where": [["amount", "gte", 1000], ["name", "conains", "foo"]]}
     normalized, diags = normalize_query_sketch(src)
-    assert normalized.where.all[0].op == ">="
-    assert normalized.where.all[1].op == "contains"
+    first_clause = normalized.where.all[0]
+    second_clause = normalized.where.all[1]
+    assert isinstance(first_clause, Clause)
+    assert isinstance(second_clause, Clause)
+    assert first_clause.op == ">="
+    assert second_clause.op == "contains"
     assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags.messages)
 
 
@@ -81,8 +101,12 @@ def test_defaults_from_spec_applied():
 def test_normalize_operator_aliases_gte_like():
     src = {"from": "streams", "where": [["amount", "gte", 1], ["name", "like", "foo"]]}
     normalized, diags = normalize_query_sketch(src)
-    assert normalized.where.all[0].op == ">="
-    assert normalized.where.all[1].op == "is"
+    first_clause = normalized.where.all[0]
+    second_clause = normalized.where.all[1]
+    assert isinstance(first_clause, Clause)
+    assert isinstance(second_clause, Clause)
+    assert first_clause.op == ">="
+    assert second_clause.op == "is"
     assert not diags.has_errors()
 
 
@@ -92,8 +116,12 @@ def test_operator_autocorrect_is_deterministic():
 
     normalized_second, diags_second = normalize_query_sketch(src)
 
-    assert normalized_first.where.all[0].op == "contains"
-    assert normalized_second.where.all[0].op == "contains"
+    first_clause = normalized_first.where.all[0]
+    second_clause = normalized_second.where.all[0]
+    assert isinstance(first_clause, Clause)
+    assert isinstance(second_clause, Clause)
+    assert first_clause.op == "contains"
+    assert second_clause.op == "contains"
     assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags_first.messages)
     assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags_second.messages)
 
@@ -103,7 +131,8 @@ def test_parse_and_normalize_with_defaults_and_dirty_input():
     normalized, diags = parse_and_normalize(src)
 
     assert normalized.from_ == "streams"
-    assert [cl.op for cl in normalized.where.all] == ["is"]
+    ops = [cast(Clause, cl).op for cl in normalized.where.all]
+    assert ops == ["is"]
     assert normalized.get == ["*"]
     assert normalized.with_ == []
     assert normalized.take == 200
@@ -120,5 +149,6 @@ def test_auto_operator_string_number_array_between_dates():
         ],
     }
     normalized, diags = normalize_query_sketch(src)
-    assert [cl.op for cl in normalized.where.all] == ["is", "=", "between"]
+    ops = [cast(Clause, cl).op for cl in normalized.where.all]
+    assert ops == ["is", "=", "between"]
     assert not diags.has_errors()

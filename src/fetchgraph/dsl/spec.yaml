@@ -1,0 +1,48 @@
+defaults:
+  get: ["*"]
+  with: []
+  take: 200
+keys:
+  from:
+    aliases: [root, entity]
+    required: true
+  where:
+    aliases: [find, filter]
+    required: true
+    default: []
+  get:
+    aliases: [select, fields]
+  with:
+    aliases: [include, joins, join]
+  take:
+    aliases: [limit, top]
+operators:
+  canonical:
+    - "="
+    - "!="
+    - "<"
+    - ">"
+    - "<="
+    - ">="
+    - contains
+    - starts
+    - ends
+    - in
+    - between
+    - before
+    - after
+    - is
+    - similar
+    - related
+  aliases:
+    eq: "="
+    neq: "!="
+    ne: "!="
+    gt: ">"
+    gte: ">="
+    lt: "<"
+    lte: "<="
+    like: is
+    ilike: is
+  autocorrect:
+    cutoff: 0.8

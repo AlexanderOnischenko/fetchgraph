@@ -371,16 +371,19 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         right_df = self._get_frame(right_entity).copy()
         right_df["__merge_key"] = right_df[right_field]
         right_alias = relation.name or right_entity
-        rename_map: Dict[Hashable, str] = {
+        # Pandas' typing expects the key and value to share the same hashable type,
+        # so keep the mapping generic instead of fixing the value to ``str``.
+        rename_map: Dict[Hashable, Hashable] = {
             col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"
         }
         right_df = right_df.rename(columns=rename_map)
 
         if right_alias != right_entity and right_entity in referenced_entities:
             for original_col in rename_map.values():
-                entity_prefixed = original_col.replace(f"{right_alias}__", f"{right_entity}__", 1)
+                original_col_str = str(original_col)
+                entity_prefixed = original_col_str.replace(f"{right_alias}__", f"{right_entity}__", 1)
                 if entity_prefixed not in df.columns and entity_prefixed not in right_df.columns:
-                    right_df[entity_prefixed] = right_df[original_col]
+                    right_df[entity_prefixed] = right_df[original_col_str]
         merged = df.merge(
             right_df,
             how=relation.join.join_type,

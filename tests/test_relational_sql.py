@@ -117,6 +117,91 @@ def _make_provider(semantic_backend=None) -> SqlRelationalDataProvider:
     )
 
 
+def _make_provider_without_relation_names() -> SqlRelationalDataProvider:
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE "customer" (
+            "id" INTEGER PRIMARY KEY,
+            "name" TEXT,
+            "notes" TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE "order" (
+            "id" INTEGER PRIMARY KEY,
+            "customer_id" INTEGER,
+            "total" INTEGER,
+            "status" TEXT
+        )
+        """
+    )
+    cur.executemany(
+        'INSERT INTO "customer" (id, name, notes) VALUES (?, ?, ?)',
+        [
+            (1, "Alice", "pharma buyer"),
+            (2, "Bob", "retail"),
+        ],
+    )
+    cur.executemany(
+        'INSERT INTO "order" (id, customer_id, total, status) VALUES (?, ?, ?, ?)',
+        [
+            (101, 1, 120, "shipped"),
+            (102, 2, 80, "pending"),
+            (103, 1, 200, "pending"),
+        ],
+    )
+    conn.commit()
+
+    entities = [
+        EntityDescriptor(
+            name="customer",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="name"),
+                ColumnDescriptor(name="notes"),
+            ],
+        ),
+        EntityDescriptor(
+            name="order",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="customer_id", role="foreign_key"),
+                ColumnDescriptor(name="total", type="int"),
+                ColumnDescriptor(name="status"),
+            ],
+        ),
+    ]
+    relations = [
+        RelationDescriptor(
+            name="",
+            from_entity="order",
+            to_entity="customer",
+            join=RelationJoin(
+                from_entity="order", from_column="customer_id", to_entity="customer", to_column="id"
+            ),
+        ),
+        RelationDescriptor(
+            name="",
+            from_entity="order",
+            to_entity="customer",
+            join=RelationJoin(
+                from_entity="order", from_column="customer_id", to_entity="customer", to_column="id"
+            ),
+        ),
+    ]
+
+    return SqlRelationalDataProvider(
+        name="orders_rel_sql_nameless",
+        entities=entities,
+        relations=relations,
+        connection=conn,
+    )
+
+
 def _make_provider_with_table_names() -> SqlRelationalDataProvider:
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
@@ -228,6 +313,56 @@ def _make_text_provider() -> SqlRelationalDataProvider:
     )
 
 
+def _make_provider_with_self_relation() -> SqlRelationalDataProvider:
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE "order" (
+            "id" INTEGER PRIMARY KEY,
+            "parent_id" INTEGER,
+            "total" INTEGER
+        )
+        """
+    )
+    cur.executemany(
+        'INSERT INTO "order" (id, parent_id, total) VALUES (?, ?, ?)',
+        [
+            (1, None, 100),
+            (2, 1, 50),
+        ],
+    )
+    conn.commit()
+
+    entities = [
+        EntityDescriptor(
+            name="order",
+            columns=[
+                ColumnDescriptor(name="id", role="primary_key"),
+                ColumnDescriptor(name="parent_id", role="foreign_key"),
+                ColumnDescriptor(name="total", type="int"),
+            ],
+        )
+    ]
+    relations = [
+        RelationDescriptor(
+            name="parent_order",
+            from_entity="order",
+            to_entity="order",
+            join=RelationJoin(
+                from_entity="order", from_column="parent_id", to_entity="order", to_column="id"
+            ),
+        )
+    ]
+
+    return SqlRelationalDataProvider(
+        name="orders_self_rel_sql",
+        entities=entities,
+        relations=relations,
+        connection=conn,
+    )
+
+
 def test_select_with_join_returns_related_data():
     provider = _make_provider()
     req = RelationalQuery(root_entity="order", relations=["order_customer"], limit=5)
@@ -235,6 +370,19 @@ def test_select_with_join_returns_related_data():
 
     assert len(res.rows) == 3
     assert res.rows[0].related["customer"]["name"] == "Alice"
+
+
+def test_default_select_self_join_uses_relation_key_alias():
+    provider = _make_provider_with_self_relation()
+    req = RelationalQuery(root_entity="order", relations=["parent_order"], limit=5)
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    ids = [row.data["id"] for row in res.rows]
+    assert ids == [1, 2]
+
+    child = next(row for row in res.rows if row.data["id"] == 2)
+    assert child.data["id"] == 2
+    assert child.related["parent_order"]["id"] == 1
 
 
 def test_table_name_mapping_is_used():
@@ -444,6 +592,58 @@ def test_repeated_entity_join_uses_unique_aliases():
     assert [row.data["id"] for row in res.rows] == [102]
     assert res.rows[0].related["order_customer"]["name"] == "Bob"
     assert res.rows[0].related["order_customer_ref"]["notes"] == "retail"
+
+
+def test_ambiguous_entity_reference_raises():
+    provider = _make_provider()
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer", "order_customer_ref"],
+        select=[SelectExpr(expr="customer.name")],
+    )
+
+    with pytest.raises(ValueError, match="Ambiguous reference 'customer'.*order_customer"):
+        provider.fetch("demo", selectors=req.model_dump())
+
+
+def test_disambiguation_via_relation_key_succeeds():
+    provider = _make_provider()
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer", "order_customer_ref"],
+        select=[SelectExpr(expr="order_customer.name"), SelectExpr(expr="order_customer_ref.name")],
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    related_keys = res.rows[0].related.keys()
+    assert "order_customer" in related_keys
+    assert "order_customer_ref" in related_keys
+
+
+def test_entity_reference_allowed_when_single_join():
+    provider = _make_provider()
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        select=[SelectExpr(expr="customer.name")],
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    assert res.rows[0].related["customer"]["name"] == "Alice"
+
+
+def test_duplicate_nameless_relations_raise():
+    provider = _make_provider_without_relation_names()
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["", ""],
+        select=[SelectExpr(expr="customer.name")],
+    )
+
+    with pytest.raises(ValueError, match="set distinct relation.name"):
+        provider.fetch("demo", selectors=req.model_dump())
 
 
 def test_sql_soft_string_filter_is_case_insensitive_and_trimmed():

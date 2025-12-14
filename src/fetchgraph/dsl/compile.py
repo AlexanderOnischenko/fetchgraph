@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Optional, Tuple, Union
+from typing import Any, Iterable, List, Optional, Tuple, Union, cast
 
 from .ast import Clause, ClauseOrGroup, NormalizedQuerySketch
 from fetchgraph.relational.models import (
@@ -15,7 +15,7 @@ from fetchgraph.relational.models import (
 _MappedComparison = Tuple[str, Any]
 
 
-def _map_op(op: str, value: Any) -> Union[FilterClause, List[_MappedComparison], _MappedComparison]:
+def _map_op(op: str, value: Any) -> Union[List[_MappedComparison], _MappedComparison]:
     """Map DSL operator to provider operator or filter.
 
     Returns either a tuple representing comparison operator/value or a list of such tuples
@@ -44,10 +44,12 @@ def _map_op(op: str, value: Any) -> Union[FilterClause, List[_MappedComparison],
 
 def _mapped_to_filter(path: str, mapped: Union[List[_MappedComparison], _MappedComparison]) -> FilterClause:
     if isinstance(mapped, list):
-        compiled = [ComparisonFilter(entity=None, field=path, op=op, value=val) for op, val in mapped]
+        compiled: List[ComparisonFilter] = [
+            ComparisonFilter(entity=None, field=path, op=op, value=val) for op, val in mapped
+        ]
         if len(compiled) == 1:
             return compiled[0]
-        return LogicalFilter(op="and", clauses=compiled)
+        return LogicalFilter(op="and", clauses=cast(List[FilterClause], compiled))
 
     op, value = mapped
     return ComparisonFilter(entity=None, field=path, op=op, value=value)
@@ -142,7 +144,17 @@ def _collect_paths(expr: ClauseOrGroup) -> Iterable[str]:
 
 
 def _infer_relations(sketch: NormalizedQuerySketch) -> List[str]:
-    relations = set(sketch.with_)
+    seen = set()
+    ordered: List[str] = []
+
+    def add_relation(rel: str) -> None:
+        if rel in seen:
+            return
+        seen.add(rel)
+        ordered.append(rel)
+
+    for rel in sketch.with_:
+        add_relation(rel)
 
     def process_path(path: str) -> None:
         if "." not in path:
@@ -151,7 +163,7 @@ def _infer_relations(sketch: NormalizedQuerySketch) -> List[str]:
         if len(parts) == 2:
             rel, _ = parts
             if rel != sketch.from_:
-                relations.add(rel)
+                add_relation(rel)
             return
         raise ValueError(f"Multi-hop dotted paths are not supported yet: {path}")
 
@@ -160,7 +172,7 @@ def _infer_relations(sketch: NormalizedQuerySketch) -> List[str]:
     for field in sketch.get:
         process_path(field)
 
-    return sorted(relations)
+    return ordered
 
 
 def compile_relational_query(sketch: NormalizedQuerySketch) -> RelationalQuery:

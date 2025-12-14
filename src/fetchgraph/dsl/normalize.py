@@ -181,6 +181,16 @@ def _normalize_where(where_value: Any, spec: DslSpec, path: str) -> Tuple[WhereE
         return WhereExpr(all=all_clauses), diagnostics
 
     if isinstance(where_value, dict):
+        allowed_keys = {"all", "any", "not"}
+        present_keys = set(where_value.keys())
+        for key in present_keys - allowed_keys:
+            diagnostics.add(
+                code="DSL_UNKNOWN_KEY",
+                message=f"Unknown where key '{key}'",
+                path=f"{path}.{key}",
+                severity=Severity.WARNING,
+            )
+
         all_list = where_value.get("all", [])
         any_list = where_value.get("any", [])
         not_value = where_value.get("not")
@@ -194,6 +204,14 @@ def _normalize_where(where_value: Any, spec: DslSpec, path: str) -> Tuple[WhereE
         if not_value is not None:
             normalized_not, diags_not = _normalize_clause_or_group(not_value, spec, f"{path}.not")
             diagnostics.extend(diags_not)
+
+        if not present_keys.intersection(allowed_keys):
+            diagnostics.add(
+                code="DSL_EMPTY_WHERE_OBJECT",
+                message="Where object must include 'all', 'any', or 'not' groups",
+                path=path,
+                severity=Severity.WARNING,
+            )
 
         return WhereExpr(all=normalized_all, any=normalized_any, not_=normalized_not), diagnostics
 

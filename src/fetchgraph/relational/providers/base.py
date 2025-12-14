@@ -6,9 +6,10 @@ from typing import Any, List, Optional
 import json
 import re
 
-from .core import ContextProvider, ProviderInfo, SupportsDescribe
-from .json_types import SelectorsDict
-from .relational_models import (
+from ...core.models import ProviderInfo
+from ...core.protocols import ContextProvider, SupportsDescribe
+from ..types import SelectorsDict
+from ..models import (
     QueryResult,
     RelationalQuery,
     SchemaRequest,

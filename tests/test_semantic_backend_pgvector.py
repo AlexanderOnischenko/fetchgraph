@@ -5,7 +5,7 @@ import pytest
 
 pytest.importorskip("pandas")
 
-from fetchgraph.semantic_backend import (
+from fetchgraph.relational.semantic import (
     PgVectorSemanticBackend,
     PgVectorSemanticSource,
     VectorStoreLike,

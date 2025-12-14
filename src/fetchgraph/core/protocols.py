@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional, Protocol, overload, runtime_checkable
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, overload, runtime_checkable
 
 from .models import ProviderInfo, RawLLMOutput
-from .json_types import SelectorsDict
+
+if TYPE_CHECKING:
+    from ..relational.types import SelectorsDict
+else:
+    SelectorsDict = Dict[str, Any]
 
 
 class LLMInvoke(Protocol):

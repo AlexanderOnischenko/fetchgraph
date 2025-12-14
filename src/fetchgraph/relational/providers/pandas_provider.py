@@ -8,8 +8,8 @@ import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
 from difflib import SequenceMatcher
 
-from .relational_base import RelationalDataProvider
-from .relational_models import (
+from .base import RelationalDataProvider
+from ..models import (
     AggregationResult,
     AggregationSpec,
     ComparisonFilter,
@@ -24,7 +24,7 @@ from .relational_models import (
     SemanticClause,
     SemanticOnlyResult,
 )
-from .semantic_backend import SemanticBackend
+from ..semantic.backend import SemanticBackend
 
 
 class PandasRelationalDataProvider(RelationalDataProvider):
@@ -33,7 +33,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
     >>> import pandas as pd
     >>> customers = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
     >>> orders = pd.DataFrame({"id": [10, 11], "customer_id": [1, 2], "total": [100, 200]})
-    >>> from .relational_models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
+    >>> from ..models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
     >>> entities = [
     ...     EntityDescriptor(name="customer", columns=[ColumnDescriptor(name="id", role="primary_key"), ColumnDescriptor(name="name")]),
     ...     EntityDescriptor(name="order", columns=[ColumnDescriptor(name="id", role="primary_key"), ColumnDescriptor(name="customer_id", role="foreign_key"), ColumnDescriptor(name="total", type="int")]),

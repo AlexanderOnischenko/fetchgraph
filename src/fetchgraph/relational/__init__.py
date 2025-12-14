@@ -1,20 +1,43 @@
 """Relational providers and helpers."""
 
-from . import models
 from .types import SelectorsDict
-from .models import *  # noqa: F401,F403
+from .models import (
+    AggregationResult,
+    AggregationSpec,
+    ColumnDescriptor,
+    ComparisonFilter,
+    ComparisonOp,
+    EntityDescriptor,
+    FilterClause,
+    GroupBySpec,
+    LogicalFilter,
+    RelatedEntityData,
+    RelationDescriptor,
+    RelationJoin,
+    RelationalQuery,
+    RelationalRequest,
+    RelationalResponse,
+    RowResult,
+    SchemaRequest,
+    SchemaResult,
+    SelectExpr,
+    SemanticClause,
+    SemanticMatch,
+    SemanticOnlyRequest,
+    SemanticOnlyResult,
+)
 from .providers import (
+    CompositeRelationalProvider,
     RelationalDataProvider,
     SqlRelationalDataProvider,
-    CompositeRelationalProvider,
 )
 from .semantic import (
-    SemanticBackend,
+    CsvEmbeddingBuilder,
     CsvSemanticBackend,
     CsvSemanticSource,
-    CsvEmbeddingBuilder,
     PgVectorSemanticBackend,
     PgVectorSemanticSource,
+    SemanticBackend,
     VectorStoreLike,
 )
 
@@ -23,9 +46,31 @@ try:  # optional dependency
 except Exception:  # pragma: no cover - optional dependency path
     PandasRelationalDataProvider = None  # type: ignore[assignment]
 
-__all__ = [
-    *models.__all__,
+_RELATIONAL_EXPORTS = (
+    "AggregationResult",
+    "AggregationSpec",
+    "ColumnDescriptor",
+    "ComparisonFilter",
+    "ComparisonOp",
+    "EntityDescriptor",
+    "FilterClause",
+    "GroupBySpec",
+    "LogicalFilter",
+    "RelatedEntityData",
+    "RelationDescriptor",
+    "RelationJoin",
+    "RelationalQuery",
+    "RelationalRequest",
+    "RelationalResponse",
+    "RowResult",
+    "SchemaRequest",
+    "SchemaResult",
+    "SelectExpr",
     "SelectorsDict",
+    "SemanticClause",
+    "SemanticMatch",
+    "SemanticOnlyRequest",
+    "SemanticOnlyResult",
     "RelationalDataProvider",
     "SqlRelationalDataProvider",
     "CompositeRelationalProvider",
@@ -36,7 +81,11 @@ __all__ = [
     "PgVectorSemanticBackend",
     "PgVectorSemanticSource",
     "VectorStoreLike",
-]
+)
 
-if PandasRelationalDataProvider is not None:
-    __all__.append("PandasRelationalDataProvider")
+__all__ = (
+    _RELATIONAL_EXPORTS
+    + ("PandasRelationalDataProvider",)
+    if PandasRelationalDataProvider is not None
+    else _RELATIONAL_EXPORTS
+)

@@ -37,7 +37,7 @@ class RelationJoin(BaseModel):
     from_column: str
     to_entity: str
     to_column: str
-    join_type: Literal["inner", "left", "right", "outer"] = "inner"
+    join_type: Literal["inner", "left", "right", "outer"] = "left"
 
 
 class RelationDescriptor(BaseModel):

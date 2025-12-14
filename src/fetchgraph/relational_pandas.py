@@ -405,7 +405,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 alias_map[col] = expr.alias
         selected = df[cols].copy()
         if alias_map:
-            selected = selected.rename(columns=lambda c: alias_map.get(c, c))
+            selected = selected.rename(columns=alias_map)
         return selected
 
     def _handle_query(self, req: RelationalQuery):

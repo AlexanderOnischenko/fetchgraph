@@ -5,6 +5,8 @@ import re
 from json import JSONDecodeError
 from typing import Any, Dict, Tuple
 
+from ..parsing.exceptions import OutputParserException
+from ..parsing.json_parser import JsonParser
 from .ast import QuerySketch
 from .diagnostics import Diagnostics, Severity
 
@@ -41,39 +43,67 @@ def _normalize_input(src: str) -> str:
     return text
 
 
-def _parse_jsonish(text: str) -> Tuple[Dict[str, Any], Diagnostics]:
-    diagnostics = Diagnostics()
-    try:
-        return json.loads(text), diagnostics
-    except JSONDecodeError:
-        fixed = _normalize_input(text)
+class DslParser(JsonParser[QuerySketch]):
+    """JSON5-ish parser for QuerySketch built atop the generic JsonParser."""
+
+    def parse_query(self, src: str | Dict[str, Any]) -> Tuple[QuerySketch, Diagnostics]:
+        diagnostics = Diagnostics()
+
+        if isinstance(src, dict):
+            return QuerySketch(data=src), diagnostics
+
+        if not isinstance(src, str):
+            diagnostics.add(
+                code="DSL_PARSE_ERROR",
+                message="Source must be a string or mapping",
+                path="$",
+                severity=Severity.ERROR,
+            )
+            return QuerySketch(data={}), diagnostics
+
+        text = src.strip()
+        block = self._extract_block(text)
+        if ":" in text and ("{" not in block and ":" not in block):
+            block = text
+
+        def _load_candidates() -> Dict[str, Any]:
+            try:
+                return json.loads(block)
+            except JSONDecodeError:
+                pass
+
+            try:
+                return json.loads(_normalize_input(block))
+            except JSONDecodeError:
+                pass
+
+            try:
+                loaded = self._loads_tolerant(block)
+            except OutputParserException:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive
+                raise OutputParserException(str(exc)) from exc
+
+            if isinstance(loaded, dict):
+                return loaded
+            raise OutputParserException("Parsed data is not an object")
+
         try:
-            return json.loads(fixed), diagnostics
-        except JSONDecodeError:
+            parsed = _load_candidates()
+        except OutputParserException:
             diagnostics.add(
                 code="DSL_PARSE_ERROR",
                 message="Failed to parse QuerySketch input as JSON5-like structure",
                 path="$",
                 severity=Severity.ERROR,
             )
-            return {}, diagnostics
+            return QuerySketch(data={}), diagnostics
+
+        return QuerySketch(data=parsed), diagnostics
 
 
 def parse_query_sketch(src: str | Dict[str, Any]) -> Tuple[QuerySketch, Diagnostics]:
     """Parse QuerySketch source (dict or JSON5-ish string) into an AST."""
 
-    if isinstance(src, dict):
-        return QuerySketch(data=src), Diagnostics()
-
-    if not isinstance(src, str):
-        diagnostics = Diagnostics()
-        diagnostics.add(
-            code="DSL_PARSE_ERROR",
-            message="Source must be a string or mapping",
-            path="$",
-            severity=Severity.ERROR,
-        )
-        return QuerySketch(data={}), diagnostics
-
-    parsed, diagnostics = _parse_jsonish(src)
-    return QuerySketch(data=parsed), diagnostics
+    parser = DslParser()
+    return parser.parse_query(src)

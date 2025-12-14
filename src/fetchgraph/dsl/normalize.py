@@ -136,12 +136,14 @@ def normalize_query_sketch(q: QuerySketch | Dict[str, Any], *, spec: DslSpec | N
     with_fields = _ensure_list(canonical.get("with", spec.defaults.get("with", [])))
     take_value = canonical.get("take", spec.defaults.get("take"))
 
+    take_normalized = _normalize_take(take_value, spec, diagnostics)
+
     normalized = NormalizedQuerySketch(
         from_=canonical_from,
         where=normalized_where,
         get=[str(v) for v in get_fields],
         with_=[str(v) for v in with_fields],
-        take=int(take_value) if take_value is not None else 0,
+        take=take_normalized,
     )
 
     return normalized, diagnostics
@@ -202,6 +204,23 @@ def _normalize_where(where_value: Any, spec: DslSpec, path: str) -> Tuple[WhereE
         severity=Severity.ERROR,
     )
     return WhereExpr(), diagnostics
+
+
+def _normalize_take(value: Any, spec: DslSpec, diagnostics: Diagnostics) -> int:
+    default_take = spec.defaults.get("take", 0)
+    if value is None:
+        return int(default_take)
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        diagnostics.add(
+            code="DSL_INVALID_TAKE",
+            message="Invalid take value; expected an integer",
+            path="$.take",
+            severity=Severity.ERROR,
+        )
+        return int(default_take)
 
 
 def _normalize_clause_list(value: Any, spec: DslSpec, path: str) -> Tuple[List[ClauseOrGroup], Diagnostics]:

@@ -139,6 +139,14 @@ def test_parse_and_normalize_with_defaults_and_dirty_input():
     assert not diags.has_errors()
 
 
+def test_invalid_take_is_reported_and_defaults_used():
+    src = {"from": "streams", "where": [], "take": "many"}
+    normalized, diags = normalize_query_sketch(src)
+
+    assert normalized.take == 200
+    assert any(msg.code == "DSL_INVALID_TAKE" for msg in diags.messages)
+
+
 def test_auto_operator_string_number_array_between_dates():
     src = {
         "from": "streams",

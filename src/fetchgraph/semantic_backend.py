@@ -52,6 +52,20 @@ class CsvSemanticSource:
     embedding_path: Path
 
 
+# Simple synonym normalization to slightly broaden recall without heavy NLP
+# dependencies.
+_TOKEN_SYNONYMS: dict[str, str] = {
+    "widget": "gadget",
+    "widgets": "gadget",
+    "gizmo": "gadget",
+    "gizmos": "gadget",
+}
+
+
+def _normalize_token(token: str) -> str:
+    return _TOKEN_SYNONYMS.get(token, token)
+
+
 class CsvEmbeddingBuilder:
     """Build TF-IDF embeddings for a CSV file and persist them to disk."""
 
@@ -71,7 +85,7 @@ class CsvEmbeddingBuilder:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        return re.findall(r"\b\w+\b", text.lower())
+        return [_normalize_token(tok) for tok in re.findall(r"\b\w+\b", text.lower())]
 
     def _build_vocab(self, documents: list[list[str]]) -> list[str]:
         doc_freq: dict[str, int] = {}
@@ -183,7 +197,7 @@ class CsvSemanticBackend:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        return re.findall(r"\b\w+\b", text.lower())
+        return [_normalize_token(tok) for tok in re.findall(r"\b\w+\b", text.lower())]
 
     def _load_index(self, source: CsvSemanticSource) -> dict[str, object]:
         if not source.embedding_path.exists():

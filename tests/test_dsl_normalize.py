@@ -172,3 +172,11 @@ def test_auto_operator_string_number_array_between_dates():
     ops = [cast(Clause, cl).op for cl in normalized.where.all]
     assert ops == ["is", "=", "between"]
     assert not diags.has_errors()
+
+
+def test_where_group_type_mismatch_emits_diagnostic():
+    src = {"from": "streams", "where": {"all": {"path": "status", "op": "="}}}
+    normalized, diags = normalize_query_sketch(src)
+
+    assert normalized.where.all == []
+    assert any(msg.code == "DSL_BAD_WHERE_GROUP_TYPE" for msg in diags.messages)

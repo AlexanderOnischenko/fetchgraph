@@ -218,7 +218,10 @@ class CompositeRelationalProvider(RelationalDataProvider):
             "cross_relation": cross_relation.name,
             "relations_used": req.relations,
         }
-        return QueryResult(rows=all_rows, meta=meta)
+        projected_rows = self._apply_select_to_rows(
+            all_rows, req.select, req.root_entity
+        )
+        return QueryResult(rows=projected_rows, meta=meta)
 
     def _join_batch_with_remote(
         self,
@@ -526,6 +529,26 @@ class CompositeRelationalProvider(RelationalDataProvider):
                     f"Aggregation '{spec.agg}' is not supported across providers"
                 )
         return results
+
+    def _apply_select_to_rows(
+        self, rows: List[RowResult], select: List, root_entity: str
+    ) -> List[RowResult]:
+        if not select:
+            return rows
+        projected: List[RowResult] = []
+        for row in rows:
+            data: Dict[str, Any] = {}
+            related: Dict[str, Dict[str, Any]] = {}
+            for expr in select:
+                ent, fld = self._resolve_field_entity(expr.expr, root_entity)
+                alias = expr.alias or fld
+                value = self._extract_value(row, ent, fld)
+                if ent == row.entity:
+                    data[alias] = value
+                else:
+                    related.setdefault(ent, {})[alias] = value
+            projected.append(RowResult(entity=row.entity, data=data, related=related))
+        return projected
 
     def _resolve_field_entity(self, field: str, root_entity: str) -> Tuple[str, str]:
         if "." in field:

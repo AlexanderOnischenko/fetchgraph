@@ -9,13 +9,16 @@ from fetchgraph.relational import (
     CompositeRelationalProvider,
     ColumnDescriptor,
     EntityDescriptor,
-    PandasRelationalDataProvider,
-    QueryResult,
+    PandasRelationalDataProvider, 
     RelationDescriptor,
     RelationJoin,
     RelationalDataProvider,
     RelationalQuery,
     SelectExpr,
+)
+
+from fetchgraph.relational.models import (
+    QueryResult,
 )
 
 

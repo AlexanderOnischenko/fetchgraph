@@ -83,9 +83,4 @@ _RELATIONAL_EXPORTS = (
     "VectorStoreLike",
 )
 
-__all__ = (
-    _RELATIONAL_EXPORTS
-    + ("PandasRelationalDataProvider",)
-    if PandasRelationalDataProvider is not None
-    else _RELATIONAL_EXPORTS
-)
+__all__ = _RELATIONAL_EXPORTS + ("PandasRelationalDataProvider",)

@@ -123,8 +123,4 @@ _FETCHGRAPH_EXPORTS = (
     "VectorStoreLike",
 )
 
-__all__ = (
-    _FETCHGRAPH_EXPORTS + ("PandasRelationalDataProvider",)
-    if PandasRelationalDataProvider is not None
-    else _FETCHGRAPH_EXPORTS
-)
+__all__ = _FETCHGRAPH_EXPORTS + ("PandasRelationalDataProvider",)

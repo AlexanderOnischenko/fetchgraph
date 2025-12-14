@@ -4,19 +4,22 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.relational_base import RelationalDataProvider
-from fetchgraph.relational_models import (
+from fetchgraph.relational import (
+    ComparisonFilter,
+    CompositeRelationalProvider,
     ColumnDescriptor,
     EntityDescriptor,
-    QueryResult,
-    RelationalQuery,
+    PandasRelationalDataProvider, 
     RelationDescriptor,
     RelationJoin,
+    RelationalDataProvider,
+    RelationalQuery,
     SelectExpr,
-    ComparisonFilter,
 )
-from fetchgraph.relational_pandas import PandasRelationalDataProvider
-from fetchgraph.relational_composite import CompositeRelationalProvider
+
+from fetchgraph.relational.models import (
+    QueryResult,
+)
 
 
 def _orders_provider():

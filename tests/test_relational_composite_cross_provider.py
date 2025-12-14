@@ -1,28 +1,30 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.relational_composite import CompositeRelationalProvider
-from fetchgraph.relational_models import (
+from fetchgraph.relational import (
     AggregationSpec,
     ColumnDescriptor,
     ComparisonFilter,
+    CompositeRelationalProvider,
     EntityDescriptor,
     GroupBySpec,
+    PandasRelationalDataProvider,
     RelationalQuery,
     RelationDescriptor,
     RelationJoin,
     SelectExpr,
 )
-from fetchgraph.relational_pandas import PandasRelationalDataProvider
 
 
 def _build_block_system_composite(
     *,
-    join_type: str = "inner",
-    cardinality: str = "1_to_many",
+    join_type: Literal["inner", "left", "right", "outer"] = "inner",
+    cardinality: Literal["1_to_1", "1_to_many", "many_to_1", "many_to_many"] = "1_to_many",
     block_df=None,
     system_df=None,
     **kwargs,
@@ -199,7 +201,9 @@ def test_cross_join_1_to_1():
 def test_cross_join_1_to_1_cardinality_violation():
     right_df = pd.DataFrame({"id": [1, 1], "label": ["X", "Y"]})
     composite = _build_one_to_one_composite()
-    composite.children["right"].frames["right"] = right_df
+    right_provider = composite.children["right"]
+    assert isinstance(right_provider, PandasRelationalDataProvider)
+    right_provider.frames["right"] = right_df
     query = RelationalQuery(root_entity="left", relations=["left_right"])
 
     with pytest.raises(ValueError, match="Cardinality 1_to_1 violated"):
@@ -208,7 +212,9 @@ def test_cross_join_1_to_1_cardinality_violation():
 
 def test_cross_join_many_to_1_cardinality_violation():
     composite = _build_employee_department_composite()
-    composite.children["departments"].frames["department"] = pd.DataFrame(
+    departments_provider = composite.children["departments"]
+    assert isinstance(departments_provider, PandasRelationalDataProvider)
+    departments_provider.frames["department"] = pd.DataFrame(
         {"id": [10, 10, 11], "title": ["Eng", "Ops", "HR"]}
     )
     query = RelationalQuery(root_entity="employee", relations=["employee_department"])
@@ -255,7 +261,9 @@ def test_cross_join_handles_right_batch_overflow_for_1_to_many():
 
 def test_cross_join_raises_on_right_batch_overflow_for_1_to_1_or_many_to_1():
     composite = _build_one_to_one_composite()
-    composite.children["right"].frames["right"] = pd.DataFrame(
+    right_provider = composite.children["right"]
+    assert isinstance(right_provider, PandasRelationalDataProvider)
+    right_provider.frames["right"] = pd.DataFrame(
         {"id": [1, 1, 2], "label": ["X", "Y", "Z"]}
     )
     query = RelationalQuery(root_entity="left", relations=["left_right"])

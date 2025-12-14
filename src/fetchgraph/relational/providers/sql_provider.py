@@ -7,8 +7,8 @@ from typing import Any, DefaultDict, Dict, List, Mapping, Optional, Sequence, Tu
 
 from collections import defaultdict
 
-from .relational_base import RelationalDataProvider
-from .relational_models import (
+from .base import RelationalDataProvider
+from ..models import (
     AggregationResult,
     AggregationSpec,
     ComparisonFilter,
@@ -24,7 +24,7 @@ from .relational_models import (
     SemanticClause,
     SemanticOnlyResult,
 )
-from .semantic_backend import SemanticBackend
+from ..semantic.backend import SemanticBackend
 
 
 @dataclass(frozen=True)

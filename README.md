@@ -14,7 +14,7 @@ pip install -e .
 ### Selectors are JSON-only
 
 Providers receive a `selectors` argument that **must be JSON-serializable**. The
-shared alias `SelectorsDict` (see `fetchgraph/json_types.py`) represents
+shared alias `SelectorsDict` (exported from `fetchgraph.relational.types`) represents
 `Dict[str, JSONValue]` and is used across protocols and models. The planner/LLM
 produces this structure, so do not place runtime-only Python objects (e.g.
 connections, DataFrames) into `selectors`; pass such hints through `**kwargs`
@@ -80,8 +80,8 @@ print(agent.run("FeatureX"))
 Example for a relational provider that requires an `"op"` selector:
 
 ```python
-from fetchgraph.json_types import SelectorsDict
-from fetchgraph.models import ProviderInfo
+from fetchgraph import ProviderInfo
+from fetchgraph.relational import SelectorsDict
 
 class RelationalDataProvider:
     name = "relational"
@@ -115,7 +115,7 @@ fetch_spec = ContextFetchSpec(provider="relational", selectors={"op": "schema"})
 
 ## CSV semantic backend for Pandas providers
 
-`fetchgraph.semantic_backend` ships a lightweight TF-IDF backend that turns a CSV
+`fetchgraph.relational.semantic.backend` ships a lightweight TF-IDF backend that turns a CSV
 file into semantic embeddings and reuses them across runs. The flow is:
 
 1. Build embeddings from a CSV once using `CsvEmbeddingBuilder` and persist them
@@ -129,14 +129,13 @@ Example setup:
 
 ```python
 from pathlib import Path
-from fetchgraph.semantic_backend import (
+from fetchgraph.relational.semantic import (
     EmbeddingModel,
     CsvEmbeddingBuilder,
     CsvSemanticBackend,
     CsvSemanticSource,
 )
-from fetchgraph.relational_models import EntityDescriptor, ColumnDescriptor
-from fetchgraph.relational_pandas import PandasRelationalDataProvider
+from fetchgraph.relational import ColumnDescriptor, EntityDescriptor, PandasRelationalDataProvider
 
 csv_path = Path("products.csv")
 embedding_path = Path("products_embeddings.json")
@@ -170,7 +169,7 @@ You can plug in an embedding model (for example, an OpenAI client) to build and
 query dense embeddings instead of the default TF-IDF vectors:
 
 ```python
-from fetchgraph.semantic_backend import (
+from fetchgraph.relational.semantic import (
     EmbeddingModel,
     CsvSemanticSource,
     CsvEmbeddingBuilder,
@@ -226,7 +225,7 @@ you can supply your existing vector stores directly:
 
 ```python
 from langchain_community.vectorstores.pgvector import PGVector
-from fetchgraph.semantic_backend import PgVectorSemanticBackend, PgVectorSemanticSource
+from fetchgraph.relational.semantic import PgVectorSemanticBackend, PgVectorSemanticSource
 
 vector_store = PGVector.from_existing_index(
     collection_name="product_vectors", connection_string="postgresql+psycopg://..."

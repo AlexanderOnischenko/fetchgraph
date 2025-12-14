@@ -12,32 +12,28 @@ import logging
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-from .core import (
-    ContextPacker,
+from .core import (  # noqa: E402
+    BaselineSpec,
     BaseGraphAgent,
+    ContextFetchSpec,
+    ContextItem,
+    ContextPacker,
+    ContextProvider,
+    LLMInvoke,
+    Plan,
+    ProviderInfo,
+    RawLLMOutput,
+    RefetchDecision,
+    Saver,
+    SupportsDescribe,
+    SupportsFilter,
+    TaskProfile,
+    Verifier,
     create_generic_agent,
     make_llm_plan_generic,
     make_llm_synth_generic,
 )
-from .models import (
-    RawLLMOutput,
-    ProviderInfo,
-    TaskProfile,
-    ContextFetchSpec,
-    BaselineSpec,
-    ContextItem,
-    RefetchDecision,
-    Plan,
-)
-from .protocols import (
-    ContextProvider,
-    SupportsFilter,
-    SupportsDescribe,
-    Verifier,
-    Saver,
-    LLMInvoke,
-)
-from .relational_provider import (
+from .relational import (  # noqa: E402
     AggregationResult,
     AggregationSpec,
     ColumnDescriptor,
@@ -46,7 +42,6 @@ from .relational_provider import (
     GroupBySpec,
     LogicalFilter,
     PandasRelationalDataProvider,
-    SqlRelationalDataProvider,
     RelatedEntityData,
     RelationDescriptor,
     RelationJoin,
@@ -57,14 +52,16 @@ from .relational_provider import (
     RowResult,
     SchemaRequest,
     SchemaResult,
+    SelectorsDict,
     SelectExpr,
     SemanticBackend,
     SemanticClause,
     SemanticMatch,
     SemanticOnlyRequest,
     SemanticOnlyResult,
+    SqlRelationalDataProvider,
 )
-from .semantic_backend import (
+from .relational.semantic import (  # noqa: E402
     CsvEmbeddingBuilder,
     CsvSemanticBackend,
     CsvSemanticSource,
@@ -73,7 +70,7 @@ from .semantic_backend import (
     VectorStoreLike,
 )
 
-__all__ = [
+__all__ = (
     "RawLLMOutput",
     "ProviderInfo",
     "TaskProfile",
@@ -93,6 +90,7 @@ __all__ = [
     "create_generic_agent",
     "make_llm_plan_generic",
     "make_llm_synth_generic",
+    "SelectorsDict",
     "AggregationResult",
     "AggregationSpec",
     "ColumnDescriptor",
@@ -123,7 +121,5 @@ __all__ = [
     "PgVectorSemanticBackend",
     "PgVectorSemanticSource",
     "VectorStoreLike",
-]
-
-if PandasRelationalDataProvider is not None:
-    __all__.append("PandasRelationalDataProvider")
+    "PandasRelationalDataProvider",
+)

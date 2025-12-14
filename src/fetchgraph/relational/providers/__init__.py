@@ -15,8 +15,4 @@ _PROVIDER_EXPORTS = (
     "SqlRelationalDataProvider",
 )
 
-__all__ = (
-    _PROVIDER_EXPORTS + ("PandasRelationalDataProvider",)
-    if PandasRelationalDataProvider is not None
-    else _PROVIDER_EXPORTS
-)
+__all__ = _PROVIDER_EXPORTS + ("PandasRelationalDataProvider",)

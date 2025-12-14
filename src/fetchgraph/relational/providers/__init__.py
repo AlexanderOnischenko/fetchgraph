@@ -9,11 +9,14 @@ try:  # optional dependency
 except Exception:  # pragma: no cover - optional dependency path
     PandasRelationalDataProvider = None  # type: ignore[assignment]
 
-__all__ = [
+_PROVIDER_EXPORTS = (
     "RelationalDataProvider",
     "CompositeRelationalProvider",
     "SqlRelationalDataProvider",
-]
+)
 
-if PandasRelationalDataProvider is not None:
-    __all__.append("PandasRelationalDataProvider")
+__all__ = (
+    _PROVIDER_EXPORTS + ("PandasRelationalDataProvider",)
+    if PandasRelationalDataProvider is not None
+    else _PROVIDER_EXPORTS
+)

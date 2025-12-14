@@ -70,7 +70,7 @@ from .relational.semantic import (  # noqa: E402
     VectorStoreLike,
 )
 
-_FETCHGRAPH_EXPORTS = (
+__all__ = (
     "RawLLMOutput",
     "ProviderInfo",
     "TaskProfile",
@@ -121,6 +121,5 @@ _FETCHGRAPH_EXPORTS = (
     "PgVectorSemanticBackend",
     "PgVectorSemanticSource",
     "VectorStoreLike",
+    "PandasRelationalDataProvider",
 )
-
-__all__ = _FETCHGRAPH_EXPORTS + ("PandasRelationalDataProvider",)

@@ -46,7 +46,7 @@ try:  # optional dependency
 except Exception:  # pragma: no cover - optional dependency path
     PandasRelationalDataProvider = None  # type: ignore[assignment]
 
-_RELATIONAL_EXPORTS = (
+__all__ = (
     "AggregationResult",
     "AggregationSpec",
     "ColumnDescriptor",
@@ -81,6 +81,5 @@ _RELATIONAL_EXPORTS = (
     "PgVectorSemanticBackend",
     "PgVectorSemanticSource",
     "VectorStoreLike",
+    "PandasRelationalDataProvider",
 )
-
-__all__ = _RELATIONAL_EXPORTS + ("PandasRelationalDataProvider",)

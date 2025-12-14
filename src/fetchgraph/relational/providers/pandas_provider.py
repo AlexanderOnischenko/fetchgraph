@@ -179,7 +179,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 continue
             ratio = SequenceMatcher(None, val, needle).ratio()
             if ratio >= 0.85:
-                extra_mask.loc[[idx]] = True
+                extra_mask.at[idx] = True
 
         return extra_mask
 

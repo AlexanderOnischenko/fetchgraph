@@ -90,10 +90,14 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         return None
 
     def _relation_by_name(self, name: str) -> RelationDescriptor:
-        for rel in self.relations:
-            if rel.name == name:
-                return rel
-        raise KeyError(f"Relation '{name}' not found")
+        matches = [rel for rel in self.relations if rel.name == name]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) == 0:
+            raise KeyError(f"Relation '{name}' not found")
+        raise ValueError(
+            "Multiple relations share the same name; set distinct relation.name in schema."
+        )
 
     def _quote_ident(self, name: str) -> str:
         return f'"{name}"'

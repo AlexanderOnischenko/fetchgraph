@@ -34,11 +34,51 @@ class CompositeRelationalProvider(RelationalDataProvider):
         max_right_rows_per_batch: int = 5000,
         max_join_bytes: Optional[int] = None,
     ):
-        entities: List[EntityDescriptor] = []
-        relations: List[RelationDescriptor] = []
-        for child in children.values():
-            entities.extend(child.entities)
-            relations.extend(child.relations)
+        def _norm_entity(e: EntityDescriptor) -> Dict[str, Any]:
+            d = e.model_dump()
+            cols = d.get("columns") or []
+            # column order should not make descriptors "different"
+            d["columns"] = sorted(cols, key=lambda c: c.get("name", ""))
+            return d
+
+        def _norm_relation(r: RelationDescriptor) -> Dict[str, Any]:
+            return r.model_dump()
+
+        entity_by_name: Dict[str, EntityDescriptor] = {}
+        entity_src: Dict[str, str] = {}
+        relation_by_name: Dict[str, RelationDescriptor] = {}
+        relation_src: Dict[str, str] = {}
+
+        for child_name, child in children.items():
+            for ent in child.entities:
+                existing = entity_by_name.get(ent.name)
+                if existing is None:
+                    entity_by_name[ent.name] = ent
+                    entity_src[ent.name] = child_name
+                elif _norm_entity(existing) != _norm_entity(ent):
+                    raise ValueError(
+                        f"Entity descriptor conflict for '{ent.name}': "
+                        f"'{entity_src[ent.name]}' vs '{child_name}'. "
+                        "Ensure shared entities have identical schema (columns/roles/types)."
+                    )
+
+            for rel in child.relations:
+                # nameless relations can't be referenced via selectors.relations anyway
+                if not rel.name:
+                    continue
+                existing_rel = relation_by_name.get(rel.name)
+                if existing_rel is None:
+                    relation_by_name[rel.name] = rel
+                    relation_src[rel.name] = child_name
+                elif _norm_relation(existing_rel) != _norm_relation(rel):
+                    raise ValueError(
+                        f"Relation descriptor conflict for '{rel.name}': "
+                        f"'{relation_src[rel.name]}' vs '{child_name}'. "
+                        "Relation names must be unique across children (or have identical descriptors)."
+                    )
+
+        entities = list(entity_by_name.values())
+        relations = list(relation_by_name.values())
         super().__init__(name=name, entities=entities, relations=relations)
         self.children = children
         self.max_join_rows_per_batch = max_join_rows_per_batch

@@ -139,6 +139,26 @@ def test_parse_and_normalize_with_defaults_and_dirty_input():
     assert not diags.has_errors()
 
 
+def test_invalid_take_is_reported_and_defaults_used():
+    src = {"from": "streams", "where": [], "take": "many"}
+    normalized, diags = normalize_query_sketch(src)
+
+    assert normalized.take == 200
+    assert any(msg.code == "DSL_INVALID_TAKE" for msg in diags.messages)
+
+
+def test_where_object_with_unknown_keys_emits_diagnostics():
+    src = {"from": "streams", "where": {"path": "status", "op": "="}}
+    normalized, diags = normalize_query_sketch(src)
+
+    assert normalized.where.all == []
+    assert normalized.where.any == []
+    assert normalized.where.not_ is None
+    codes = {msg.code for msg in diags.messages}
+    assert "DSL_UNKNOWN_KEY" in codes
+    assert "DSL_EMPTY_WHERE_OBJECT" in codes
+
+
 def test_auto_operator_string_number_array_between_dates():
     src = {
         "from": "streams",

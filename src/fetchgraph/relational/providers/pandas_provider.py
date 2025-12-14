@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, Hashable, List, Mapping, Optional, Set, Tuple, cast
+from typing import Any, Dict, Hashable, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
@@ -65,7 +65,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         name: str,
         entities: list[EntityDescriptor],
         relations: list[RelationDescriptor],
-        frames: Mapping[str, pd.DataFrame],
+        frames: MutableMapping[str, pd.DataFrame],
         semantic_backend: Optional[SemanticBackend] = None,
         primary_keys: Optional[Mapping[str, str]] = None,
     ):
@@ -371,7 +371,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         right_df = self._get_frame(right_entity).copy()
         right_df["__merge_key"] = right_df[right_field]
         right_alias = relation.name or right_entity
-        rename_map: Dict[Hashable, Hashable] = {
+        rename_map: Dict[Hashable, str] = {
             col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"
         }
         right_df = right_df.rename(columns=rename_map)
@@ -407,7 +407,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 alias_map[col] = expr.alias
         selected = df[cols].copy()
         if alias_map:
-            selected = selected.rename(columns=alias_map)
+            selected = selected.rename(columns=cast(Mapping[str, str], alias_map))
         return selected
 
     def _handle_query(self, req: RelationalQuery):

@@ -46,20 +46,28 @@ class CompositeRelationalProvider(RelationalDataProvider):
         self.max_join_bytes = max_join_bytes
         # TODO: enforce max_join_bytes when estimating join materialization size
 
-        self._entity_to_provider: Dict[str, str] = {}
+        # NOTE: entities may be exposed by multiple children.
+        self._entity_to_providers: Dict[str, Set[str]] = {}
+        self._provider_entities: Dict[str, Set[str]] = {}
+        self._provider_relations: Dict[str, Set[str]] = {}
         for child_name, child in children.items():
-            for ent in getattr(child, "_entity_index", {}):
-                self._entity_to_provider[ent] = child_name
+            ents = set(getattr(child, "_entity_index", {}).keys())
+            self._provider_entities[child_name] = ents
+            rels = {r.name for r in getattr(child, "relations", [])}
+            self._provider_relations[child_name] = rels
+            for ent in ents:
+                self._entity_to_providers.setdefault(ent, set()).add(child_name)
 
-        self._relation_index: Dict[str, RelationDescriptor] = {
-            rel.name: rel for rel in relations
-        }
-        self._cross_relations: Dict[str, RelationDescriptor] = {
-            name: rel
-            for name, rel in self._relation_index.items()
-            if self._entity_to_provider.get(rel.from_entity)
-            != self._entity_to_provider.get(rel.to_entity)
-        }
+        # Relation names must be globally unique by descriptor (conflicts are ambiguous).
+        self._relation_index: Dict[str, RelationDescriptor] = {}
+        for rel in relations:
+            existing = self._relation_index.get(rel.name)
+            if existing is not None and existing.model_dump() != rel.model_dump():
+                raise ValueError(
+                    f"Relation '{rel.name}' is defined multiple times with different descriptors. "
+                    "Composite routing requires relation names to be unique across children."
+                )
+            self._relation_index[rel.name] = rel
 
     def fetch(self, feature_name: str, selectors: Optional[SelectorsDict] = None, **kwargs):
         selectors = selectors or {}
@@ -81,9 +89,13 @@ class CompositeRelationalProvider(RelationalDataProvider):
         self, req: RelationalQuery
     ) -> Optional[tuple[str, RelationalDataProvider]]:
         involved_entities = self._collect_involved_entities(req)
+        required_relations = set(req.relations)
         for name, prov in self.children.items():
-            if all(e in getattr(prov, "_entity_index", {}) for e in involved_entities):
-                return name, prov
+            if not involved_entities.issubset(self._provider_entities.get(name, set())):
+                continue
+            if not required_relations.issubset(self._provider_relations.get(name, set())):
+                continue
+            return name, prov
         return None
 
     def _plan_cross_provider(
@@ -95,7 +107,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 self._collect_entities_from_filter(req.filters, req.root_entity)
             )
         for ent in filter_entities:
-            if ent != req.root_entity and self._entity_to_provider.get(ent) != self._entity_to_provider.get(req.root_entity):
+            if ent != req.root_entity:
                 raise NotImplementedError(
                     "Filters on non-root providers are not supported for cross-provider joins"
                 )
@@ -103,41 +115,51 @@ class CompositeRelationalProvider(RelationalDataProvider):
             if clause.entity != req.root_entity:
                 raise NotImplementedError("Semantic clauses across providers are not supported")
 
-        root_provider_name = self._entity_to_provider.get(req.root_entity)
-        if not root_provider_name:
-            raise KeyError(
-                f"Root entity '{req.root_entity}' not found in any child provider"
-            )
-        root_provider = self.children[root_provider_name]
+        if not req.relations:
+            raise NotImplementedError("Cross-provider join requires at least one relation")
 
-        local_relations: List[str] = []
-        cross_relation: Optional[RelationDescriptor] = None
-        for idx, rel_name in enumerate(req.relations):
+        # Current limitation: a single cross-provider boundary, and it must be the
+        # last relation in the chain.
+        local_relations = list(req.relations[:-1])
+        cross_relation_name = req.relations[-1]
+        cross_relation = self._relation_index.get(cross_relation_name)
+        if not cross_relation:
+            raise KeyError(f"Relation '{cross_relation_name}' not found")
+
+        def provider_supports_relation(provider_name: str, rel_name: str) -> bool:
+            if rel_name not in self._provider_relations.get(provider_name, set()):
+                return False
             rel = self._relation_index.get(rel_name)
             if not rel:
-                raise KeyError(f"Relation '{rel_name}' not found")
-            from_provider = self._entity_to_provider.get(rel.from_entity)
-            to_provider = self._entity_to_provider.get(rel.to_entity)
-            if from_provider == to_provider == root_provider_name and cross_relation is None:
-                local_relations.append(rel_name)
+                return False
+            ents = self._provider_entities.get(provider_name, set())
+            return rel.from_entity in ents and rel.to_entity in ents
+
+        # Choose a root provider that can execute all relations before the cross
+        # boundary and contains all entities referenced by root-side filters.
+        root_candidates: List[str] = []
+        for provider_name in self.children.keys():
+            ents = self._provider_entities.get(provider_name, set())
+            if req.root_entity not in ents:
                 continue
-            if from_provider != to_provider:
-                if cross_relation is not None:
-                    raise NotImplementedError(
-                        "Multiple cross-provider relations are not supported"
-                    )
-                cross_relation = rel
-                if idx < len(req.relations) - 1:
-                    raise NotImplementedError(
-                        "Relations after a cross-provider join are not supported"
-                    )
+            if req.filters and not set(filter_entities).issubset(ents):
                 continue
+            ok = True
+            for rel_name in local_relations:
+                if not provider_supports_relation(provider_name, rel_name):
+                    ok = False
+                    break
+            if ok:
+                root_candidates.append(provider_name)
+
+        if not root_candidates:
             raise NotImplementedError(
-                "Relations involving non-root providers are not supported before crossing"
+                "Cross-provider join planning failed: no child provider can execute the "
+                "root-side relations prior to the cross boundary."
             )
 
-        if cross_relation is None:
-            raise NotImplementedError("Cross-provider join boundary not found")
+        root_provider_name = root_candidates[0]
+        root_provider = self.children[root_provider_name]
         return root_provider_name, root_provider, local_relations, cross_relation
 
     # --- Cross-provider execution helpers ---
@@ -194,7 +216,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 break
 
             joined_rows = self._join_batch_with_remote(
-                left_rows, req, cross_relation, feature_name, **kwargs
+                left_rows, req, cross_relation, root_provider_name, feature_name, **kwargs
             )
 
             for row in joined_rows:
@@ -228,6 +250,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
         left_rows: List[RowResult],
         req: RelationalQuery,
         cross_relation: RelationDescriptor,
+        root_provider_name: str,
         feature_name: str,
         **kwargs,
     ) -> List[RowResult]:
@@ -235,21 +258,30 @@ class CompositeRelationalProvider(RelationalDataProvider):
         if join_type not in {"inner", "left"}:
             raise NotImplementedError(f"Join type '{join_type}' is not supported for cross-provider joins")
 
-        root_provider_name = self._entity_to_provider[req.root_entity]
-        left_entity: str
-        right_entity: str
-        left_col: str
-        right_col: str
-        if self._entity_to_provider.get(cross_relation.join.from_entity) == root_provider_name:
-            left_entity = cross_relation.join.from_entity
-            right_entity = cross_relation.join.to_entity
+        def _row_has_entity(row: RowResult, entity: str) -> bool:
+            return row.entity == entity or entity in row.related
+
+        # Determine join direction based on which entity is actually present on
+        # the left side rows.
+        from_ent = cross_relation.join.from_entity
+        to_ent = cross_relation.join.to_entity
+        has_from = any(_row_has_entity(r, from_ent) for r in left_rows)
+        has_to = any(_row_has_entity(r, to_ent) for r in left_rows)
+
+        if has_from:
+            left_entity = from_ent
+            right_entity = to_ent
             left_col = cross_relation.join.from_column
             right_col = cross_relation.join.to_column
-        else:
-            left_entity = cross_relation.join.to_entity
-            right_entity = cross_relation.join.from_entity
+        elif has_to:
+            left_entity = to_ent
+            right_entity = from_ent
             left_col = cross_relation.join.to_column
             right_col = cross_relation.join.from_column
+        else:
+            raise KeyError(
+                f"Neither '{from_ent}' nor '{to_ent}' is present in left rows for cross join '{cross_relation.name}'"
+            )
 
         effective_cardinality = self._effective_cardinality(
             cross_relation, left_entity, right_entity
@@ -261,9 +293,27 @@ class CompositeRelationalProvider(RelationalDataProvider):
             join_keys.append(value)
         unique_keys = list({k for k in join_keys if k is not None})
 
-        right_provider_name = self._entity_to_provider.get(right_entity)
-        if not right_provider_name:
+        right_candidates = self._entity_to_providers.get(right_entity, set())
+        if not right_candidates:
             raise KeyError(f"Entity '{right_entity}' not found in any child provider")
+
+        # Prefer a provider different from the root provider when possible.
+        right_provider_name: Optional[str] = None
+        for name in self.children.keys():
+            if name in right_candidates and name != root_provider_name:
+                right_provider_name = name
+                break
+        if right_provider_name is None:
+            # Fallback to root provider if it also exposes the entity, otherwise
+            # take the first candidate in child order.
+            if root_provider_name in right_candidates:
+                right_provider_name = root_provider_name
+            else:
+                for name in self.children.keys():
+                    if name in right_candidates:
+                        right_provider_name = name
+                        break
+        assert right_provider_name is not None
         right_provider = self.children[right_provider_name]
 
         right_results: Dict[Any, List[RowResult]] = {}
@@ -326,7 +376,14 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 continue
             for match in matches:
                 related = {k: dict(v) for k, v in row.related.items()}
-                related[right_entity] = match.data
+                label = right_entity
+                if label in related:
+                    # Avoid overwriting when the same entity is already present
+                    # in related (e.g. repeated joins). Prefer the relation name.
+                    label = cross_relation.name or label
+                    if label in related:
+                        label = f"{right_entity}__remote"
+                related[label] = match.data
                 joined.append(
                     RowResult(
                         entity=row.entity,
@@ -394,7 +451,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 break
 
             joined_rows = self._join_batch_with_remote(
-                left_rows, req, cross_relation, feature_name, **kwargs
+                left_rows, req, cross_relation, root_provider_name, feature_name, **kwargs
             )
 
             for row in joined_rows:

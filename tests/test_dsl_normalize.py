@@ -1,0 +1,69 @@
+from fetchgraph.dsl import normalize_query_sketch
+
+
+def test_normalize_key_aliases_defaults():
+    src = {"root": "streams", "filter": [["status", "active"]]}
+    normalized, diags = normalize_query_sketch(src)
+    assert normalized.from_ == "streams"
+    assert normalized.get == ["*"]
+    assert normalized.with_ == []
+    assert normalized.take == 200
+    assert normalized.where.all[0].op == "is"
+    assert not diags.has_errors()
+
+
+def test_normalize_where_list_to_all():
+    src = {"from": "streams", "where": [["amount", ">", 1000]]}
+    normalized, diags = normalize_query_sketch(src)
+    assert len(normalized.where.all) == 1
+    assert normalized.where.any == []
+    assert normalized.where.not_ is None
+    assert normalized.where.all[0].op == ">"
+    assert not diags.has_errors()
+
+
+def test_normalize_where_object_all_any_not():
+    src = {
+        "from": "streams",
+        "where": {
+            "all": [["amount", ">=", 1000]],
+            "any": [["region", "EU"], ["region", "UK"]],
+            "not": ["is_test", True],
+        },
+    }
+    normalized, diags = normalize_query_sketch(src)
+    assert normalized.where.not_.op == "="
+    assert normalized.where.not_.path == "is_test"
+    assert not diags.has_errors()
+
+
+def test_auto_op_string_is():
+    src = {"from": "streams", "where": [["status", "active"]]}
+    normalized, _ = normalize_query_sketch(src)
+    assert normalized.where.all[0].op == "is"
+
+
+def test_auto_op_number_eq():
+    src = {"from": "streams", "where": [["count", 10]]}
+    normalized, _ = normalize_query_sketch(src)
+    assert normalized.where.all[0].op == "="
+
+
+def test_auto_op_list_in():
+    src = {"from": "streams", "where": [["id", [1, 2, 3]]]}  # not dates
+    normalized, _ = normalize_query_sketch(src)
+    assert normalized.where.all[0].op == "in"
+
+
+def test_auto_op_between_dates():
+    src = {"from": "streams", "where": [["date", ["2020-01-01", "2020-02-01"]]]}
+    normalized, _ = normalize_query_sketch(src)
+    assert normalized.where.all[0].op == "between"
+
+
+def test_op_aliases_and_autocorrect():
+    src = {"from": "streams", "where": [["amount", "gte", 1000], ["name", "conains", "foo"]]}
+    normalized, diags = normalize_query_sketch(src)
+    assert normalized.where.all[0].op == ">="
+    assert normalized.where.all[1].op == "contains"
+    assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags.messages)

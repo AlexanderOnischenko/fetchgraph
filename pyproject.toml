@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [tool.setuptools.package-data]
-fetchgraph = ["prompts/*.md"]
+fetchgraph = ["prompts/*.md", "dsl/spec.yaml"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

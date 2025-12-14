@@ -326,7 +326,10 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             desc = self._entity_index.get(info.entity)
             if not desc:
                 continue
-            label = info.entity if len(index.by_entity.get(info.entity, [])) == 1 else info.key
+            if info.entity == index.root_entity:
+                label = info.key
+            else:
+                label = info.entity if len(index.by_entity.get(info.entity, [])) == 1 else info.key
             for col in desc.columns:
                 aliased = self._select_alias(label, col.name, root_entity)
                 select_parts.append(

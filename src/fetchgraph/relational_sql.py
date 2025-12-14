@@ -321,19 +321,25 @@ class SqlRelationalDataProvider(RelationalDataProvider):
 
     def _build_select_from_expressions(
         self, req: RelationalQuery, table_aliases: Mapping[str, Tuple[str, str]]
-    ) -> Tuple[List[str], List[str]]:
+    ) -> Tuple[List[str], List[str], Dict[str, Tuple[str, str]]]:
         select_parts: List[str] = []
-        base_columns = [col.name for col in self._entity_index[req.root_entity].columns]
+        base_columns: List[str] = []
+        related_columns: Dict[str, Tuple[str, str]] = {}
         for expr in req.select:
             ent, fld = self._resolve_field(req.root_entity, expr.expr, None)
             alias = self._select_alias(ent, fld, req.root_entity)
             target_alias = expr.alias or alias
             if ent not in table_aliases and ent not in self._entity_index:
                 raise KeyError(f"Entity '{ent}' not joined in query")
+            if ent == req.root_entity:
+                base_columns.append(target_alias)
+            else:
+                field_alias = expr.alias or fld
+                related_columns[target_alias] = (ent, field_alias)
             select_parts.append(
                 f"{self._column_ref(self._lookup_alias(ent, table_aliases), fld)} AS {self._quote_ident(target_alias)}"
             )
-        return select_parts, base_columns
+        return select_parts, base_columns, related_columns
 
     def _build_relations(self, req: RelationalQuery) -> Tuple[List[str], Dict[str, Tuple[str, str]]]:
         joins: List[str] = []
@@ -420,8 +426,10 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         if req.group_by or req.aggregations:
             return self._handle_aggregate_query(req, joins, table_aliases)
 
+        related_columns: Dict[str, Tuple[str, str]] = {}
+
         if req.select:
-            select_parts, base_columns = self._build_select_from_expressions(req, table_aliases)
+            select_parts, base_columns, related_columns = self._build_select_from_expressions(req, table_aliases)
         else:
             select_parts, base_columns = self._build_default_select(req.root_entity, table_aliases)
 
@@ -470,7 +478,10 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         cursor = self.connection.cursor()
         cursor.execute(sql, params)
         columns = [desc[0] for desc in cursor.description]
-        rows = [self._row_from_db(row, columns, base_columns, req.root_entity) for row in cursor.fetchall()]
+        rows = [
+            self._row_from_db(row, columns, base_columns, req.root_entity, related_columns or None)
+            for row in cursor.fetchall()
+        ]
         return QueryResult(rows=rows, meta={"relations_used": req.relations})
 
     def _handle_aggregate_query(
@@ -541,15 +552,29 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         return QueryResult(aggregations=agg_results, meta={"relations_used": req.relations})
 
     def _row_from_db(
-        self, row: Sequence[Any], columns: Sequence[str], base_columns: List[str], root_entity: str
+        self,
+        row: Sequence[Any],
+        columns: Sequence[str],
+        base_columns: List[str],
+        root_entity: str,
+        related_fields: Optional[Dict[str, Tuple[str, str]]] = None,
     ) -> RowResult:
         data_map = dict(zip(columns, row))
         data = {col: data_map[col] for col in base_columns if col in data_map}
         related: Dict[str, Dict[str, Any]] = {}
         for col_name, value in data_map.items():
+            if col_name in base_columns:
+                continue
+            if related_fields and col_name in related_fields:
+                ent, fld = related_fields[col_name]
+                related.setdefault(ent, {})[fld] = value
+                continue
+            if col_name.startswith("__"):
+                continue
             if "__" in col_name:
                 ent, fld = col_name.split("__", 1)
-                related.setdefault(ent, {})[fld] = value
+                if ent:
+                    related.setdefault(ent, {})[fld] = value
         return RowResult(entity=root_entity, data=data, related=related)
 
     def _handle_semantic_only(self, req) -> SemanticOnlyResult:

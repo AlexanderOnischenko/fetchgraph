@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, cast
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
@@ -105,6 +105,41 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             if candidate in df.columns:
                 return candidate
         raise KeyError(f"Column not found for entity '{ent or root_entity}': {fld}")
+
+    def _collect_referenced_entities(self, req: RelationalQuery) -> Set[str]:
+        referenced: Set[str] = set()
+
+        def add_entity(ent: Optional[str]):
+            if ent and ent != req.root_entity:
+                referenced.add(ent)
+
+        def entity_from_field(field: str) -> Optional[str]:
+            return field.split(".", 1)[0] if "." in field else None
+
+        for expr in req.select:
+            add_entity(entity_from_field(expr.expr))
+
+        def walk_filter(clause: Optional[FilterClause]):
+            if clause is None:
+                return
+            if isinstance(clause, LogicalFilter):
+                for sub in clause.clauses:
+                    walk_filter(sub)
+                return
+            add_entity(clause.entity or entity_from_field(clause.field))
+
+        walk_filter(req.filters)
+
+        for semantic in req.semantic_clauses:
+            add_entity(semantic.entity)
+
+        for group in req.group_by:
+            add_entity(group.entity or entity_from_field(group.field))
+
+        for agg in req.aggregations:
+            add_entity(entity_from_field(agg.field))
+
+        return referenced
 
     def _normalize_series(self, series: pd.Series) -> pd.Series:
         """Normalize string-like series for soft comparison."""
@@ -303,7 +338,9 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 return r
         raise KeyError(f"Relation '{name}' not found")
 
-    def _perform_join(self, df: pd.DataFrame, relation, root_entity: str) -> pd.DataFrame:
+    def _perform_join(
+        self, df: pd.DataFrame, relation, root_entity: str, referenced_entities: Set[str]
+    ) -> pd.DataFrame:
         left_entity: Optional[str] = None
         right_entity: Optional[str] = None
         left_field: Optional[str] = None
@@ -337,7 +374,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         rename_map = {col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"}
         right_df = right_df.rename(columns=rename_map)
 
-        if right_alias != right_entity:
+        if right_alias != right_entity and right_entity in referenced_entities:
             for original_col in rename_map.values():
                 entity_prefixed = original_col.replace(f"{right_alias}__", f"{right_entity}__", 1)
                 if entity_prefixed not in df.columns and entity_prefixed not in right_df.columns:
@@ -374,10 +411,17 @@ class PandasRelationalDataProvider(RelationalDataProvider):
     def _handle_query(self, req: RelationalQuery):
         df = self._get_frame(req.root_entity).copy()
         base_columns = list(df.columns)
+        related_columns: Dict[str, Tuple[str, str]] = {}
+        referenced_entities = self._collect_referenced_entities(req)
+        for rel_name in req.relations:
+            relation = self._relation_by_name(rel_name)
+            for ent in (relation.from_entity, relation.to_entity):
+                if ent != req.root_entity:
+                    referenced_entities.add(ent)
 
         for rel_name in req.relations:
             relation = self._relation_by_name(rel_name)
-            df = self._perform_join(df, relation, req.root_entity)
+            df = self._perform_join(df, relation, req.root_entity, referenced_entities)
 
         df = self._apply_semantic_clauses(df, req.root_entity, req.semantic_clauses)
 
@@ -388,6 +432,21 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return self._aggregate(df, req)
 
         if req.select:
+            base_columns = []
+            for expr in req.select:
+                if "." in expr.expr:
+                    ent, fld = expr.expr.split(".", 1)
+                else:
+                    ent, fld = req.root_entity, expr.expr
+
+                if ent == req.root_entity:
+                    col = self._resolve_column(df, req.root_entity, fld, ent)
+                    base_columns.append(expr.alias or col)
+                else:
+                    col = self._resolve_column(df, req.root_entity, fld, ent)
+                    field_alias = expr.alias or fld
+                    related_columns[expr.alias or col] = (ent, field_alias)
+
             df = self._apply_select(df, req.root_entity, req.select)
 
         if req.offset:
@@ -395,7 +454,10 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if req.limit is not None:
             df = df.iloc[: req.limit]
 
-        rows = [self._row_from_series(row, base_columns, req.root_entity) for _, row in df.iterrows()]
+        rows = [
+            self._row_from_series(row, base_columns, req.root_entity, related_columns or None)
+            for _, row in df.iterrows()
+        ]
         return QueryResult(rows=rows, meta={"relations_used": req.relations})
 
     def _aggregate(self, df: pd.DataFrame, req: RelationalQuery):
@@ -441,13 +503,29 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             agg_results[alias] = AggregationResult(key=alias, value=value)
         return QueryResult(aggregations=agg_results, meta={"relations_used": req.relations})
 
-    def _row_from_series(self, row: pd.Series, base_columns: List[str], root_entity: str) -> RowResult:
+    def _row_from_series(
+        self,
+        row: pd.Series,
+        base_columns: List[str],
+        root_entity: str,
+        related_fields: Optional[Dict[str, Tuple[str, str]]] = None,
+    ) -> RowResult:
         data = {col: row[col] for col in base_columns if col in row.index}
         related: Dict[str, Dict[str, Any]] = {}
         for col in row.index:
-            if isinstance(col, str) and "__" in col:
-                ent, fld = col.split("__", 1)
-                related.setdefault(ent, {})[fld] = row[col]
+            if col in base_columns:
+                continue
+            if isinstance(col, str):
+                if related_fields and col in related_fields:
+                    ent, fld = related_fields[col]
+                    related.setdefault(ent, {})[fld] = row[col]
+                    continue
+                if col.startswith("__"):
+                    continue
+                if "__" in col:
+                    ent, fld = col.split("__", 1)
+                    if ent:
+                        related.setdefault(ent, {})[fld] = row[col]
         return RowResult(entity=root_entity, data=data, related=related)
 
     def _handle_semantic_only(self, req):

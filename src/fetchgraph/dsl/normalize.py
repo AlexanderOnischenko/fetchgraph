@@ -245,6 +245,12 @@ def _normalize_clause_list(value: Any, spec: DslSpec, path: str) -> Tuple[List[C
     diagnostics = Diagnostics()
     clauses: List[ClauseOrGroup] = []
     if not isinstance(value, list):
+        diagnostics.add(
+            code="DSL_BAD_WHERE_GROUP_TYPE",
+            message="Where group must be a list of clauses",
+            path=path,
+            severity=Severity.ERROR,
+        )
         return clauses, diagnostics
     for idx, clause in enumerate(value):
         normalized, diags = _normalize_clause_or_group(clause, spec, path=f"{path}[{idx}]")

@@ -41,10 +41,8 @@ from .semantic import (
     VectorStoreLike,
 )
 
-try:  # optional dependency
-    from .providers import PandasRelationalDataProvider
-except Exception:  # pragma: no cover - optional dependency path
-    PandasRelationalDataProvider = None  # type: ignore[assignment]
+from .providers import PandasRelationalDataProvider
+
 
 __all__ = (
     "AggregationResult",

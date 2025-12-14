@@ -42,33 +42,52 @@ def _map_op(op: str, value: Any) -> Union[FilterClause, List[_MappedComparison],
     raise ValueError(f"Unsupported operator: {op}")
 
 
-def _compile_clause(clause: Clause) -> FilterClause:
-    mapped = _map_op(clause.op, clause.value)
-
-    if isinstance(mapped, LogicalFilter):
-        return mapped
-
+def _mapped_to_filter(path: str, mapped: Union[List[_MappedComparison], _MappedComparison]) -> FilterClause:
     if isinstance(mapped, list):
-        compiled = [
-            ComparisonFilter(entity=None, field=clause.path, op=op, value=val)
-            for op, val in mapped
-        ]
+        compiled = [ComparisonFilter(entity=None, field=path, op=op, value=val) for op, val in mapped]
         if len(compiled) == 1:
             return compiled[0]
         return LogicalFilter(op="and", clauses=compiled)
 
     op, value = mapped
-    return ComparisonFilter(entity=None, field=clause.path, op=op, value=value)
+    return ComparisonFilter(entity=None, field=path, op=op, value=value)
 
 
-def _invert_not_clause(clause: Clause) -> Clause:
-    if clause.op == "=":
-        return Clause(path=clause.path, op="!=", value=clause.value)
-    if clause.op == "in":
-        return Clause(path=clause.path, op="not_in", value=clause.value)
-    if clause.op == "!=":
-        return Clause(path=clause.path, op="=", value=clause.value)
-    raise ValueError(f"NOT for op {clause.op} not supported yet")
+def _compile_clause(clause: Clause) -> FilterClause:
+    mapped = _map_op(clause.op, clause.value)
+    return _mapped_to_filter(clause.path, mapped)
+
+
+def _negate_mapped(path: str, mapped: Union[List[_MappedComparison], _MappedComparison]) -> FilterClause:
+    if isinstance(mapped, list):
+        if len(mapped) == 2 and {mapped[0][0], mapped[1][0]} == {">=", "<="}:
+            lower = next(val for op, val in mapped if op == ">=")
+            upper = next(val for op, val in mapped if op == "<=")
+            return LogicalFilter(
+                op="or",
+                clauses=[
+                    ComparisonFilter(entity=None, field=path, op="<", value=lower),
+                    ComparisonFilter(entity=None, field=path, op=">", value=upper),
+                ],
+            )
+        raise ValueError("NOT for op list is not supported yet")
+
+    op, value = mapped
+    inverted_ops = {
+        "=": "!=",
+        "!=": "=",
+        "in": "not_in",
+        "not_in": "in",
+        ">": "<=",
+        "<": ">=",
+        ">=": "<",
+        "<=": ">",
+    }
+
+    if op not in inverted_ops:
+        raise ValueError(f"NOT for op {op} not supported yet")
+
+    return ComparisonFilter(entity=None, field=path, op=inverted_ops[op], value=value)
 
 
 def _compile_where(expr: ClauseOrGroup) -> FilterClause:
@@ -91,8 +110,8 @@ def _compile_where(expr: ClauseOrGroup) -> FilterClause:
     if expr.not_ is not None:
         if not isinstance(expr.not_, Clause):
             raise ValueError("NOT is only supported for simple comparisons")
-        inverted = _invert_not_clause(expr.not_)
-        not_filter = _compile_clause(inverted)
+        mapped = _map_op(expr.not_.op, expr.not_.value)
+        not_filter = _negate_mapped(expr.not_.path, mapped)
 
     clauses: List[FilterClause] = []
     if all_filter is not None:
@@ -151,7 +170,7 @@ def compile_relational_query(sketch: NormalizedQuerySketch) -> RelationalQuery:
 
     select: List[SelectExpr] = []
     if sketch.get and "*" not in sketch.get:
-        select = [SelectExpr(expr=field) for field in sketch.get]
+        select = [SelectExpr(expr=field) for field in sketch.get if field != "*"]
 
     relations = _infer_relations(sketch)
 

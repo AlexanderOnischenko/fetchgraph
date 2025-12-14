@@ -4,38 +4,37 @@ from fetchgraph.dsl import compile_relational_query, parse_and_normalize
 from fetchgraph.relational.models import ComparisonFilter, LogicalFilter
 
 
-def test_is_operator_maps_to_equals():
-    sketch, _ = parse_and_normalize("{from: streams, where: [[participant, 'АС ЕСП']]}")
+def test_not_operator_inverts_equals_after_mapping():
+    sketch, _ = parse_and_normalize({"from": "streams", "where": {"not": ["status", "active"]}})
     compiled = compile_relational_query(sketch)
 
     assert compiled.filters is not None
     assert compiled.filters.model_dump() == ComparisonFilter(
-        entity=None, field="participant", op="=", value="АС ЕСП"
+        entity=None, field="status", op="!=", value="active"
     ).model_dump()
 
 
-def test_between_operator_expands_to_range():
-    sketch, _ = parse_and_normalize("{from: streams, where: [[date, [\"2020-01-01\", \"2020-02-01\"]]]}")
+def test_not_operator_inverts_between_into_or_bounds():
+    sketch, _ = parse_and_normalize(
+        {"from": "streams", "where": {"not": ["date", ["2020-01-01", "2020-12-31"]]}}
+    )
     compiled = compile_relational_query(sketch)
 
     assert compiled.filters is not None
     assert compiled.filters.model_dump() == LogicalFilter(
-        op="and",
+        op="or",
         clauses=[
-            ComparisonFilter(entity=None, field="date", op=">=", value="2020-01-01"),
-            ComparisonFilter(entity=None, field="date", op="<=", value="2020-02-01"),
+            ComparisonFilter(entity=None, field="date", op="<", value="2020-01-01"),
+            ComparisonFilter(entity=None, field="date", op=">", value="2020-12-31"),
         ],
     ).model_dump()
 
 
-def test_not_operator_inverts_simple_clause():
-    sketch, _ = parse_and_normalize({"from": "streams", "where": {"not": ["is_test", True]}})
+def test_wildcard_select_results_in_empty_select_list():
+    sketch, _ = parse_and_normalize({"from": "streams", "get": ["*"]})
     compiled = compile_relational_query(sketch)
 
-    assert compiled.filters is not None
-    assert compiled.filters.model_dump() == ComparisonFilter(
-        entity=None, field="is_test", op="!=", value=True
-    ).model_dump()
+    assert compiled.select == []
 
 
 def test_relations_inferred_from_dotted_get():

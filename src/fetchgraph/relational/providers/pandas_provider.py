@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, cast
+from typing import Any, Dict, Hashable, List, Mapping, Optional, Set, Tuple, cast
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
@@ -371,7 +371,9 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         right_df = self._get_frame(right_entity).copy()
         right_df["__merge_key"] = right_df[right_field]
         right_alias = relation.name or right_entity
-        rename_map = {col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"}
+        rename_map: Dict[Hashable, Hashable] = {
+            col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"
+        }
         right_df = right_df.rename(columns=rename_map)
 
         if right_alias != right_entity and right_entity in referenced_entities:

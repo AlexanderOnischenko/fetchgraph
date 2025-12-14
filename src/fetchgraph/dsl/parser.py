@@ -16,7 +16,16 @@ def _normalize_input(src: str) -> str:
         if not text.endswith("}"):
             text = text + "}"
     # Quote unquoted keys
-    text = re.sub(r'(^|[,{]\s*)([A-Za-z_]\w*)\s*:', r'\1"\2":', text)
+    text = re.sub(r'(^|[,\{]\s*)([A-Za-z_]\w*)\s*:', r'\1"\2":', text)
+    # Quote bare identifiers or operators inside arrays
+    def _quote_array_value(match: re.Match[str]) -> str:
+        prefix, value = match.groups()
+        if value in {"true", "false", "null"}:
+            return f"{prefix}{value}"
+        return f'{prefix}"{value}"'
+
+    text = re.sub(r'(\[|,)\s*([A-Za-z_][\w.-]*)\s*(?=[,\]])', _quote_array_value, text)
+    text = re.sub(r'(\[|,)\s*([!<>=]{1,3})\s*(?=[,\]])', _quote_array_value, text)
     # Quote bare word values (except true/false/null)
     def _quote_value(match: re.Match[str]) -> str:
         value = match.group(1)

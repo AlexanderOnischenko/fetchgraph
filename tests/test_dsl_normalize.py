@@ -67,3 +67,34 @@ def test_op_aliases_and_autocorrect():
     assert normalized.where.all[0].op == ">="
     assert normalized.where.all[1].op == "contains"
     assert any(msg.code == "DSL_OP_AUTOCORRECT" for msg in diags.messages)
+
+
+def test_normalize_defaults_from_spec():
+    src = {"from": "streams", "where": []}
+    normalized, diags = normalize_query_sketch(src)
+    assert normalized.get == ["*"]
+    assert normalized.with_ == []
+    assert normalized.take == 200
+    assert not diags.has_errors()
+
+
+def test_normalize_operator_aliases_gte_like():
+    src = {"from": "streams", "where": [["amount", "gte", 1], ["name", "like", "foo"]]}
+    normalized, diags = normalize_query_sketch(src)
+    assert normalized.where.all[0].op == ">="
+    assert normalized.where.all[1].op == "is"
+    assert not diags.has_errors()
+
+
+def test_auto_operator_string_number_array_between_dates():
+    src = {
+        "from": "streams",
+        "where": [
+            ["status", "active"],
+            ["count", 5],
+            ["date", ["2020-01-01", "2020-02-01"]],
+        ],
+    }
+    normalized, diags = normalize_query_sketch(src)
+    assert [cl.op for cl in normalized.where.all] == ["is", "=", "between"]
+    assert not diags.has_errors()

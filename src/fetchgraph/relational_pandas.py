@@ -413,6 +413,11 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         base_columns = list(df.columns)
         related_columns: Dict[str, Tuple[str, str]] = {}
         referenced_entities = self._collect_referenced_entities(req)
+        for rel_name in req.relations:
+            relation = self._relation_by_name(rel_name)
+            for ent in (relation.from_entity, relation.to_entity):
+                if ent != req.root_entity:
+                    referenced_entities.add(ent)
 
         for rel_name in req.relations:
             relation = self._relation_by_name(rel_name)

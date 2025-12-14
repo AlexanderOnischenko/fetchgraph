@@ -365,42 +365,146 @@ class CompositeRelationalProvider(RelationalDataProvider):
 
         for key_chunk in chunks(unique_keys, self.max_right_rows_per_batch):
             comparison = ComparisonFilter(entity=right_entity, field=right_col, op="in", value=key_chunk)
-            remote_req = RelationalQuery(
-                root_entity=right_entity,
-                filters=comparison,
-                relations=[],
-                select=[],
-                limit=self._remote_limit_for_cardinality(
-                    effective_cardinality, len(key_chunk)
-                ),
-                offset=0,
-            )
-            remote_result = right_provider.fetch(
-                feature_name, selectors=remote_req.model_dump(), **kwargs
-            )
-            if not isinstance(remote_result, QueryResult):
-                raise TypeError("Expected QueryResult from right provider")
-            if len(remote_result.rows) > self.max_right_rows_per_batch:
-                raise MemoryError("Right join batch exceeds maximum allowed rows")
-            for row in remote_result.rows:
-                key = self._extract_value(row, right_entity, right_col)
-                if effective_cardinality in {"1_to_1", "many_to_1"}:
+
+            # --- 1) 1_to_1 / many_to_1: safe to fetch in one request (<= key_chunk)
+            if effective_cardinality in {"1_to_1", "many_to_1"}:
+                remote_req = RelationalQuery(
+                    root_entity=right_entity,
+                    filters=comparison,
+                    relations=[],
+                    select=[],
+                    limit=self._remote_limit_for_cardinality(
+                        effective_cardinality, len(key_chunk)
+                    ),
+                    offset=0,
+                )
+                remote_result = right_provider.fetch(
+                    feature_name, selectors=remote_req.model_dump(), **kwargs
+                )
+                if not isinstance(remote_result, QueryResult):
+                    raise TypeError("Expected QueryResult from right provider")
+                if len(remote_result.rows) > self.max_right_rows_per_batch:
+                    raise MemoryError("Right join batch exceeds maximum allowed rows")
+                for row in remote_result.rows:
+                    key = self._extract_value(row, right_entity, right_col)
                     if key in single_right:
                         raise ValueError(
                             f"Cardinality {effective_cardinality} violated for relation '{cross_relation.name}'"
                         )
                     single_right[key] = row
-                else:
-                    bucket = right_results.setdefault(key, [])
-                    bucket.append(row)
-                    if len(bucket) > self.max_right_rows_per_batch:
-                        raise MemoryError(
-                            "Right join batch exceeds maximum allowed rows for key"
-                        )
-            if effective_cardinality in {"1_to_1", "many_to_1"} and len(remote_result.rows) > len(key_chunk):
-                raise ValueError(
-                    f"Cardinality {effective_cardinality} violated for relation '{cross_relation.name}'"
+                if len(remote_result.rows) > len(key_chunk):
+                    raise ValueError(
+                        f"Cardinality {effective_cardinality} violated for relation '{cross_relation.name}'"
+                    )
+                continue
+
+            # --- 2) 1_to_many / many_to_many: correctness-first, avoid silent truncation
+            fast_limit = self.max_right_rows_per_batch
+            fast_req = RelationalQuery(
+                root_entity=right_entity,
+                filters=comparison,
+                relations=[],
+                select=[],
+                limit=fast_limit,
+                offset=0,
+            )
+            fast_res = right_provider.fetch(
+                feature_name, selectors=fast_req.model_dump(), **kwargs
+            )
+            if not isinstance(fast_res, QueryResult):
+                raise TypeError("Expected QueryResult from right provider")
+            if len(fast_res.rows) > self.max_right_rows_per_batch:
+                raise MemoryError("Right join batch exceeds maximum allowed rows")
+
+            # Fast path: if we didn't hit the cap, nothing can be truncated.
+            if len(fast_res.rows) < fast_limit:
+                for row in fast_res.rows:
+                    key = self._extract_value(row, right_entity, right_col)
+                    right_results.setdefault(key, []).append(row)
+                continue
+
+            # Slow path: we hit the cap -> may be truncated (single-key overflow OR multi-key sum overflow).
+            counts = self._count_remote_matches_by_key(
+                right_provider,
+                feature_name=feature_name,
+                entity=right_entity,
+                key_field=right_col,
+                keys=key_chunk,
+                **kwargs,
+            )
+            groups = self._pack_keys_by_row_budget(key_chunk, counts, self.max_right_rows_per_batch)
+
+            pk_field = self._primary_key_field(right_entity)
+            if pk_field is None:
+                raise NotImplementedError(
+                    f"Overflow-safe cross-provider joins require a primary key for entity '{right_entity}'. "
+                    "Mark a column with role='primary_key' in the schema."
                 )
+
+            for gkeys in groups:
+                expected_sum = sum(int(counts.get(k, 0) or 0) for k in gkeys)
+                if expected_sum <= 0:
+                    continue
+
+                # Single key with expected rows > budget -> page it key-by-key (correct but slow).
+                if len(gkeys) == 1 and int(counts.get(gkeys[0], 0) or 0) > self.max_right_rows_per_batch:
+                    k = gkeys[0]
+                    rows = self._fetch_all_right_for_key(
+                        right_provider,
+                        feature_name=feature_name,
+                        entity=right_entity,
+                        key_field=right_col,
+                        key_value=k,
+                        expected_count=int(counts.get(k, 0) or 0),
+                        pk_field=pk_field,
+                        **kwargs,
+                    )
+                    for row in rows:
+                        key = self._extract_value(row, right_entity, right_col)
+                        right_results.setdefault(key, []).append(row)
+                    continue
+
+                # Group fetch where sum(expected) <= budget -> fetch exactly expected_sum rows.
+                grp_filter = ComparisonFilter(entity=right_entity, field=right_col, op="in", value=gkeys)
+                grp_req = RelationalQuery(
+                    root_entity=right_entity,
+                    filters=grp_filter,
+                    relations=[],
+                    select=[],
+                    limit=expected_sum,
+                    offset=0,
+                )
+                grp_res = right_provider.fetch(
+                    feature_name, selectors=grp_req.model_dump(), **kwargs
+                )
+                if not isinstance(grp_res, QueryResult):
+                    raise TypeError("Expected QueryResult from right provider (group fetch)")
+                if len(grp_res.rows) > self.max_right_rows_per_batch:
+                    raise MemoryError("Right join batch exceeds maximum allowed rows")
+
+                tmp: Dict[Any, List[RowResult]] = {}
+                for row in grp_res.rows:
+                    key = self._extract_value(row, right_entity, right_col)
+                    tmp.setdefault(key, []).append(row)
+
+                # Validate per-key completeness; fallback to per-key paging if mismatch.
+                bad_keys = [k for k in gkeys if len(tmp.get(k, [])) != int(counts.get(k, 0) or 0)]
+                for k in bad_keys:
+                    tmp[k] = self._fetch_all_right_for_key(
+                        right_provider,
+                        feature_name=feature_name,
+                        entity=right_entity,
+                        key_field=right_col,
+                        key_value=k,
+                        expected_count=int(counts.get(k, 0) or 0),
+                        pk_field=pk_field,
+                        **kwargs,
+                    )
+
+                for k, rows in tmp.items():
+                    if not rows:
+                        continue
+                    right_results.setdefault(k, []).extend(rows)
 
         joined: List[RowResult] = []
         for row, key in zip(left_rows, join_keys):
@@ -432,6 +536,204 @@ class CompositeRelationalProvider(RelationalDataProvider):
                     )
                 )
         return joined
+
+    def _primary_key_field(self, entity: str) -> Optional[str]:
+        """Return primary key field name for entity if declared in schema (role=='primary_key')."""
+        for e in self.entities:
+            if e.name != entity:
+                continue
+            for c in e.columns or []:
+                if getattr(c, "role", None) == "primary_key":
+                    return c.name
+        return None
+
+    def _count_remote_matches_by_key(
+        self,
+        provider: RelationalDataProvider,
+        *,
+        feature_name: str,
+        entity: str,
+        key_field: str,
+        keys: List[Any],
+        **kwargs,
+    ) -> Dict[Any, int]:
+        """Return COUNT(*) per key_field for the given keys."""
+        if not keys:
+            return {}
+        base = ComparisonFilter(entity=entity, field=key_field, op="in", value=keys)
+        count_req = RelationalQuery(
+            root_entity=entity,
+            filters=base,
+            relations=[],
+            select=[],
+            group_by=[GroupBySpec(field=key_field)],
+            aggregations=[],
+            # group_by output is bounded by len(keys), so no need to cap
+            limit=None,
+            offset=0,
+        )
+        res = provider.fetch(feature_name, selectors=count_req.model_dump(), **kwargs)
+        if not isinstance(res, QueryResult):
+            raise TypeError("Expected QueryResult from right provider (count query)")
+        counts: Dict[Any, int] = {k: 0 for k in keys}
+        for row in res.rows:
+            k = row.data.get(key_field)
+            cnt = row.data.get("count")
+            if k in counts:
+                try:
+                    counts[k] = int(cnt) if cnt is not None else 0
+                except (TypeError, ValueError):
+                    counts[k] = 0
+        return counts
+
+    def _pack_keys_by_row_budget(
+        self, keys: List[Any], counts: Dict[Any, int], budget: int
+    ) -> List[List[Any]]:
+        """
+        Greedy pack keys into groups where sum(counts[key]) <= budget.
+        Preserves the original key order for determinism.
+        Keys with 0 expected rows are skipped (no need to fetch).
+        Keys with count > budget are emitted as single-key groups (handled separately).
+        """
+        groups: List[List[Any]] = []
+        cur: List[Any] = []
+        cur_sum = 0
+        for k in keys:
+            c = int(counts.get(k, 0) or 0)
+            if c <= 0:
+                continue
+            if c > budget:
+                if cur:
+                    groups.append(cur)
+                    cur, cur_sum = [], 0
+                groups.append([k])
+                continue
+            if cur and cur_sum + c > budget:
+                groups.append(cur)
+                cur, cur_sum = [k], c
+            else:
+                cur.append(k)
+                cur_sum += c
+        if cur:
+            groups.append(cur)
+        return groups
+
+    def _fetch_all_right_for_key(
+        self,
+        provider: RelationalDataProvider,
+        *,
+        feature_name: str,
+        entity: str,
+        key_field: str,
+        key_value: Any,
+        expected_count: int,
+        pk_field: str,
+        **kwargs,
+    ) -> List[RowResult]:
+        """
+        Fetch exactly expected_count rows for entity where key_field == key_value.
+        Uses paging and validates completeness; never silently truncates.
+        """
+        if expected_count <= 0:
+            return []
+        page_limit = self.max_right_rows_per_batch
+        seen: Set[Any] = set()
+        out: List[RowResult] = []
+
+        def _base_filter() -> ComparisonFilter:
+            return ComparisonFilter(entity=entity, field=key_field, op="=", value=key_value)
+
+        # 1) try offset paging first (fast path)
+        offset = 0
+        stagnant_pages = 0
+        max_pages = (expected_count // page_limit) + 10  # safety
+        pages = 0
+        while len(seen) < expected_count and pages < max_pages:
+            req = RelationalQuery(
+                root_entity=entity,
+                filters=_base_filter(),
+                relations=[],
+                select=[],
+                limit=page_limit,
+                offset=offset,
+            )
+            res = provider.fetch(feature_name, selectors=req.model_dump(), **kwargs)
+            if not isinstance(res, QueryResult):
+                raise TypeError("Expected QueryResult from right provider (paged fetch)")
+            if not res.rows:
+                break
+            new = 0
+            for row in res.rows:
+                pk = self._extract_value(row, entity, pk_field)
+                if pk in seen:
+                    continue
+                seen.add(pk)
+                out.append(row)
+                new += 1
+            if new == 0:
+                stagnant_pages += 1
+            else:
+                stagnant_pages = 0
+            # If provider returns fewer than requested, we've hit the end under its ordering.
+            if len(res.rows) < page_limit:
+                break
+            offset += page_limit
+            pages += 1
+            if stagnant_pages >= 2:
+                break
+
+        if len(seen) >= expected_count:
+            return out
+
+        # 2) fallback: exclude already seen PKs (robust even if ordering is unstable)
+        # WARNING: can be slow / large filters, but this path is rare and correctness-first.
+        def _exclude_filter() -> FilterClause:
+            clauses: List[FilterClause] = [_base_filter()]
+            seen_list = list(seen)
+            # chunk NOT IN to avoid gigantic parameter lists
+            chunk_size = 1000
+            max_chunks = 100  # hard safety guard
+            for i in range(0, len(seen_list), chunk_size):
+                if (i // chunk_size) >= max_chunks:
+                    raise RuntimeError(
+                        f"Overflow join fetch for {entity}.{key_field}={key_value}: "
+                        "too many exclusion chunks; consider adding a dedicated indexed ordering "
+                        "or increasing batch strategy."
+                    )
+                chunk = seen_list[i : i + chunk_size]
+                clauses.append(
+                    ComparisonFilter(entity=entity, field=pk_field, op="not_in", value=chunk)
+                )
+            return LogicalFilter(op="and", clauses=clauses)
+
+        while len(seen) < expected_count:
+            req = RelationalQuery(
+                root_entity=entity,
+                filters=_exclude_filter(),
+                relations=[],
+                select=[],
+                limit=page_limit,
+                offset=0,
+            )
+            res = provider.fetch(feature_name, selectors=req.model_dump(), **kwargs)
+            if not isinstance(res, QueryResult):
+                raise TypeError("Expected QueryResult from right provider (exclude fetch)")
+            if not res.rows:
+                break
+            for row in res.rows:
+                pk = self._extract_value(row, entity, pk_field)
+                if pk in seen:
+                    continue
+                seen.add(pk)
+                out.append(row)
+
+        if len(seen) != expected_count:
+            raise RuntimeError(
+                f"Overflow join fetch incomplete for {entity}.{key_field}={key_value}: "
+                f"expected {expected_count} rows, got {len(seen)} unique PK rows. "
+                "Refusing to return partial join results."
+            )
+        return out
 
     def _execute_cross_provider_aggregate(
         self,

@@ -4,9 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
-from fetchgraph.core import create_generic_agent, TaskProfile
-from fetchgraph.protocols import LLMInvoke
-from fetchgraph.relational_schema import SchemaConfig  # только для типа, не обязательно
+from fetchgraph import LLMInvoke
+from fetchgraph.core import TaskProfile, create_generic_agent
+from fetchgraph.relational.schema import SchemaConfig  # только для типа, не обязательно
 
 from .schema import build_retail_provider, RETAIL_SCHEMA
 

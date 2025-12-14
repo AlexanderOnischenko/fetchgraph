@@ -200,7 +200,26 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 return all(isinstance(v, str) for v in val)
             return False
 
-        if (not case_sensitive) and is_string_series and _is_string_like(value) and op in {"=", "!=", "in", "not_in", "like", "ilike"}:
+        if (
+            not case_sensitive
+            and is_string_series
+            and _is_string_like(value)
+            and op
+            in {
+                "=",
+                "!=",
+                "in",
+                "not_in",
+                "like",
+                "ilike",
+                "not_like",
+                "not_ilike",
+                "starts",
+                "ends",
+                "not_starts",
+                "not_ends",
+            }
+        ):
             s = self._normalize_series(series)
             v = self._normalize_value(value)
 
@@ -220,7 +239,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 return mask
             if op == "not_in":
                 return ~s.isin(v)
-            if op in {"like", "ilike"}:
+            if op in {"like", "ilike", "not_like", "not_ilike"}:
                 if isinstance(v, (list, tuple)):
                     pattern_value = v[0] if v else ""
                 elif isinstance(v, set):
@@ -228,7 +247,15 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 else:
                     pattern_value = v
                 pattern = str(pattern_value)
-                return s.str.contains(pattern, case=False, regex=False)
+                mask = s.str.contains(pattern, case=False, regex=False)
+                return mask if op in {"like", "ilike"} else ~mask
+            if op in {"starts", "ends", "not_starts", "not_ends"}:
+                pattern = str(v)
+                if op in {"starts", "not_starts"}:
+                    mask = s.str.startswith(pattern, na=False)
+                    return mask if op == "starts" else ~mask
+                mask = s.str.endswith(pattern, na=False)
+                return mask if op == "ends" else ~mask
 
         if op == "=":
             return series == value
@@ -250,6 +277,18 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return series.astype(str).str.contains(str(value), case=True, regex=False)
         if op == "ilike":
             return series.astype(str).str.contains(str(value), case=False, regex=False)
+        if op == "not_like":
+            return ~series.astype(str).str.contains(str(value), case=True, regex=False)
+        if op == "not_ilike":
+            return ~series.astype(str).str.contains(str(value), case=False, regex=False)
+        if op == "starts":
+            return series.astype(str).str.startswith(str(value), na=False)
+        if op == "ends":
+            return series.astype(str).str.endswith(str(value), na=False)
+        if op == "not_starts":
+            return ~series.astype(str).str.startswith(str(value), na=False)
+        if op == "not_ends":
+            return ~series.astype(str).str.endswith(str(value), na=False)
         raise ValueError(f"Unsupported comparison operator: {op}")
 
     def _apply_filters(

@@ -31,12 +31,35 @@ def _map_op(op: str, value: Any) -> Union[List[_MappedComparison], _MappedCompar
         return ">", value
     if op == "contains":
         return "ilike", value
+    if op == "starts":
+        return "starts", value
+    if op == "ends":
+        return "ends", value
+    if op in {"similar", "related"}:
+        return "ilike", value
     if op == "between":
         if not isinstance(value, (list, tuple)) or len(value) != 2:
             raise ValueError("between operator expects a list or tuple with exactly two values")
         return [(">=", value[0]), ("<=", value[1])]
 
-    if op in {"=", "!=", "<", ">", "<=", ">=", "in", "not_in", "like", "ilike"}:
+    if op in {
+        "=",
+        "!=",
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "in",
+        "not_in",
+        "like",
+        "ilike",
+        "not_like",
+        "not_ilike",
+        "starts",
+        "ends",
+        "not_starts",
+        "not_ends",
+    }:
         return op, value
 
     raise ValueError(f"Unsupported operator: {op}")
@@ -84,6 +107,10 @@ def _negate_mapped(path: str, mapped: Union[List[_MappedComparison], _MappedComp
         "<": ">=",
         ">=": "<",
         "<=": ">",
+        "like": "not_like",
+        "ilike": "not_ilike",
+        "starts": "not_starts",
+        "ends": "not_ends",
     }
 
     if op not in inverted_ops:

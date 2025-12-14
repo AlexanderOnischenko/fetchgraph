@@ -6,13 +6,12 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+import yaml
+
 from .ast import Clause, ClauseOrGroup, NormalizedQuerySketch, QuerySketch, WhereExpr
 from .diagnostics import Diagnostics, Severity
 
-try:
-    import yaml
-except ModuleNotFoundError:  # pragma: no cover - fallback if PyYAML missing
-    yaml = None
+
 
 
 _STATIC_SPEC: Dict[str, Any] = {

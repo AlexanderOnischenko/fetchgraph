@@ -538,6 +538,3 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             raise RuntimeError("Semantic backend is not configured")
         matches = self.semantic_backend.search(req.entity, req.fields, req.query, req.top_k)
         return SemanticOnlyResult(matches=matches)
-
-
-__all__ = ["PandasRelationalDataProvider"]

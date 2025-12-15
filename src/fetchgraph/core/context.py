@@ -26,6 +26,7 @@ from .protocols import (
     Verifier,
 )
 from .selector_dialects import compile_selectors
+from ..plan_compile import compile_plan_selectors
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -453,6 +454,7 @@ class BaseGraphAgent:
             plan = self.plan_parser(plan_raw)
         else:
             plan = Plan.model_validate_json(plan_raw.text)
+        plan = compile_plan_selectors(plan, self.providers)
         elapsed = time.perf_counter() - t0
         logger.info(
             "Planning finished for feature_name=%r in %.3fs "

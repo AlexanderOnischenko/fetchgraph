@@ -107,7 +107,7 @@ def _negate_mapped(path: str, mapped: Union[List[_MappedComparison], _MappedComp
         raise ValueError("NOT for op list is not supported yet")
 
     op, value = mapped
-    inverted_ops = {
+    inverted_ops: dict[ComparisonOp, ComparisonOp] = {
         "=": "!=",
         "!=": "=",
         "in": "not_in",
@@ -125,7 +125,12 @@ def _negate_mapped(path: str, mapped: Union[List[_MappedComparison], _MappedComp
     if op not in inverted_ops:
         raise ValueError(f"NOT for op {op} not supported yet")
 
-    return ComparisonFilter(entity=None, field=path, op=inverted_ops[op], value=value)
+    return ComparisonFilter(
+        entity=None,
+        field=path,
+        op=_as_comparison_op(inverted_ops[op]),
+        value=value,
+    )
 
 
 def _compile_where(expr: ClauseOrGroup) -> FilterClause:

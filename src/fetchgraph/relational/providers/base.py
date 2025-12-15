@@ -191,7 +191,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             "semantic_only": {
                 "summary": "Semantic matches only (no joined rows)",
                 "required": ["entity", "query"],
-                "optional": ["fields", "top_k", "threshold"],
+                "optional": ["fields", "top_k"],
                 "enums": {"entity": _build_enum_digest(entity_names)},
             },
             "query": {
@@ -305,7 +305,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             },
             "dsl_hints": {
                 "dialect_id": "fetchgraph.dsl.query_sketch@v0",
-                "payload_keys": ["from", "get", "where", "with", "take", "skip", "order_by"],
+                "payload_keys": ["from", "get", "where", "with", "take"],
                 "where_clause_forms": [["field", "value"], ["field", "op", "value"]],
                 "supported_ops_preview": _build_enum_digest(filter_ops),
                 "notes": "Use short lists; combine with 'with' to follow relations",

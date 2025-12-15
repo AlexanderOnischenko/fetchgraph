@@ -44,6 +44,7 @@ def summarize_selectors_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
             op = op_field.get("const") or op_field.get("enum", [None])[0]
 
         required = variant.get("required", []) if isinstance(variant.get("required"), list) else []
+        required_set = set(required)
         enums: Dict[str, Any] = {}
         optional: List[str] = []
 
@@ -55,7 +56,8 @@ def summarize_selectors_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
                     compacted, more = compact_enum(spec["enum"])
                     enums[key] = compacted + ([f"... (+{more} more)"] if more else [])
                 else:
-                    optional.append(key)
+                    if key not in required_set:
+                        optional.append(key)
 
         summary["oneOf"].append(
             {

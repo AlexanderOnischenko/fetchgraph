@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import difflib
+import importlib
+import importlib.util
 import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-import yaml
+_yaml_spec = importlib.util.find_spec("yaml")
+yaml = importlib.import_module("yaml") if _yaml_spec is not None else None
 
 from .ast import Clause, ClauseOrGroup, NormalizedQuerySketch, QuerySketch, WhereExpr
 from .diagnostics import Diagnostics, Severity

@@ -7,7 +7,12 @@ AST, and normalizes keys, operators, and defaults according to `spec.yaml`.
 ## Usage
 
 ```python
-from fetchgraph.dsl import parse_query_sketch, normalize_query_sketch, parse_and_normalize
+from fetchgraph.dsl import (
+    compile_relational_query,
+    normalize_query_sketch,
+    parse_and_normalize,
+    parse_query_sketch,
+)
 
 raw = "{ from: streams, where: [[\"status\", \"active\"]] }"
 parsed, parse_diags = parse_query_sketch(raw)
@@ -24,6 +29,17 @@ normalized.get      # defaults to ["*"]
 normalized.with_    # defaults to []
 normalized.take     # defaults from spec (200)
 normalized.where    # WhereExpr with all/any/not
+```
+
+After normalization you can compile the sketch into a `RelationalQuery` selectors dict
+ready for providers:
+
+```python
+sketch, diags = parse_and_normalize(raw)
+compiled = compile_relational_query(sketch)
+compiled.select  # [] when get is omitted or contains "*"
+compiled.filters
+compiled.relations
 ```
 
 Diagnostics collect warnings and errors encountered during parsing or normalization.

@@ -66,7 +66,7 @@ def bind_query_sketch(
         field_ref.entity = updated.entity
         return field_ref
 
-    def resolve_qualified(field_ref: FieldRef, qualifier: str) -> _ResolutionResult | None:
+    def resolve_qualified(field_ref: FieldRef, qualifier: str, location: str) -> _ResolutionResult | None:
         norm_qualifier = _normalize_name(qualifier)
         if norm_qualifier in registry.relations_by_name:
             relation = registry.relations_by_name[norm_qualifier]
@@ -75,7 +75,7 @@ def bind_query_sketch(
                 diagnostics.add(
                     code="DSL_BIND_RELATION_PATH_NOT_FOUND",
                     message=f"No path from root {bound.from_!r} to relation source {relation.from_entity!r}",
-                    path=field_ref.raw,
+                    path=location,
                     severity=Severity.ERROR,
                 )
                 return None
@@ -84,7 +84,7 @@ def bind_query_sketch(
                 diagnostics.add(
                     code="DSL_BIND_FIELD_NOT_FOUND",
                     message=f"Field {field_ref.field!r} not found on entity {relation.to_entity!r}",
-                    path=field_ref.raw,
+                    path=location,
                     severity=Severity.ERROR,
                 )
                 return None
@@ -96,7 +96,7 @@ def bind_query_sketch(
             diagnostics.add(
                 code="DSL_BIND_UNKNOWN_QUALIFIER",
                 message=f"Unknown qualifier {qualifier!r}",
-                path=field_ref.raw,
+                path=location,
                 severity=Severity.ERROR,
             )
             return None
@@ -106,7 +106,7 @@ def bind_query_sketch(
             diagnostics.add(
                 code="DSL_BIND_RELATION_PATH_NOT_FOUND",
                 message=f"No path from root {bound.from_!r} to entity {qualifier!r}",
-                path=field_ref.raw,
+                path=location,
                 severity=Severity.ERROR,
             )
             return None
@@ -116,7 +116,7 @@ def bind_query_sketch(
             diagnostics.add(
                 code="DSL_BIND_FIELD_NOT_FOUND",
                 message=f"Field {field_ref.field!r} not found on entity {qualifier!r}",
-                path=field_ref.raw,
+                path=location,
                 severity=Severity.ERROR,
             )
             return None
@@ -125,7 +125,7 @@ def bind_query_sketch(
         rewrite_field(field_ref, join_path, column.name, entity_name)
         return _ResolutionResult(field_ref=field_ref, join_path=join_path, reason=_reason_for_path(join_path))
 
-    def choose_best_candidate(field_ref: FieldRef) -> FieldCandidate | None:
+    def choose_best_candidate(field_ref: FieldRef, location: str) -> FieldCandidate | None:
         declared_with = bound.with_ if policy.prefer_declared_relations else None
         candidates = registry.field_candidates(
             bound.from_,
@@ -137,7 +137,7 @@ def bind_query_sketch(
             diagnostics.add(
                 code="DSL_BIND_FIELD_NOT_FOUND",
                 message=f"Field {field_ref.field!r} not found on root or reachable entities",
-                path=field_ref.raw,
+                path=location,
                 severity=Severity.ERROR,
             )
             return None
@@ -155,7 +155,7 @@ def bind_query_sketch(
                 diagnostics.add(
                     code="DSL_BIND_AMBIGUOUS_FIELD",
                     message=message,
-                    path=field_ref.raw,
+                    path=location,
                     severity=severity,
                 )
                 if policy.ambiguity_strategy == "ask":
@@ -163,8 +163,8 @@ def bind_query_sketch(
                 best = competing[0]
         return best
 
-    def resolve_unqualified(field_ref: FieldRef) -> _ResolutionResult | None:
-        candidate = choose_best_candidate(field_ref)
+    def resolve_unqualified(field_ref: FieldRef, location: str) -> _ResolutionResult | None:
+        candidate = choose_best_candidate(field_ref, location)
         if candidate is None:
             return None
 
@@ -176,9 +176,9 @@ def bind_query_sketch(
     def _reason_for_path(join_path: Tuple[str, ...]) -> str:
         if not join_path:
             return _DEF_REASON_ROOT
-        declared_norm = tuple(_normalize_name(r) for r in bound.with_)
-        normalized_path = tuple(_normalize_name(r) for r in join_path)
-        if declared_norm and normalized_path[: len(declared_norm)] == declared_norm:
+        declared_set = {_normalize_name(r) for r in bound.with_}
+        normalized_path = {_normalize_name(r) for r in join_path}
+        if declared_set and normalized_path.issubset(declared_set):
             return _DEF_REASON_DECLARED
         return _DEF_REASON_AUTO
 
@@ -188,9 +188,9 @@ def bind_query_sketch(
             return None
 
         if field_ref.qualifier is not None:
-            result = resolve_qualified(field_ref, field_ref.qualifier)
+            result = resolve_qualified(field_ref, field_ref.qualifier, location)
         else:
-            result = resolve_unqualified(field_ref)
+            result = resolve_unqualified(field_ref, location)
 
         if result is None:
             return None
@@ -233,9 +233,9 @@ def bind_query_sketch(
 
 
 def _candidate_key(candidate: FieldCandidate, declared_with: List[str] | None) -> tuple:
-    declared_norm = tuple(_normalize_name(r) for r in declared_with) if declared_with else tuple()
-    normalized_path = tuple(_normalize_name(r) for r in candidate.join_path)
-    declared_first = 0 if declared_norm and normalized_path[: len(declared_norm)] == declared_norm else 1
+    declared_set = {_normalize_name(r) for r in declared_with} if declared_with else set()
+    normalized_path = {_normalize_name(r) for r in candidate.join_path}
+    declared_first = 0 if declared_set and normalized_path.issubset(declared_set) else 1
     return (
         len(candidate.join_path),
         declared_first,
@@ -246,7 +246,7 @@ def _candidate_key(candidate: FieldCandidate, declared_with: List[str] | None) -
 
 
 def _priority_key(candidate: FieldCandidate, declared_with: List[str] | None) -> tuple[int, int]:
-    declared_norm = tuple(_normalize_name(r) for r in declared_with) if declared_with else tuple()
-    normalized_path = tuple(_normalize_name(r) for r in candidate.join_path)
-    declared_first = 0 if declared_norm and normalized_path[: len(declared_norm)] == declared_norm else 1
+    declared_set = {_normalize_name(r) for r in declared_with} if declared_with else set()
+    normalized_path = {_normalize_name(r) for r in candidate.join_path}
+    declared_first = 0 if declared_set and normalized_path.issubset(declared_set) else 1
     return (len(candidate.join_path), declared_first)

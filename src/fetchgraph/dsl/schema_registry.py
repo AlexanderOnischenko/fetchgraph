@@ -60,9 +60,10 @@ class SchemaRegistry:
                     f"Relation {relation.name} references unknown entities: "
                     f"{relation.from_entity} -> {relation.to_entity}"
                 )
-
             self.relations_by_name[norm_name] = relation
             self.adj.setdefault(from_norm, []).append(relation)
+            # Allow traversal in both directions while keeping deterministic order.
+            self.adj.setdefault(to_norm, []).append(relation)
 
     def has_entity(self, name: str) -> bool:
         norm_name = _normalize_name(name)
@@ -108,6 +109,9 @@ class SchemaRegistry:
         if max_depth < 0:
             return []
 
+        if norm_root == norm_target:
+            return [tuple()]
+
         queue = deque([(norm_root, tuple())])
         best_depth: Dict[str, int] = {norm_root: 0}
         paths: List[Tuple[str, ...]] = []
@@ -121,7 +125,9 @@ class SchemaRegistry:
                 continue
 
             for relation in self.adj.get(current_entity, []):
-                next_entity = _normalize_name(relation.to_entity)
+                next_entity = _normalize_name(
+                    relation.to_entity if _normalize_name(relation.from_entity) == current_entity else relation.from_entity
+                )
                 new_path = path + (relation.name,)
                 new_depth = depth + 1
 
@@ -164,7 +170,7 @@ class SchemaRegistry:
         if max_depth < 0:
             return []
 
-        declared_norm = tuple(_normalize_name(r) for r in declared_with) if declared_with else None
+        declared_set = {_normalize_name(r) for r in declared_with} if declared_with else None
         candidates: List[FieldCandidate] = []
 
         root_fields = self.fields_by_entity.get(norm_root, {})
@@ -203,9 +209,9 @@ class SchemaRegistry:
         def sort_key(candidate: FieldCandidate):
             join_path = candidate.join_path
             declared_first = 0
-            if declared_norm is not None:
-                normalized_path = tuple(_normalize_name(r) for r in join_path)
-                declared_first = 0 if normalized_path[: len(declared_norm)] == declared_norm else 1
+            if declared_set is not None:
+                normalized_path = {_normalize_name(r) for r in join_path}
+                declared_first = 0 if normalized_path.issubset(declared_set) else 1
             return (
                 len(join_path),
                 declared_first,

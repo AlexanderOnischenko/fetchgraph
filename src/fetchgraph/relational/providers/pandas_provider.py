@@ -6,7 +6,6 @@ from typing import Any, Dict, Hashable, List, Mapping, MutableMapping, Optional,
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
-from pandas._typing import Renamer
 from difflib import SequenceMatcher
 
 from .base import RelationalDataProvider
@@ -442,7 +441,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not select:
             return df
         cols: List[str] = []
-        alias_map: Dict[Hashable, Hashable] = {}
+        alias_map: Dict[str, str] = {}
         for expr in select:
             if "." in expr.expr:
                 ent, fld = expr.expr.split(".", 1)
@@ -454,7 +453,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 alias_map[col] = expr.alias
         selected = df[cols].copy()
         if alias_map:
-            selected = selected.rename(columns=cast(Renamer, alias_map))
+            selected = selected.rename(columns=alias_map)
         return selected
 
     def _handle_query(self, req: RelationalQuery):

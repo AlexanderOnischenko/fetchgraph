@@ -113,6 +113,35 @@ operation:
 fetch_spec = ContextFetchSpec(provider="relational", selectors={"op": "schema"})
 ```
 
+### QuerySketch (schema-bound)
+
+The `$dsl: "fetchgraph.dsl.query_sketch@v0"` envelope lets the planner specify
+compact relational queries without manually qualifying field paths or listing
+relations. During `compile_selectors`, the schema-aware binder resolves
+unqualified fields to the appropriate entity, auto-inserts required relations,
+and rewrites field references to the `relation.field` form expected by
+providers.
+
+Minimal payload example (unqualified field on a joined entity):
+
+```json
+{
+  "$dsl": "fetchgraph.dsl.query_sketch@v0",
+  "payload": {"from": "fbs", "where": [["system_name", "contains", "ЕСП"]], "take": 10}
+}
+```
+
+After compilation, the native selectors include the join and fully qualified
+field (e.g., `relations: ["fbs_as"]`, `filters.field: "fbs_as.system_name"`).
+
+Known limitations:
+
+- No fuzzy matching, aliases, or type-checking yet; resolution is purely
+  schema-based.
+- Ambiguity defaults to deterministic selection with warnings; set
+  `ResolutionPolicy(ambiguity_strategy="ask")` to fail on ambiguous fields.
+- `max_auto_join_depth` defaults to 2.
+
 ## CSV semantic backend for Pandas providers
 
 `fetchgraph.relational.semantic.backend` ships a lightweight TF-IDF backend that turns a CSV

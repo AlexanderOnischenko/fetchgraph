@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict
 
-from ..dsl import compile_relational_query, parse_and_normalize
+from ..dsl import (
+    SchemaRegistry,
+    bind_query_sketch,
+    compile_relational_query,
+    normalized_from_bound,
+    parse_and_normalize,
+)
+from ..dsl.resolution_policy import ResolutionPolicy
 from .protocols import ContextProvider, SupportsDescribe
 from .models import ProviderInfo
 
@@ -10,23 +17,48 @@ from .models import ProviderInfo
 QUERY_SKETCH_DSL_ID = "fetchgraph.dsl.query_sketch@v0"
 
 
-def _compile_query_sketch(payload: Any) -> Dict[str, Any]:
+def _compile_query_sketch(provider: SupportsDescribe, payload: Any) -> Dict[str, Any]:
     if payload is None:
         raise ValueError("Selector dialect fetchgraph.dsl.query_sketch@v0 requires 'payload'")
 
     sketch, diagnostics = parse_and_normalize(payload)
     if diagnostics.has_errors():
         errors = diagnostics.errors()
-        summary = "; ".join(f"{err.code}: {err.message}" for err in errors)
+        summary = "; ".join(
+            f"{err.code}: {err.message}{f' (path={err.path})' if err.path else ''}"
+            for err in errors
+        )
         raise ValueError(
             "Selector dialect fetchgraph.dsl.query_sketch@v0 parse errors: " + summary
         )
 
-    compiled = compile_relational_query(sketch)
+    try:
+        entities = provider.entities
+        relations = provider.relations
+    except AttributeError as exc:  # pragma: no cover - defensive
+        provider_name = getattr(provider, "name", provider.__class__.__name__)
+        raise ValueError(
+            f"Provider {provider_name!r} must expose 'entities' and 'relations' for schema binding"
+        ) from exc
+
+    registry = SchemaRegistry(entities, relations)
+    bound, bind_diags = bind_query_sketch(sketch, registry, ResolutionPolicy())
+    if bind_diags.has_errors():
+        errors = bind_diags.errors()
+        summary = "; ".join(
+            f"{err.code}: {err.message}{f' (path={err.path})' if err.path else ''}"
+            for err in errors
+        )
+        raise ValueError(
+            "Selector dialect fetchgraph.dsl.query_sketch@v0 errors: " + summary
+        )
+
+    sketch2 = normalized_from_bound(bound)
+    compiled = compile_relational_query(sketch2)
     return compiled.model_dump()
 
 
-_COMPILERS: Dict[str, Callable[[Any], Dict[str, Any]]] = {
+_COMPILERS: Dict[str, Callable[[SupportsDescribe, Any], Dict[str, Any]]] = {
     QUERY_SKETCH_DSL_ID: _compile_query_sketch,
 }
 
@@ -73,7 +105,7 @@ def compile_selectors(provider: ContextProvider, selectors: Dict[str, Any]) -> D
         )
 
     payload = selectors.get("payload")
-    return compiler(payload)
+    return compiler(provider, payload)
 
 
 __all__ = ["compile_selectors", "QUERY_SKETCH_DSL_ID"]

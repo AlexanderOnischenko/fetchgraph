@@ -43,6 +43,8 @@ class ProviderInfo(BaseModel):
     examples: List[str] = Field(default_factory=list)
     typical_cost: Optional[str] = None
     selector_dialects: List[SelectorDialectInfo] = Field(default_factory=list)
+    selectors_digest: Dict[str, Any] = Field(default_factory=dict)
+    preferred_selectors: Optional[Literal["dsl", "native", "none"]] = None
 
 
 class ContextItem(BaseModel):

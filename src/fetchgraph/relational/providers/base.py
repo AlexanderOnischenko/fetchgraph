@@ -6,6 +6,7 @@ from typing import Any, List, Optional
 import json
 import re
 
+from ...core.catalog import MAX_ENUM_ITEMS, compact_enum
 from ...core.models import ProviderInfo, SelectorDialectInfo
 from ...core.protocols import ContextProvider, SupportsDescribe
 from ..types import SelectorsDict
@@ -151,6 +152,46 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             ]
         }
 
+        # selectors_digest for LLM-friendly catalog view
+        enums_digest: dict[str, list[str]] = {}
+        compact_entities, more_entities = compact_enum(entity_names, MAX_ENUM_ITEMS)
+        enums_digest["root_entity"] = compact_entities + (
+            [f"... (+{more_entities} more)"] if more_entities else []
+        )
+        if relation_names:
+            compact_rel, more_rel = compact_enum(relation_names, MAX_ENUM_ITEMS)
+            enums_digest["relations"] = compact_rel + (
+                [f"... (+{more_rel} more)"] if more_rel else []
+            )
+
+        selectors_digest = {
+            "ops": [
+                {"op": "schema", "required": [], "optional": []},
+                {
+                    "op": "semantic_only",
+                    "required": ["entity", "query"],
+                    "optional": ["fields", "top_k"],
+                    "enums": {"entity": enums_digest.get("root_entity", [])},
+                },
+                {
+                    "op": "query",
+                    "required": ["root_entity"],
+                    "optional": [
+                        "select",
+                        "filters",
+                        "relations",
+                        "semantic_clauses",
+                        "group_by",
+                        "aggregations",
+                        "limit",
+                        "offset",
+                        "case_sensitivity",
+                    ],
+                    "enums": enums_digest,
+                },
+            ]
+        }
+
         # --- 2) Текстовое описание домена (entities/relations) ---
         schema_config = getattr(self, "_schema_config", None)
 
@@ -262,7 +303,6 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                     "op": "semantic_only",
                     "entity": sem_entity,
                     "query": "<поисковый запрос на естественном языке>",
-                    "mode": "filter",
                     "top_k": 30,
                 },
                 ensure_ascii=False,
@@ -314,6 +354,10 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                     },
                     ensure_ascii=False,
                 ),
+                notes=(
+                    "keys: from, where, with, take, get; "
+                    "where is list of conditions ['field','value'] or ['field','op','value']"
+                ),
             )
         ]
 
@@ -324,6 +368,8 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             selectors_schema=selectors_schema,
             examples=examples,
             selector_dialects=dialects,
+            selectors_digest=selectors_digest,
+            preferred_selectors="dsl" if dialects else None,
         )
 
     # --- protected methods ---

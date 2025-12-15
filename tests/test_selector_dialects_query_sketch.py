@@ -1,7 +1,13 @@
 import pytest
 
 from fetchgraph.core.selector_dialects import QUERY_SKETCH_DSL_ID, compile_selectors
-from fetchgraph.relational.models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
+from fetchgraph.relational.models import (
+    ColumnDescriptor,
+    EntityDescriptor,
+    QueryResult,
+    RelationDescriptor,
+    RelationJoin,
+)
 from fetchgraph.relational.providers.base import RelationalDataProvider
 
 
@@ -13,7 +19,7 @@ class DummyProvider(RelationalDataProvider):
         raise NotImplementedError
 
     def _handle_query(self, req):  # pragma: no cover - not used
-        return {"ok": True, "selectors": req.model_dump()}
+        return QueryResult(rows=[])
 
 
 def make_provider(include_root_field: bool = False) -> DummyProvider:

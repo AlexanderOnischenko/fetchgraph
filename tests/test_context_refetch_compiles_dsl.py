@@ -2,11 +2,17 @@ import json
 
 import pytest
 
-from fetchgraph.core.context import BaseGraphAgent
+from fetchgraph.core.context import BaseGraphAgent, ContextPacker
 from fetchgraph.core.models import ContextFetchSpec, Plan, RefetchDecision
 from fetchgraph.core.selector_dialects import QUERY_SKETCH_DSL_ID
 from fetchgraph.plan_compile import compile_plan_selectors as real_compile_plan_selectors
-from fetchgraph.relational.models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
+from fetchgraph.relational.models import (
+    ColumnDescriptor,
+    EntityDescriptor,
+    QueryResult,
+    RelationDescriptor,
+    RelationJoin,
+)
 from fetchgraph.relational.providers.base import RelationalDataProvider
 
 
@@ -18,7 +24,7 @@ class DummyProvider(RelationalDataProvider):
         raise NotImplementedError
 
     def _handle_query(self, req):  # pragma: no cover - not used
-        return {"rows": []}
+        return QueryResult(rows=[])
 
 
 @pytest.fixture
@@ -60,7 +66,7 @@ def test_refetch_merges_and_compiles_dsl(monkeypatch, provider):
         saver=lambda feature, parsed: None,
         providers={"rel": provider},
         verifiers=[],
-        packer=type("Packer", (), {"pack": lambda self, items: items})(),
+        packer=ContextPacker(max_tokens=1000, summarizer_llm=lambda text: text),
         llm_refetch=None,
     )
 

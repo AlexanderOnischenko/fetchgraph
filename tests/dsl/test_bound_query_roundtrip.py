@@ -25,7 +25,9 @@ def test_bound_roundtrip_simple_where_and_get():
     assert bound.get[0].raw == "bc_guid"
     assert bound.get[1].qualifier == "fbs_as"
     assert bound.get[1].field == "system_name"
-    assert bound.where.all[0].field.raw == "system_name"
+    first_clause = bound.where.all[0]
+    assert isinstance(first_clause, BoundClause)
+    assert first_clause.field.raw == "system_name"
 
     assert restored == sketch
 

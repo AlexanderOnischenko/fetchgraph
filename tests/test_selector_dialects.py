@@ -153,6 +153,8 @@ def test_compile_selectors_requires_string_dsl_id():
 
 class DescribingWithoutDialect(ContextProvider, SupportsDescribe):
     name = "no_dialect"
+    entities = []
+    relations = []
 
     def fetch(self, feature_name: str, selectors=None, **kwargs):  # pragma: no cover
         return {}

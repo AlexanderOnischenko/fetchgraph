@@ -1,4 +1,11 @@
-from fetchgraph.dsl import Clause, NormalizedQuerySketch, SchemaRegistry, WhereExpr, bind_query_sketch
+from fetchgraph.dsl import (
+    BoundClause,
+    Clause,
+    NormalizedQuerySketch,
+    SchemaRegistry,
+    WhereExpr,
+    bind_query_sketch,
+)
 from fetchgraph.dsl.resolution_policy import ResolutionPolicy
 from fetchgraph.relational.models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
 
@@ -77,6 +84,7 @@ def test_auto_join_for_unqualified_field():
     assert not diags.has_errors()
     assert bound.with_ == ["fbs_as"]
     clause = bound.where.all[0]
+    assert isinstance(clause, BoundClause)
     assert clause.field.raw == "fbs_as.system_name"
 
 
@@ -95,6 +103,7 @@ def test_multi_hop_auto_join_adds_all_relations():
     assert not diags.has_errors()
     assert bound.with_ == ["fbs_as", "as_env"]
     clause = bound.where.all[0]
+    assert isinstance(clause, BoundClause)
     assert clause.field.raw == "as_env.name"
 
 

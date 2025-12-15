@@ -141,7 +141,9 @@ def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
 
     catalog_text = "\n".join(lines) if lines else "(no providers)"
     if len(catalog_text) > MAX_PROVIDERS_CATALOG_CHARS:
-        catalog_text = catalog_text[:MAX_PROVIDERS_CATALOG_CHARS - 20].rstrip() + "\n... (catalog truncated)"
+        suffix = "\n... (catalog truncated)"
+        max_prefix = max(0, MAX_PROVIDERS_CATALOG_CHARS - len(suffix))
+        catalog_text = catalog_text[:max_prefix].rstrip() + suffix
 
     logger.debug(
         "Built provider catalog for %d providers (chars=%d)",

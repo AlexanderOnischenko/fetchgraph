@@ -5,7 +5,10 @@ from typing import Any, Dict
 
 import pytest
 
-from fetchgraph.core.catalog import MAX_PROVIDERS_CATALOG_CHARS
+from fetchgraph.core.catalog import (
+    MAX_PROVIDER_BLOCK_CHARS,
+    MAX_PROVIDERS_CATALOG_CHARS,
+)
 from fetchgraph.core.context import provider_catalog_text
 from fetchgraph.core.models import ProviderInfo, SelectorDialectInfo
 from fetchgraph.core.selector_dialects import compile_selectors, QUERY_SKETCH_DSL_ID
@@ -109,6 +112,25 @@ def test_provider_catalog_compact_limits_and_order():
     selector_idx = catalog.index("selector_dialects:")
     summary_idx = catalog.index("selectors_schema_summary")
     assert selector_idx < summary_idx
+
+
+def test_provider_catalog_truncation_enforces_cap():
+    class LongCatalogProvider(DummyCompactProvider):
+        def __init__(self, idx: int):
+            self.idx = idx
+
+        def describe(self) -> ProviderInfo:
+            info = super().describe()
+            info.name = f"dummy_{self.idx}"
+            info.description = "x" * (MAX_PROVIDER_BLOCK_CHARS * 2)
+            return info
+
+    providers = {f"p{i}": LongCatalogProvider(i) for i in range(5)}
+
+    catalog = provider_catalog_text(providers)
+
+    assert len(catalog) <= MAX_PROVIDERS_CATALOG_CHARS
+    assert catalog.endswith("... (catalog truncated)")
 
 
 def test_relational_examples_validate_and_dsl_compiles():

@@ -5,6 +5,7 @@ from typing import Any, Iterable, List, Optional, Tuple, Union, cast
 from .ast import Clause, ClauseOrGroup, NormalizedQuerySketch
 from fetchgraph.relational.models import (
     ComparisonFilter,
+    ComparisonOp,
     FilterClause,
     LogicalFilter,
     RelationalQuery,
@@ -12,7 +13,7 @@ from fetchgraph.relational.models import (
 )
 
 
-_MappedComparison = Tuple[str, Any]
+_MappedComparison = Tuple[ComparisonOp, Any]
 
 
 def _map_op(op: str, value: Any) -> Union[List[_MappedComparison], _MappedComparison]:

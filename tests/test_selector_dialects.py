@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 
@@ -14,7 +15,7 @@ from fetchgraph.core.selector_dialects import (
     compile_selectors,
 )
 from fetchgraph.core.protocols import ContextProvider, SupportsDescribe
-from fetchgraph.relational.models import ComparisonFilter, EntityDescriptor
+from fetchgraph.relational.models import ComparisonFilter, EntityDescriptor, QueryResult
 from fetchgraph.relational.providers.base import RelationalDataProvider
 
 
@@ -26,7 +27,7 @@ class DummyRelationalProvider(RelationalDataProvider):
         raise NotImplementedError
 
     def _handle_query(self, req):  # pragma: no cover - not used in tests
-        return req
+        return QueryResult()
 
 
 def test_selector_dialect_query_sketch_compiles_object_payload_to_relational_query():
@@ -50,7 +51,7 @@ class RecordingProvider(ContextProvider, SupportsDescribe):
     name = "rec"
 
     def __init__(self):
-        self.last_selectors = None
+        self.last_selectors: dict[str, Any] = {}
 
     def fetch(self, feature_name: str, selectors=None, **kwargs):
         self.last_selectors = selectors or {}

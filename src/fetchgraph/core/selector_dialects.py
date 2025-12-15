@@ -49,6 +49,8 @@ def compile_selectors(provider: ContextProvider, selectors: Dict[str, Any]) -> D
         return selectors
 
     dialect_id = selectors.get("$dsl")
+    if not isinstance(dialect_id, str):
+        raise ValueError("Selector dialect id must be a string in '$dsl' field")
     compiler = _COMPILERS.get(dialect_id)
     if compiler is None:
         provider_name = getattr(provider, "name", provider.__class__.__name__)

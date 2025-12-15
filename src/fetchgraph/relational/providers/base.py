@@ -286,6 +286,22 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         if schema_config and schema_config.examples:
             examples = schema_config.examples
 
+        payload_example: dict[str, Any] = {}
+        with_relations: List[str] = []
+        if entity_names:
+            first_entity = self.entities[0]
+            payload_example["from"] = first_entity.name
+
+            cols = first_entity.columns or []
+            if cols:
+                payload_example["where"] = [[cols[0].name, "<value>"]]
+
+        if relation_names:
+            with_relations = [relation_names[0]]
+            payload_example["with"] = with_relations
+
+        payload_example["take"] = 20
+
         dialects = [
             SelectorDialectInfo(
                 id="fetchgraph.dsl.query_sketch@v0",
@@ -294,11 +310,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                 envelope_example=json.dumps(
                     {
                         "$dsl": "fetchgraph.dsl.query_sketch@v0",
-                        "payload": {
-                            "from": "streams",
-                            "where": [["participant", "АС ЕСП"]],
-                            "limit": 20,
-                        },
+                        "payload": payload_example,
                     },
                     ensure_ascii=False,
                 ),

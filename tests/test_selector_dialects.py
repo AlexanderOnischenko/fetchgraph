@@ -34,7 +34,7 @@ def test_selector_dialect_query_sketch_compiles_object_payload_to_relational_que
     provider = DummyRelationalProvider("rel", [EntityDescriptor(name="streams")], [])
     selectors = {
         "$dsl": QUERY_SKETCH_DSL_ID,
-        "payload": {"from": "streams", "where": [["status", "active"]], "limit": 5},
+        "payload": {"from": "streams", "where": [["status", "active"]], "take": 5},
     }
 
     compiled = compile_selectors(provider, selectors)
@@ -133,6 +133,16 @@ def test_compile_selectors_rejects_conflicting_op_and_dsl():
         compile_selectors(provider, selectors)
 
     assert "op" in str(exc.value)
+
+
+def test_compile_selectors_requires_string_dsl_id():
+    provider = RecordingProvider()
+    selectors = {"$dsl": 123, "payload": {"from": "streams"}}
+
+    with pytest.raises(ValueError) as exc:
+        compile_selectors(provider, selectors)
+
+    assert "$dsl" in str(exc.value)
 
 
 class DescribingWithoutDialect(ContextProvider, SupportsDescribe):

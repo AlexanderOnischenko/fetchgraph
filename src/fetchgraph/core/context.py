@@ -17,6 +17,13 @@ from .models import (
     TaskProfile,
 )
 from ..parsing.plan_parser import PlanParser
+from .catalog import (
+    MAX_DIALECTS,
+    MAX_EXAMPLES,
+    MAX_PROVIDER_BLOCK_CHARS,
+    MAX_PROVIDERS_CATALOG_CHARS,
+    summarize_selectors_schema,
+)
 from .protocols import (
     ContextProvider,
     LLMInvoke,
@@ -56,6 +63,21 @@ def _apply_provider_filter(provider: ContextProvider, obj: Any, selectors: Optio
         return provider.filter(obj, selectors)
     return obj
 
+
+def _format_selectors_digest(digest: Dict[str, Any]) -> List[str]:
+    if not digest:
+        return []
+
+    return ["  selectors_digest:", f"    {json.dumps(digest, ensure_ascii=False)}"]
+
+
+def _truncate_block(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    trimmed = text[: max(0, limit - 20)].rstrip()
+    return trimmed + "\n  ... (truncated)"
+
+
 def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
     lines: List[str] = []
     for key, prov in providers.items():
@@ -74,34 +96,55 @@ def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
                 caps = ["filter", "slice"]
             info = ProviderInfo(name=getattr(prov, "name", key), capabilities=caps)
 
-        lines.append(f"- name: {info.name}")
-        if info.description:
-            lines.append(f"  description: {info.description}")
+        block: List[str] = [f"- name: {info.name}"]
         if info.capabilities:
-            lines.append(f"  capabilities: {', '.join(info.capabilities)}")
+            block.append(f"  capabilities: {', '.join(info.capabilities)}")
         if info.typical_cost:
-            lines.append(f"  typical_cost: {info.typical_cost}")
-        if info.selectors_schema:
-            schema = json.dumps(info.selectors_schema, ensure_ascii=False, indent=2)
-            lines.append("  selectors_schema:")
-            lines += [f"    {ln}" for ln in schema.splitlines()]
-        if info.examples:
-            lines.append("  examples:")
-            lines += [f"    - {ex}" for ex in info.examples]
+            block.append(f"  typical_cost: {info.typical_cost}")
+
         if getattr(info, "selector_dialects", None):
-            lines.append("  selector_dialects:")
-            for dialect in info.selector_dialects:
-                lines.append(f"    - id: {dialect.id}")
-                if dialect.description:
-                    lines.append(f"      description: {dialect.description}")
+            block.append("  selector_dialects:")
+            for dialect in info.selector_dialects[:MAX_DIALECTS]:
+                block.append(f"    - id: {dialect.id}")
                 if dialect.payload_format:
-                    lines.append(f"      payload_format: {dialect.payload_format}")
+                    block.append(f"      payload_format: {dialect.payload_format}")
+                if dialect.description:
+                    block.append(f"      description: {dialect.description}")
                 if dialect.envelope_example:
-                    lines.append(f"      envelope_example: {dialect.envelope_example}")
+                    block.append(f"      envelope_example: {dialect.envelope_example}")
                 if dialect.notes:
-                    lines.append(f"      notes: {dialect.notes}")
+                    block.append(f"      notes: {dialect.notes}")
+
+        if info.preferred_selectors:
+            block.append(f"  preferred_selectors: {info.preferred_selectors}")
+
+        if info.selectors_digest:
+            block.extend(_format_selectors_digest(info.selectors_digest))
+        elif info.selectors_schema:
+            summary = summarize_selectors_schema(info.selectors_schema)
+            if summary:
+                block.append(
+                    f"  selectors_schema_summary: {json.dumps(summary, ensure_ascii=False)}"
+                )
+
+        if info.examples:
+            block.append("  examples:")
+            for ex in info.examples[:MAX_EXAMPLES]:
+                block.append(f"    - {ex}")
+
+        if info.description:
+            block.append(f"  description: {info.description}")
+
+        block_text = "\n".join(block)
+        block_text = _truncate_block(block_text, MAX_PROVIDER_BLOCK_CHARS)
+        lines.append(block_text)
 
     catalog_text = "\n".join(lines) if lines else "(no providers)"
+    if len(catalog_text) > MAX_PROVIDERS_CATALOG_CHARS:
+        suffix = "\n... (catalog truncated)"
+        max_prefix = max(0, MAX_PROVIDERS_CATALOG_CHARS - len(suffix))
+        catalog_text = catalog_text[:max_prefix].rstrip() + suffix
+
     logger.debug(
         "Built provider catalog for %d providers (chars=%d)",
         len(providers),

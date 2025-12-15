@@ -6,10 +6,18 @@ from typing import Any, List, Optional
 import json
 import re
 
+from ...core.catalog import (
+    MAX_COLUMNS_PREVIEW,
+    MAX_ENTITIES_PREVIEW,
+    MAX_ENUM_ITEMS,
+    MAX_RELATIONS_PREVIEW,
+    compact_enum,
+)
 from ...core.models import ProviderInfo, SelectorDialectInfo
 from ...core.protocols import ContextProvider, SupportsDescribe
 from ..types import SelectorsDict
 from ..models import (
+    ComparisonOp,
     QueryResult,
     RelationalQuery,
     SchemaRequest,
@@ -151,6 +159,159 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             ]
         }
 
+        # selectors_digest for LLM-friendly catalog view
+        def _build_enum_digest(values: list[str]):
+            preview, more = compact_enum(values, MAX_ENUM_ITEMS)
+            return {"preview": preview, "omitted": more}
+
+        def _columns_preview(entity: EntityDescriptor):
+            cols = entity.columns or []
+            preview: list[str] = []
+            for c in cols[:MAX_COLUMNS_PREVIEW]:
+                if c.name not in preview:
+                    preview.append(c.name)
+
+            pk_cols = [c.name for c in cols if getattr(c, "role", None) == "primary_key"]
+            sem_cols = [c.name for c in cols if getattr(c, "semantic", False)]
+
+            for name in pk_cols + sem_cols:
+                if name not in preview:
+                    preview.append(name)
+
+            unique_preview = []
+            for name in preview:
+                if name not in unique_preview:
+                    unique_preview.append(name)
+
+            omitted = max(0, len(cols) - len(unique_preview))
+            return unique_preview, omitted, pk_cols, sem_cols
+
+        ops_digest = {
+            "schema": {"summary": "Return request schema/metadata", "required": [], "optional": []},
+            "semantic_only": {
+                "summary": "Semantic matches only (no joined rows)",
+                "required": ["entity", "query"],
+                "optional": ["fields", "top_k"],
+                "enums": {"entity": _build_enum_digest(entity_names)},
+            },
+            "query": {
+                "summary": "Main query operation",
+                "required": ["root_entity"],
+                "optional": [
+                    "select",
+                    "filters",
+                    "relations",
+                    "semantic_clauses",
+                    "group_by",
+                    "aggregations",
+                    "limit",
+                    "offset",
+                    "case_sensitivity",
+                ],
+                "enums": {
+                    "root_entity": _build_enum_digest(entity_names),
+                    "relations": _build_enum_digest(relation_names),
+                },
+            },
+        }
+
+        filter_ops = list(ComparisonOp.__args__) if hasattr(ComparisonOp, "__args__") else []
+        aggregation_ops = ["count", "count_distinct", "sum", "min", "max", "avg"]
+
+        entities_preview: list[dict[str, any]] = []
+        omitted_entities = 0
+        for idx, e in enumerate(self.entities):
+            if idx >= MAX_ENTITIES_PREVIEW:
+                omitted_entities += 1
+                continue
+            preview_cols, omitted_cols, pk_cols, sem_cols = _columns_preview(e)
+            entities_preview.append(
+                {
+                    "name": e.name,
+                    "pk": pk_cols[0] if len(pk_cols) == 1 else pk_cols,
+                    "semantic_fields": {"preview": sem_cols, "omitted": 0},
+                    "columns_preview": {"preview": preview_cols, "omitted": omitted_cols},
+                }
+            )
+
+        relations_preview: list[dict[str, any]] = []
+        omitted_relations = 0
+        for idx, r in enumerate(self.relations):
+            if idx >= MAX_RELATIONS_PREVIEW:
+                omitted_relations += 1
+                continue
+            relations_preview.append(
+                {
+                    "name": r.name,
+                    "from_entity": r.from_entity,
+                    "to_entity": r.to_entity,
+                    "cardinality": r.cardinality,
+                    "join_keys": {
+                        "from": {"preview": [f"{r.from_entity}.{r.join.from_column}"], "omitted": 0},
+                        "to": {"preview": [f"{r.to_entity}.{r.join.to_column}"], "omitted": 0},
+                    },
+                }
+            )
+
+        selectors_digest = {
+            "digest_version": "fetchgraph.selectors_digest@v1",
+            "selector_kind": "relational",
+            "preferred_selectors": "dsl",
+            "ops": ops_digest,
+            "rules": {
+                "field_paths": {
+                    "preferred_style": "entity.field",
+                    "allow_unqualified": True,
+                    "notes": "If unqualified, resolved against root_entity",
+                },
+                "filters": {
+                    "logical_ops": ["and", "or"],
+                    "comparison_ops": filter_ops,
+                    "null_handling": "sql-like",
+                    "case_sensitivity": {
+                        "default": False,
+                        "affects": ["like", "ilike", "starts", "ends"],
+                    },
+                },
+                "semantics": {
+                    "available": True,
+                    "modes": ["filter", "boost"],
+                    "default_top_k": 100,
+                    "threshold_supported": True,
+                    "notes": "Semantic clauses can filter or boost rows",
+                },
+                "group_by": {
+                    "supported": True,
+                    "notes": "GroupBy accepts [ {entity?, field, alias?} ]",
+                },
+                "aggregations": {
+                    "supported": True,
+                    "ops": aggregation_ops,
+                    "notes": "AggregationSpec: {field, agg, alias?}",
+                },
+                "limits": {
+                    "default_limit": 1000,
+                    "max_limit": None,
+                    "offset_supported": True,
+                },
+            },
+            "entities": {
+                "preview": entities_preview,
+                "omitted": omitted_entities,
+            },
+            "relations": {
+                "preview": relations_preview,
+                "omitted": omitted_relations,
+            },
+            "dsl_hints": {
+                "dialect_id": "fetchgraph.dsl.query_sketch@v0",
+                "payload_keys": ["from", "get", "where", "with", "take"],
+                "where_clause_forms": [["field", "value"], ["field", "op", "value"]],
+                "supported_ops_preview": _build_enum_digest(filter_ops),
+                "notes": "Use short lists; combine with 'with' to follow relations",
+            },
+        }
+
         # --- 2) Текстовое описание домена (entities/relations) ---
         schema_config = getattr(self, "_schema_config", None)
 
@@ -220,35 +381,35 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         # schema
         examples.append(json.dumps({"op": "schema"}, ensure_ascii=False))
 
-        # простой query по первой сущности
+        # query с фильтром и relation
         if entity_names:
             e0 = entity_names[0]
             cols0 = (self.entities[0].columns or [])
             col0 = cols0[0].name if cols0 else "id"
-            examples.append(json.dumps(
-                {
-                    "op": "query",
-                    "root_entity": e0,
-                    "select": [{"expr": f"{e0}.{col0}"}],
-                    "limit": 10,
+            filter_example = {
+                "op": "query",
+                "root_entity": e0,
+                "filters": {
+                    "type": "comparison",
+                    "field": col0,
+                    "op": "=",
+                    "value": "Marketing",
                 },
-                ensure_ascii=False,
-            ))
-            examples.append(json.dumps(
-                {
-                    "op": "query",
-                    "root_entity": e0,
-                    "case_sensitivity": False,
-                    "filters": {
-                        "type": "comparison",
-                        "field": col0,
-                        "op": "=",
-                        "value": "Marketing",
-                    },
-                    "limit": 20,
-                },
-                ensure_ascii=False,
-            ))
+                "limit": 20,
+            }
+            examples.append(json.dumps(filter_example, ensure_ascii=False))
+
+        if relation_names:
+            rel0 = self.relations[0]
+            root = rel0.to_entity
+            relation_example = {
+                "op": "query",
+                "root_entity": root,
+                "relations": [rel0.name],
+                "select": [{"expr": f"{root}.id"}],
+                "limit": 15,
+            }
+            examples.append(json.dumps(relation_example, ensure_ascii=False))
 
         # semantic_only по первой семантической сущности
         sem_entity: Optional[str] = None
@@ -256,31 +417,18 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             if any(getattr(c, "semantic", False) for c in e.columns or []):
                 sem_entity = e.name
                 break
-        if sem_entity:
-            examples.append(json.dumps(
-                {
-                    "op": "semantic_only",
-                    "entity": sem_entity,
-                    "query": "<поисковый запрос на естественном языке>",
-                    "mode": "filter",
-                    "top_k": 30,
-                },
-                ensure_ascii=False,
-            ))
-
-        # query с relation, если есть
-        if relation_names:
-            rel0 = self.relations[0]
-            root = rel0.to_entity  # условно берём to_entity как root
-            examples.append(json.dumps(
-                {
-                    "op": "query",
-                    "root_entity": root,
-                    "relations": [rel0.name],
-                    "limit": 20,
-                },
-                ensure_ascii=False,
-            ))
+        if sem_entity and len(examples) < 3:
+            examples.append(
+                json.dumps(
+                    {
+                        "op": "semantic_only",
+                        "entity": sem_entity,
+                        "query": "<поисковый запрос на естественном языке>",
+                        "top_k": 30,
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
         # если в SchemaConfig заданы кастомные examples — переопределяем
         if schema_config and schema_config.examples:
@@ -314,6 +462,10 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                     },
                     ensure_ascii=False,
                 ),
+                notes=(
+                    "payload keys: from, get, where, with, take; "
+                    "where: ['field','value'] or ['field','op','value']; ops follow comparison_ops"
+                ),
             )
         ]
 
@@ -324,6 +476,8 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             selectors_schema=selectors_schema,
             examples=examples,
             selector_dialects=dialects,
+            selectors_digest=selectors_digest,
+            preferred_selectors="dsl" if dialects else None,
         )
 
     # --- protected methods ---

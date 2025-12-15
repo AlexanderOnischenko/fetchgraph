@@ -5,6 +5,7 @@ from typing import Any, Iterable, List, Optional, Tuple, Union, cast
 from .ast import Clause, ClauseOrGroup, NormalizedQuerySketch
 from fetchgraph.relational.models import (
     ComparisonFilter,
+    ComparisonOp,
     FilterClause,
     LogicalFilter,
     RelationalQuery,
@@ -12,37 +13,11 @@ from fetchgraph.relational.models import (
 )
 
 
-_MappedComparison = Tuple[str, Any]
+_MappedComparison = Tuple[ComparisonOp, Any]
 
 
-def _map_op(op: str, value: Any) -> Union[List[_MappedComparison], _MappedComparison]:
-    """Map DSL operator to provider operator or filter.
-
-    Returns either a tuple representing comparison operator/value or a list of such tuples
-    for compound operations. Between is converted to two comparisons combined later.
-    """
-
-    op = op.lower()
-    if op == "is":
-        return "=", value
-    if op == "before":
-        return "<", value
-    if op == "after":
-        return ">", value
-    if op == "contains":
-        return "ilike", value
-    if op == "starts":
-        return "starts", value
-    if op == "ends":
-        return "ends", value
-    if op in {"similar", "related"}:
-        return "ilike", value
-    if op == "between":
-        if not isinstance(value, (list, tuple)) or len(value) != 2:
-            raise ValueError("between operator expects a list or tuple with exactly two values")
-        return [(">=", value[0]), ("<=", value[1])]
-
-    if op in {
+def _as_comparison_op(op: str) -> ComparisonOp:
+    allowed: set[ComparisonOp] = {
         "=",
         "!=",
         "<",
@@ -59,10 +34,44 @@ def _map_op(op: str, value: Any) -> Union[List[_MappedComparison], _MappedCompar
         "ends",
         "not_starts",
         "not_ends",
-    }:
-        return op, value
+    }
+    if op not in allowed:
+        raise ValueError(f"Unsupported operator: {op}")
+    return cast(ComparisonOp, op)
 
-    raise ValueError(f"Unsupported operator: {op}")
+
+def _comparison(op: str, value: Any) -> _MappedComparison:
+    return (_as_comparison_op(op), value)
+
+
+def _map_op(op: str, value: Any) -> Union[List[_MappedComparison], _MappedComparison]:
+    """Map DSL operator to provider operator or filter.
+
+    Returns either a tuple representing comparison operator/value or a list of such tuples
+    for compound operations. Between is converted to two comparisons combined later.
+    """
+
+    op = op.lower()
+    if op == "is":
+        return _comparison("=", value)
+    if op == "before":
+        return _comparison("<", value)
+    if op == "after":
+        return _comparison(">", value)
+    if op == "contains":
+        return _comparison("ilike", value)
+    if op == "starts":
+        return _comparison("starts", value)
+    if op == "ends":
+        return _comparison("ends", value)
+    if op in {"similar", "related"}:
+        return _comparison("ilike", value)
+    if op == "between":
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            raise ValueError("between operator expects a list or tuple with exactly two values")
+        return [_comparison(">=", value[0]), _comparison("<=", value[1])]
+
+    return _comparison(op, value)
 
 
 def _mapped_to_filter(path: str, mapped: Union[List[_MappedComparison], _MappedComparison]) -> FilterClause:
@@ -98,7 +107,7 @@ def _negate_mapped(path: str, mapped: Union[List[_MappedComparison], _MappedComp
         raise ValueError("NOT for op list is not supported yet")
 
     op, value = mapped
-    inverted_ops = {
+    inverted_ops: dict[ComparisonOp, ComparisonOp] = {
         "=": "!=",
         "!=": "=",
         "in": "not_in",
@@ -116,7 +125,12 @@ def _negate_mapped(path: str, mapped: Union[List[_MappedComparison], _MappedComp
     if op not in inverted_ops:
         raise ValueError(f"NOT for op {op} not supported yet")
 
-    return ComparisonFilter(entity=None, field=path, op=inverted_ops[op], value=value)
+    return ComparisonFilter(
+        entity=None,
+        field=path,
+        op=_as_comparison_op(inverted_ops[op]),
+        value=value,
+    )
 
 
 def _compile_where(expr: ClauseOrGroup) -> FilterClause:

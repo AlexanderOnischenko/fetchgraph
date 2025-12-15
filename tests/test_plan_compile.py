@@ -40,7 +40,7 @@ def make_provider():
     return DummyProvider("rel", entities, relations)
 
 
-def test_compile_plan_selectors_compiles_dsl_and_validates():
+def test_compile_plan_selectors_compiles_dsl_envelope():
     provider = make_provider()
     plan = Plan(
         context_plan=[
@@ -50,7 +50,7 @@ def test_compile_plan_selectors_compiles_dsl_and_validates():
                     "$dsl": QUERY_SKETCH_DSL_ID,
                     "payload": {
                         "from": "fbs",
-                        "where": [["system_name", "contains", "%ЕСП%"]],
+                        "where": [["system_name", "ЕСП"]],
                         "take": 100,
                     },
                 },
@@ -72,6 +72,43 @@ def test_compile_plan_selectors_rejects_conflicting_selectors():
     plan = Plan(
         context_plan=[
             ContextFetchSpec(provider="rel", selectors={"op": "query", "$dsl": QUERY_SKETCH_DSL_ID})
+        ]
+    )
+
+    with pytest.raises(ValueError):
+        compile_plan_selectors(plan, {"rel": provider})
+
+
+def test_compile_plan_selectors_rejects_unknown_root_entity():
+    provider = make_provider()
+    plan = Plan(
+        context_plan=[
+            ContextFetchSpec(
+                provider="rel",
+                selectors={
+                    "op": "query",
+                    "root_entity": "NOPE",
+                },
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError):
+        compile_plan_selectors(plan, {"rel": provider})
+
+
+def test_compile_plan_selectors_rejects_unknown_relation():
+    provider = make_provider()
+    plan = Plan(
+        context_plan=[
+            ContextFetchSpec(
+                provider="rel",
+                selectors={
+                    "op": "query",
+                    "root_entity": "fbs",
+                    "relations": ["NOPE_REL"],
+                },
+            )
         ]
     )
 

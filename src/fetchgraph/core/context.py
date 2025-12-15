@@ -638,6 +638,7 @@ class BaseGraphAgent:
                 len(merged),
             )
             plan = plan.model_copy(update={"context_plan": merged})
+            plan = compile_plan_selectors(plan, self.providers)
             # fetch again
             ctx = self._fetch(feature_name, plan)
             iters += 1

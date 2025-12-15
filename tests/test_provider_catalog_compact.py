@@ -135,3 +135,50 @@ def test_relational_examples_validate_and_dsl_compiles():
         },
     )
     assert compiled.get("op") == "query"
+
+
+def test_relational_describe_digest_contains_ops_and_rules():
+    provider = MiniRelProvider()
+    info = provider.describe()
+
+    digest = info.selectors_digest
+    assert digest["ops"]["query"]["required"]
+    assert digest["rules"]["filters"]["comparison_ops"]
+    assert digest["rules"]["aggregations"]["ops"]
+    assert digest["entities"]["preview"][0]["columns_preview"]["preview"]
+    assert digest["relations"]["preview"]
+
+
+def test_catalog_order_preserves_examples_and_dialects_under_truncation():
+    class VerboseProvider(DummyCompactProvider):
+        def describe(self) -> ProviderInfo:
+            info = super().describe()
+            info.description = "desc " * 5000
+            info.examples = [json.dumps({"op": "schema"})]
+            return info
+
+    catalog = provider_catalog_text({"verbose": VerboseProvider()})
+    assert "selector_dialects" in catalog
+    assert "examples" in catalog
+    assert catalog.index("selector_dialects") < catalog.index("examples")
+
+
+def test_entities_preview_always_contains_pk_and_semantic_fields():
+    class PkLateProvider(MiniRelProvider):
+        def __init__(self):
+            extra_columns = [ColumnDescriptor(name=f"col_{i}") for i in range(30)]
+            semantic_column = ColumnDescriptor(name="meaningful_text", semantic=True)
+            pk_column = ColumnDescriptor(name="late_pk", role="primary_key")
+            entity = EntityDescriptor(
+                name="wide", columns=extra_columns + [semantic_column, pk_column]
+            )
+            relations = []
+            RelationalDataProvider.__init__(
+                self, name="late", entities=[entity], relations=relations
+            )
+
+    provider = PkLateProvider()
+    digest = provider.describe().selectors_digest
+    preview_cols = digest["entities"]["preview"][0]["columns_preview"]["preview"]
+    assert "late_pk" in preview_cols
+    assert "meaningful_text" in preview_cols

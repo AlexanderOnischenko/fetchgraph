@@ -68,37 +68,7 @@ def _format_selectors_digest(digest: Dict[str, Any]) -> List[str]:
     if not digest:
         return []
 
-    lines = ["  selectors_digest:"]
-    ops = digest.get("ops")
-    if isinstance(ops, list):
-        for op in ops[:10]:
-            op_name = op.get("op", "?")
-            lines.append(f"    - op: {op_name}")
-            required = op.get("required")
-            if required:
-                lines.append(f"      required: {required}")
-            optional = op.get("optional")
-            if optional:
-                lines.append(f"      optional: {optional}")
-            enums = op.get("enums")
-            if enums:
-                lines.append("      enums:")
-                for key, vals in enums.items():
-                    lines.append(f"        {key}: {vals}")
-
-    keys = digest.get("keys")
-    if keys:
-        lines.append(f"    keys: {keys}")
-    required_keys = digest.get("required_keys")
-    if required_keys:
-        lines.append(f"    required_keys: {required_keys}")
-    examples = digest.get("examples")
-    if isinstance(examples, list):
-        lines.append("    examples:")
-        for ex in examples[:MAX_EXAMPLES]:
-            lines.append(f"      - {ex}")
-
-    return lines
+    return ["  selectors_digest:", f"    {json.dumps(digest, ensure_ascii=False)}"]
 
 
 def _truncate_block(text: str, limit: int) -> str:
@@ -153,15 +123,17 @@ def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
         elif info.selectors_schema:
             summary = summarize_selectors_schema(info.selectors_schema)
             if summary:
-                block.append(f"  selectors_schema_summary: {json.dumps(summary, ensure_ascii=False)}")
-
-        if info.description:
-            block.append(f"  description: {info.description}")
+                block.append(
+                    f"  selectors_schema_summary: {json.dumps(summary, ensure_ascii=False)}"
+                )
 
         if info.examples:
             block.append("  examples:")
             for ex in info.examples[:MAX_EXAMPLES]:
                 block.append(f"    - {ex}")
+
+        if info.description:
+            block.append(f"  description: {info.description}")
 
         block_text = "\n".join(block)
         block_text = _truncate_block(block_text, MAX_PROVIDER_BLOCK_CHARS)

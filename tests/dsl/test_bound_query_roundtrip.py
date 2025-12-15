@@ -1,4 +1,5 @@
 from fetchgraph.dsl import (
+    BoundClause,
     BoundWhereExpr,
     Clause,
     NormalizedQuerySketch,
@@ -54,5 +55,8 @@ def test_bound_roundtrip_nested_groups():
 
     assert isinstance(bound.where.all[1], BoundWhereExpr)
     assert restored == sketch
+    assert isinstance(bound.where.all[1], BoundWhereExpr)
+    assert isinstance(bound.where.all[1].any[0], BoundClause)
     assert bound.where.all[1].any[0].field.raw == "b.c"
+    assert isinstance(bound.where.not_, BoundClause)
     assert bound.where.not_.field.raw == "x.y.z"

@@ -6,8 +6,11 @@ from .models import ProviderInfo, RawLLMOutput
 
 if TYPE_CHECKING:
     from ..relational.types import SelectorsDict
+    from ..relational.models import EntityDescriptor, RelationDescriptor
 else:
     SelectorsDict = Dict[str, Any]
+    EntityDescriptor = Any
+    RelationDescriptor = Any
 
 
 class LLMInvoke(Protocol):
@@ -57,6 +60,9 @@ class SupportsFilter(Protocol):
 
 @runtime_checkable
 class SupportsDescribe(Protocol):
+    entities: List[EntityDescriptor]
+    relations: List[RelationDescriptor]
+
     def describe(self) -> ProviderInfo:
         """Describe the provider, including selector expectations.
 

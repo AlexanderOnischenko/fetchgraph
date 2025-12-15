@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Deque, Dict, List, Tuple
 
 from ..relational.models import ColumnDescriptor, EntityDescriptor, RelationDescriptor
 
@@ -112,7 +112,7 @@ class SchemaRegistry:
         if norm_root == norm_target:
             return [tuple()]
 
-        queue = deque([(norm_root, tuple())])
+        queue: Deque[Tuple[str, Tuple[str, ...]]] = deque([(norm_root, tuple())])
         best_depth: Dict[str, int] = {norm_root: 0}
         paths: List[Tuple[str, ...]] = []
         min_target_depth: int | None = None

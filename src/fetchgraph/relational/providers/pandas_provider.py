@@ -442,7 +442,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not select:
             return df
         cols: List[str] = []
-        alias_map: Dict[Hashable, Hashable] = {}
+        alias_map: Dict[str, str] = {}
         for expr in select:
             if "." in expr.expr:
                 ent, fld = expr.expr.split(".", 1)

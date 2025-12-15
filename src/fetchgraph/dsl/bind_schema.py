@@ -5,7 +5,7 @@ from typing import Iterable, List, Tuple
 
 from .ast import NormalizedQuerySketch
 from .bind_noop import bound_from_normalized
-from .bound import BoundClause, BoundWhereExpr, FieldRef, JoinPath, parse_field_ref
+from .bound import BoundClause, BoundQuery, BoundWhereExpr, FieldRef, JoinPath, parse_field_ref
 from .diagnostics import Diagnostics, Severity
 from .resolution_policy import ResolutionPolicy
 from .schema_registry import FieldCandidate, SchemaRegistry, _normalize_name

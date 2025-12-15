@@ -290,11 +290,15 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             SelectorDialectInfo(
                 id="fetchgraph.dsl.query_sketch@v0",
                 description="Compact JSON5-like sketch for relational queries.",
-                payload_format="json5-string",
+                payload_format="json-object",
                 envelope_example=json.dumps(
                     {
                         "$dsl": "fetchgraph.dsl.query_sketch@v0",
-                        "payload": "{ from: streams, where: [[\\\"participant\\\", \\\"АС ЕСП\\\"]], limit: 20 }",
+                        "payload": {
+                            "from": "streams",
+                            "where": [["participant", "АС ЕСП"]],
+                            "limit": 20,
+                        },
                     },
                     ensure_ascii=False,
                 ),

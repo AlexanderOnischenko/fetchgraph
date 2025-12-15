@@ -43,6 +43,24 @@ def _validate_compiled(provider: ContextProvider, compiled: Dict[str, Any]) -> N
                 )
     elif op == "schema":
         SchemaRequest.model_validate(compiled)
+        if entity_names:
+            requested_entities = compiled.get("entities") or []
+            missing_entities = [e for e in requested_entities if e not in entity_names]
+            if missing_entities:
+                raise ValueError(
+                    "Unknown entities: "
+                    + ", ".join(sorted(missing_entities))
+                    + f"; known entities: {sorted(entity_names)}"
+                )
+        if relation_names:
+            requested_relations = compiled.get("relations") or []
+            missing_relations = [r for r in requested_relations if r not in relation_names]
+            if missing_relations:
+                raise ValueError(
+                    "Unknown relations: "
+                    + ", ".join(sorted(missing_relations))
+                    + f"; known relations: {sorted(relation_names)}"
+                )
     elif op == "semantic_only":
         SemanticOnlyRequest.model_validate(compiled)
         if entity_names:

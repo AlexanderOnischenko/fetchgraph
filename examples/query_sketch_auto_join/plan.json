@@ -1,0 +1,15 @@
+{
+  "context_plan": [
+    {
+      "provider": "rel",
+      "selectors": {
+        "$dsl": "fetchgraph.dsl.query_sketch@v0",
+        "payload": {
+          "from": "fbs",
+          "where": [["system_name", "contains", "ЕСП"]],
+          "take": 10
+        }
+      }
+    }
+  ]
+}

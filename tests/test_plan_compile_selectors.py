@@ -8,21 +8,24 @@ from fetchgraph.relational.providers.base import RelationalDataProvider
 
 
 class DummyProvider(RelationalDataProvider):
-    def _handle_schema(self):  # pragma: no cover - not used here
+    def _handle_schema(self):  # pragma: no cover - not used
         raise NotImplementedError
 
-    def _handle_semantic_only(self, req):  # pragma: no cover - not used here
+    def _handle_semantic_only(self, req):  # pragma: no cover - not used
         raise NotImplementedError
 
-    def _handle_query(self, req):  # pragma: no cover - not used here
-        raise NotImplementedError
+    def _handle_query(self, req):  # pragma: no cover - not used
+        return {"ok": True, "selectors": req.model_dump()}
 
 
-def make_provider():
+def make_provider(include_root_field: bool = False) -> DummyProvider:
     entities = [
         EntityDescriptor(
             name="fbs",
-            columns=[ColumnDescriptor(name="id")],
+            columns=[
+                ColumnDescriptor(name="id"),
+                *( [ColumnDescriptor(name="system_name")] if include_root_field else []),
+            ],
         ),
         EntityDescriptor(
             name="as",
@@ -50,8 +53,8 @@ def test_compile_plan_selectors_compiles_dsl_envelope():
                     "$dsl": QUERY_SKETCH_DSL_ID,
                     "payload": {
                         "from": "fbs",
-                        "where": [["system_name", "ЕСП"]],
-                        "take": 100,
+                        "where": [["system_name", "contains", "ЕСП"]],
+                        "take": 10,
                     },
                 },
             )
@@ -67,7 +70,7 @@ def test_compile_plan_selectors_compiles_dsl_envelope():
     assert selectors["filters"]["field"] == "fbs_as.system_name"
 
 
-def test_compile_plan_selectors_rejects_conflicting_selectors():
+def test_compile_plan_selectors_rejects_op_and_dsl():
     provider = make_provider()
     plan = Plan(
         context_plan=[
@@ -79,16 +82,13 @@ def test_compile_plan_selectors_rejects_conflicting_selectors():
         compile_plan_selectors(plan, {"rel": provider})
 
 
-def test_compile_plan_selectors_rejects_unknown_root_entity():
+def test_compile_plan_selectors_rejects_unknown_native_entities_and_relations():
     provider = make_provider()
     plan = Plan(
         context_plan=[
             ContextFetchSpec(
                 provider="rel",
-                selectors={
-                    "op": "query",
-                    "root_entity": "NOPE",
-                },
+                selectors={"op": "query", "root_entity": "NOPE", "relations": ["NOPE_REL"]},
             )
         ]
     )
@@ -97,17 +97,13 @@ def test_compile_plan_selectors_rejects_unknown_root_entity():
         compile_plan_selectors(plan, {"rel": provider})
 
 
-def test_compile_plan_selectors_rejects_unknown_relation():
+def test_compile_plan_selectors_validates_schema_request_against_provider():
     provider = make_provider()
     plan = Plan(
         context_plan=[
             ContextFetchSpec(
                 provider="rel",
-                selectors={
-                    "op": "query",
-                    "root_entity": "fbs",
-                    "relations": ["NOPE_REL"],
-                },
+                selectors={"op": "schema", "entities": ["NOPE"], "relations": ["fbs_as", "NOPE_REL"]},
             )
         ]
     )

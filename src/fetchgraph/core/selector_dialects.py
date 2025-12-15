@@ -17,23 +17,38 @@ from .models import ProviderInfo
 QUERY_SKETCH_DSL_ID = "fetchgraph.dsl.query_sketch@v0"
 
 
-def _compile_query_sketch(provider: SupportsDescribe, payload: Any) -> Dict[str, Any]:
+def _compile_query_sketch(provider: ContextProvider, payload: Any) -> Dict[str, Any]:
     if payload is None:
         raise ValueError("Selector dialect fetchgraph.dsl.query_sketch@v0 requires 'payload'")
 
     sketch, diagnostics = parse_and_normalize(payload)
     if diagnostics.has_errors():
         errors = diagnostics.errors()
-        summary = "; ".join(f"{err.code}: {err.message}" for err in errors)
+        summary = "; ".join(
+            f"{err.code}: {err.message}{f' (path={err.path})' if err.path else ''}"
+            for err in errors
+        )
         raise ValueError(
             "Selector dialect fetchgraph.dsl.query_sketch@v0 parse errors: " + summary
         )
 
-    registry = SchemaRegistry(provider.entities, provider.relations)
+    try:
+        entities = provider.entities
+        relations = provider.relations
+    except AttributeError as exc:  # pragma: no cover - defensive
+        provider_name = getattr(provider, "name", provider.__class__.__name__)
+        raise ValueError(
+            f"Provider {provider_name!r} must expose 'entities' and 'relations' for schema binding"
+        ) from exc
+
+    registry = SchemaRegistry(entities, relations)
     bound, bind_diags = bind_query_sketch(sketch, registry, ResolutionPolicy())
-    if diagnostics.has_errors() or bind_diags.has_errors():
-        errors = diagnostics.errors() + bind_diags.errors()
-        summary = "; ".join(f"{err.code}: {err.message}" for err in errors)
+    if bind_diags.has_errors():
+        errors = bind_diags.errors()
+        summary = "; ".join(
+            f"{err.code}: {err.message}{f' (path={err.path})' if err.path else ''}"
+            for err in errors
+        )
         raise ValueError(
             "Selector dialect fetchgraph.dsl.query_sketch@v0 errors: " + summary
         )
@@ -43,7 +58,7 @@ def _compile_query_sketch(provider: SupportsDescribe, payload: Any) -> Dict[str,
     return compiled.model_dump()
 
 
-_COMPILERS: Dict[str, Callable[[SupportsDescribe, Any], Dict[str, Any]]] = {
+_COMPILERS: Dict[str, Callable[[ContextProvider, Any], Dict[str, Any]]] = {
     QUERY_SKETCH_DSL_ID: _compile_query_sketch,
 }
 

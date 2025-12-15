@@ -16,14 +16,13 @@ class DummyProvider(RelationalDataProvider):
         raise NotImplementedError
 
 
-def make_entities(*, include_root_system: bool = True):
+def make_entities(include_root_field: bool = False):
     return [
         EntityDescriptor(
             name="fbs",
             columns=[
                 ColumnDescriptor(name="id"),
-                *( [ColumnDescriptor(name="system_name")] if include_root_system else [] ),
-                ColumnDescriptor(name="status"),
+                *( [ColumnDescriptor(name="system_name")] if include_root_field else []),
             ],
         ),
         EntityDescriptor(
@@ -32,7 +31,11 @@ def make_entities(*, include_root_system: bool = True):
         ),
         EntityDescriptor(
             name="env",
-            columns=[ColumnDescriptor(name="id"), ColumnDescriptor(name="system_name"), ColumnDescriptor(name="name")],
+            columns=[
+                ColumnDescriptor(name="id"),
+                ColumnDescriptor(name="system_name"),
+                ColumnDescriptor(name="name"),
+            ],
         ),
     ]
 
@@ -60,14 +63,12 @@ def make_relations():
     ]
 
 
-def test_auto_join_field_resolution_adds_with_and_rewrites_path():
-    entities = make_entities(include_root_system=False)
-    relations = [make_relations()[0]]
-    provider = DummyProvider("rel", entities, relations)
+def test_query_sketch_auto_join_unqualified_field():
+    provider = DummyProvider("rel", make_entities(include_root_field=False), [make_relations()[0]])
 
     selectors = {
         "$dsl": QUERY_SKETCH_DSL_ID,
-        "payload": {"from": "fbs", "where": [["system_name", "ЕСП"]], "take": 10},
+        "payload": {"from": "fbs", "where": [["system_name", "contains", "ЕСП"]], "take": 10},
     }
 
     compiled = compile_selectors(provider, selectors)
@@ -76,27 +77,25 @@ def test_auto_join_field_resolution_adds_with_and_rewrites_path():
     assert compiled["filters"]["field"] == "fbs_as.system_name"
 
 
-def test_root_field_wins_over_joined_field():
-    entities = make_entities(include_root_system=True)
-    relations = [make_relations()[0]]
-    provider = DummyProvider("rel", entities, relations)
+def test_query_sketch_multi_hop_adds_all_relations():
+    relations = make_relations()[:2]
+    provider = DummyProvider("rel", make_entities(include_root_field=False), relations)
 
     selectors = {
         "$dsl": QUERY_SKETCH_DSL_ID,
-        "payload": {"from": "fbs", "where": [["system_name", "ЕСП"]], "take": 10},
+        "payload": {"from": "fbs", "where": [["name", "is", "prod"]], "take": 5},
     }
 
     compiled = compile_selectors(provider, selectors)
 
-    assert compiled["relations"] == []
-    assert compiled["filters"]["field"] == "system_name"
+    assert compiled["relations"] == ["fbs_as", "as_env"]
+    assert compiled["filters"]["field"] == "as_env.name"
 
 
-def test_ambiguous_field_ask_strategy_errors():
-    entities = make_entities(include_root_system=False)
+def test_query_sketch_ambiguity_ask_returns_error():
+    entities = make_entities(include_root_field=False)
     relations = make_relations()
     registry = SchemaRegistry(entities, relations)
-
     sketch = NormalizedQuerySketch(
         from_="fbs",
         where=WhereExpr(all=[Clause(path="system_name", op="is", value="x")]),

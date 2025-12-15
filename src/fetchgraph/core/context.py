@@ -670,9 +670,10 @@ class BaseGraphAgent:
                 key,
                 feature_name,
             )
-            obj = prov.fetch(feature_name, selectors=b.spec.selectors)
+            compiled = compile_selectors(prov, b.spec.selectors or {})
+            obj = prov.fetch(feature_name, selectors=compiled)
             if b.spec.mode == "slice":
-                obj = _apply_provider_filter(prov, obj, b.spec.selectors)
+                obj = _apply_provider_filter(prov, obj, compiled)
             text = prov.serialize(obj)
             tokens = max(1, len(text) // 4)
             out[key] = ContextItem(key=key, raw=obj, text=text, tokens=tokens)

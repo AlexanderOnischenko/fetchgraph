@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any, Callable, Dict
 
 from ..dsl import compile_relational_query, parse_and_normalize
-from .protocols import ContextProvider
+from .protocols import ContextProvider, SupportsDescribe
+from .models import ProviderInfo
 
 
 QUERY_SKETCH_DSL_ID = "fetchgraph.dsl.query_sketch@v0"
@@ -37,8 +38,14 @@ def compile_selectors(provider: ContextProvider, selectors: Dict[str, Any]) -> D
     if not isinstance(selectors, dict):
         return selectors
 
+    has_dsl = "$dsl" in selectors
+    has_op = "op" in selectors
+
+    if has_dsl and has_op:
+        raise ValueError("Selectors cannot contain both 'op' and '$dsl' — choose one")
+
     # Native selectors: leave untouched
-    if selectors.get("op") is not None or "$dsl" not in selectors:
+    if not has_dsl:
         return selectors
 
     dialect_id = selectors.get("$dsl")
@@ -47,6 +54,20 @@ def compile_selectors(provider: ContextProvider, selectors: Dict[str, Any]) -> D
         provider_name = getattr(provider, "name", provider.__class__.__name__)
         raise ValueError(
             f"Provider {provider_name!r} does not support selector dialect {dialect_id!r}"
+        )
+
+    if not isinstance(provider, SupportsDescribe):
+        provider_name = getattr(provider, "name", provider.__class__.__name__)
+        raise ValueError(
+            f"Provider {provider_name!r} does not declare selector dialects; cannot use $dsl"
+        )
+
+    info: ProviderInfo = provider.describe()
+    supported = {d.id for d in info.selector_dialects}
+    if dialect_id not in supported:
+        provider_name = getattr(provider, "name", provider.__class__.__name__)
+        raise ValueError(
+            f"Provider {provider_name!r} does not declare support for selector dialect {dialect_id!r}"
         )
 
     payload = selectors.get("payload")

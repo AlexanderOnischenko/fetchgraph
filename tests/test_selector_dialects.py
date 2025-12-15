@@ -1,7 +1,12 @@
 import json
 
 from fetchgraph.core.context import BaseGraphAgent, ContextPacker
-from fetchgraph.core.models import ContextFetchSpec, Plan, ProviderInfo
+from fetchgraph.core.models import (
+    ContextFetchSpec,
+    Plan,
+    ProviderInfo,
+    SelectorDialectInfo,
+)
 from fetchgraph.core.selector_dialects import (
     QUERY_SKETCH_DSL_ID,
     compile_selectors,
@@ -53,7 +58,16 @@ class RecordingProvider(ContextProvider, SupportsDescribe):
         return json.dumps(obj)
 
     def describe(self) -> ProviderInfo:  # pragma: no cover - trivial
-        return ProviderInfo(name=self.name)
+        return ProviderInfo(
+            name=self.name,
+            selector_dialects=[
+                SelectorDialectInfo(
+                    id=QUERY_SKETCH_DSL_ID,
+                    description="",
+                    envelope_example="",
+                )
+            ],
+        )
 
 
 def test_agent_fetch_compiles_envelope_before_provider_fetch():
@@ -82,3 +96,41 @@ def test_agent_fetch_compiles_envelope_before_provider_fetch():
 
     assert provider.last_selectors["op"] == "query"
     assert "$dsl" not in provider.last_selectors
+
+
+class LegacyProvider(ContextProvider):
+    name = "legacy"
+
+    def fetch(self, feature_name: str, selectors=None, **kwargs):  # pragma: no cover
+        return {}
+
+    def serialize(self, obj) -> str:  # pragma: no cover
+        return json.dumps(obj)
+
+
+def test_compile_selectors_rejects_missing_describe_support():
+    provider = LegacyProvider()
+    selectors = {"$dsl": QUERY_SKETCH_DSL_ID, "payload": "{ from: streams }"}
+
+    try:
+        compile_selectors(provider, selectors)
+    except ValueError as exc:
+        assert "$dsl" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("Expected ValueError for provider without describe")
+
+
+def test_compile_selectors_rejects_conflicting_op_and_dsl():
+    provider = RecordingProvider()
+    selectors = {
+        "$dsl": QUERY_SKETCH_DSL_ID,
+        "op": "query",
+        "payload": "{ from: streams }",
+    }
+
+    try:
+        compile_selectors(provider, selectors)
+    except ValueError as exc:
+        assert "op" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("Expected ValueError for conflicting selectors")

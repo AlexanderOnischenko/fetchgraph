@@ -25,6 +25,7 @@ from .protocols import (
     SupportsFilter,
     Verifier,
 )
+from .selector_dialects import compile_selectors
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,18 @@ def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
         if info.examples:
             lines.append("  examples:")
             lines += [f"    - {ex}" for ex in info.examples]
+        if getattr(info, "selector_dialects", None):
+            lines.append("  selector_dialects:")
+            for dialect in info.selector_dialects:
+                lines.append(f"    - id: {dialect.id}")
+                if dialect.description:
+                    lines.append(f"      description: {dialect.description}")
+                if dialect.payload_format:
+                    lines.append(f"      payload_format: {dialect.payload_format}")
+                if dialect.envelope_example:
+                    lines.append(f"      envelope_example: {dialect.envelope_example}")
+                if dialect.notes:
+                    lines.append(f"      notes: {dialect.notes}")
 
     catalog_text = "\n".join(lines) if lines else "(no providers)"
     logger.debug(
@@ -502,9 +515,11 @@ class BaseGraphAgent:
                 spec.selectors,
                 getattr(spec, "max_tokens", None),
             )
-            obj = prov.fetch(feature_name, selectors=spec.selectors)
+            compiled_selectors = compile_selectors(prov, spec.selectors or {})
+
+            obj = prov.fetch(feature_name, selectors=compiled_selectors)
             if spec.mode == "slice":
-                obj = _apply_provider_filter(prov, obj, spec.selectors)
+                obj = _apply_provider_filter(prov, obj, compiled_selectors)
             text = prov.serialize(obj)
             tokens = max(1, len(text) // 4)
             if spec.max_tokens and tokens > spec.max_tokens:

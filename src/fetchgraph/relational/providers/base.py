@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 import json
 import re
 
-from ...core.models import ProviderInfo
+from ...core.models import ProviderInfo, SelectorDialectInfo
 from ...core.protocols import ContextProvider, SupportsDescribe
 from ..types import SelectorsDict
 from ..models import (
@@ -286,12 +286,28 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         if schema_config and schema_config.examples:
             examples = schema_config.examples
 
+        dialects = [
+            SelectorDialectInfo(
+                id="fetchgraph.dsl.query_sketch@v0",
+                description="Compact JSON5-like sketch for relational queries.",
+                payload_format="json5-string",
+                envelope_example=json.dumps(
+                    {
+                        "$dsl": "fetchgraph.dsl.query_sketch@v0",
+                        "payload": "{ from: streams, where: [[\\\"participant\\\", \\\"АС ЕСП\\\"]], limit: 20 }",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        ]
+
         return ProviderInfo(
             name=self.name,
             description=description,
             capabilities=["schema", "row_query", "aggregate", "semantic_search"],
             selectors_schema=selectors_schema,
             examples=examples,
+            selector_dialects=dialects,
         )
 
     # --- protected methods ---

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,14 @@ class TaskProfile(BaseModel):
     lite_context_keys: List[str] = Field(default_factory=list)
 
 
+class SelectorDialectInfo(BaseModel):
+    id: str
+    description: str = ""
+    envelope_example: str = ""
+    notes: str = ""
+    payload_format: Optional[Literal["json5-string", "json-object"]] = None
+
+
 class ProviderInfo(BaseModel):
     """Metadata describing a provider and its selector contract.
 
@@ -34,6 +42,7 @@ class ProviderInfo(BaseModel):
     capabilities: List[str] = Field(default_factory=list)
     examples: List[str] = Field(default_factory=list)
     typical_cost: Optional[str] = None
+    selector_dialects: List[SelectorDialectInfo] = Field(default_factory=list)
 
 
 class ContextItem(BaseModel):
@@ -84,6 +93,7 @@ __all__ = [
     "RawLLMOutput",
     "TaskProfile",
     "ProviderInfo",
+    "SelectorDialectInfo",
     "ContextItem",
     "ProviderType",
     "ContextFetchSpec",

@@ -191,11 +191,25 @@ class SchemaRegistry:
             if norm_field not in fields:
                 continue
 
-            paths = self.find_paths(self.entity_by_name[norm_root].name, self.entity_by_name[norm_entity].name, max_depth=max_depth)
+            paths = self.find_paths(
+                self.entity_by_name[norm_root].name,
+                self.entity_by_name[norm_entity].name,
+                max_depth=max_depth,
+            )
             if not paths:
                 continue
 
-            path = paths[0]
+            declared_set = {_normalize_name(r) for r in declared_with} if declared_with else None
+
+            def path_key(p: Tuple[str, ...]) -> tuple[int, Tuple[str, ...]]:
+                if declared_set:
+                    normalized_path = {_normalize_name(r) for r in p}
+                    declared_first = 0 if normalized_path.issubset(declared_set) else 1
+                else:
+                    declared_first = 1
+                return (declared_first, p)
+
+            path = sorted(paths, key=path_key)[0]
             column = fields[norm_field]
             candidates.append(
                 FieldCandidate(

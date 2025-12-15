@@ -114,6 +114,36 @@ def test_provider_catalog_compact_limits_and_order():
     assert selector_idx < summary_idx
 
 
+def test_provider_catalog_includes_simple_schema_summary():
+    class SimpleSchemaProvider:
+        name = "simple"
+        entities = []
+        relations = []
+
+        def describe(self) -> ProviderInfo:
+            return ProviderInfo(
+                name=self.name,
+                selectors_schema={
+                    "type": "object",
+                    "properties": {
+                        "op": {"enum": ["simple"]},
+                        "payload": {"type": "object"},
+                    },
+                    "required": ["op", "payload"],
+                },
+            )
+
+    catalog = provider_catalog_text({"simple": SimpleSchemaProvider()})
+    summary_line = next(
+        line
+        for line in catalog.splitlines()
+        if line.strip().startswith("selectors_schema_summary")
+    )
+    summary_json = json.loads(summary_line.split(":", 1)[1].strip())
+    assert summary_json["required"] == ["op", "payload"]
+    assert "payload" not in summary_json.get("optional", [])
+
+
 def test_provider_catalog_truncation_enforces_cap():
     class LongCatalogProvider(DummyCompactProvider):
         def __init__(self, idx: int):

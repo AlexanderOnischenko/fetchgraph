@@ -30,7 +30,31 @@ def summarize_selectors_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     one_of = schema.get("oneOf")
     if not isinstance(one_of, list):
-        return {}
+        # Fallback for simple object schemas without oneOf
+        props = schema.get("properties")
+        if not isinstance(props, dict):
+            return {}
+
+        required = schema.get("required", []) if isinstance(schema.get("required"), list) else []
+        required_set = set(required)
+        enums: Dict[str, Any] = {}
+        optional: List[str] = []
+
+        for key, spec in props.items():
+            if not isinstance(spec, dict):
+                continue
+            if "enum" in spec and isinstance(spec["enum"], list):
+                compacted, more = compact_enum(spec["enum"])
+                enums[key] = compacted + ([f"... (+{more} more)"] if more else [])
+            elif key not in required_set:
+                optional.append(key)
+
+        return {
+            "type": schema.get("type"),
+            "required": required,
+            "optional": optional,
+            "enums": enums,
+        }
 
     summary: Dict[str, Any] = {"oneOf": []}
     for variant in one_of:

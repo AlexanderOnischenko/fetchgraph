@@ -15,7 +15,7 @@ from fetchgraph.core.selector_dialects import (
     compile_selectors,
 )
 from fetchgraph.core.protocols import ContextProvider, SupportsDescribe
-from fetchgraph.relational.models import ComparisonFilter, EntityDescriptor, QueryResult
+from fetchgraph.relational.models import ColumnDescriptor, ComparisonFilter, EntityDescriptor, QueryResult
 from fetchgraph.relational.providers.base import RelationalDataProvider
 
 
@@ -31,7 +31,11 @@ class DummyRelationalProvider(RelationalDataProvider):
 
 
 def test_selector_dialect_query_sketch_compiles_object_payload_to_relational_query():
-    provider = DummyRelationalProvider("rel", [EntityDescriptor(name="streams")], [])
+    provider = DummyRelationalProvider(
+        "rel",
+        [EntityDescriptor(name="streams", columns=[ColumnDescriptor(name="status")])],
+        [],
+    )
     selectors = {
         "$dsl": QUERY_SKETCH_DSL_ID,
         "payload": {"from": "streams", "where": [["status", "active"]], "take": 5},
@@ -52,6 +56,8 @@ class RecordingProvider(ContextProvider, SupportsDescribe):
 
     def __init__(self):
         self.last_selectors: dict[str, Any] = {}
+        self.entities = [EntityDescriptor(name="streams", columns=[ColumnDescriptor(name="status")])]
+        self.relations = []
 
     def fetch(self, feature_name: str, selectors=None, **kwargs):
         self.last_selectors = selectors or {}

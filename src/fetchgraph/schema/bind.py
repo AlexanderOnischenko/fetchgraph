@@ -76,6 +76,9 @@ def _bind_field(
     entity_index = schema.entity_index()
     relation_index = schema.relation_index()
 
+    def _norm(value: str) -> str:
+        return " ".join(value.lower().replace("_", " ").split())
+
     if "." in field:
         alias, col = field.split(".", 1)
         target_entity: Optional[str] = None
@@ -105,44 +108,78 @@ def _bind_field(
                 rel_alias = rel.name
                 target_entity = rel.to_entity
             else:
-                matching_relations = [
-                    r
-                    for r in schema.relations
-                    if r.to_entity == alias and r.from_entity == root_entity
+                normalized_alias = _norm(alias)
+                matching_entities = [
+                    ent
+                    for ent in schema.entities
+                    if _norm(ent.name) == normalized_alias
+                    or (ent.label is not None and _norm(ent.label) == normalized_alias)
                 ]
-                if len(matching_relations) == 1:
-                    rel = matching_relations[0]
-                    rel_alias = rel.name
-                    target_entity = rel.to_entity
-                    if rel_alias not in selectors_relations and policy.allow_auto_add_relations:
-                        selectors_relations.append(rel_alias)
-                        diagnostics.append(
-                            {
-                                "kind": "auto_add_relation",
-                                "relation": rel_alias,
-                                "reason": f"qualified field mapped entity '{alias}' to relation alias",
-                            }
-                        )
-                elif len(matching_relations) > 1:
-                    labels = [f"{r.name}.{col}" for r in matching_relations]
-                    if policy.ambiguity_strategy == "best":
-                        chosen_rel = sorted(matching_relations, key=lambda r: (r.name, r.to_entity))[0]
-                        rel_alias = chosen_rel.name
-                        target_entity = chosen_rel.to_entity
-                        diagnostics.append(
-                            {
-                                "kind": "ambiguous_field_best_effort",
-                                "field": field,
-                                "chosen": f"{rel_alias}.{col}",
-                                "candidates": labels,
-                            }
-                        )
+
+                if len(matching_entities) == 1:
+                    ent = matching_entities[0]
+                    relations_to_entity = [
+                        r for r in schema.relations if r.from_entity == root_entity and r.to_entity == ent.name
+                    ]
+                    if len(relations_to_entity) == 1:
+                        rel = relations_to_entity[0]
+                        rel_alias = rel.name
+                        target_entity = rel.to_entity
                         if rel_alias not in selectors_relations and policy.allow_auto_add_relations:
                             selectors_relations.append(rel_alias)
-                    else:
-                        raise AmbiguousField(field, labels)
+                            diagnostics.append(
+                                {
+                                    "kind": "auto_add_relation",
+                                    "relation": rel_alias,
+                                    "reason": f"qualified field mapped entity '{alias}' to relation alias",
+                                }
+                            )
+                        diagnostics.append(
+                            {
+                                "kind": "mapped_qualifier_label_to_relation",
+                                "qualifier": alias,
+                                "relation": rel_alias,
+                                "reason": "mapped qualifier label to relation",
+                            }
+                        )
+                    elif len(relations_to_entity) > 1:
+                        labels = [f"{r.name}.{col}" for r in relations_to_entity]
+                        if policy.ambiguity_strategy == "best":
+                            chosen_rel = sorted(relations_to_entity, key=lambda r: (r.name, r.to_entity))[0]
+                            rel_alias = chosen_rel.name
+                            target_entity = chosen_rel.to_entity
+                            diagnostics.append(
+                                {
+                                    "kind": "ambiguous_field_best_effort",
+                                    "field": field,
+                                    "chosen": f"{rel_alias}.{col}",
+                                    "candidates": labels,
+                                }
+                            )
+                            if rel_alias not in selectors_relations and policy.allow_auto_add_relations:
+                                selectors_relations.append(rel_alias)
+                        else:
+                            raise AmbiguousField(field, labels)
 
         if target_entity is None:
+            if policy.unknown_qualifier_strategy == "drop":
+                diagnostics.append(
+                    {
+                        "kind": "ignored_unknown_qualifier",
+                        "qualifier": alias,
+                        "field": field,
+                        "reason": "ignored_unknown_qualifier",
+                    }
+                )
+                return _bind_field(
+                    col,
+                    root_entity=root_entity,
+                    declared_relations=declared_relations,
+                    schema=schema,
+                    policy=policy,
+                    selectors_relations=selectors_relations,
+                    diagnostics=diagnostics,
+                )
             raise UnknownRelation(alias)
         entity = entity_index.get(target_entity)
         if entity is None or col not in entity.field_names():
@@ -253,6 +290,31 @@ def _bind_filter(
             )
     elif op_type == "comparison":
         entity_hint = filt.get("entity")
+        field = filt.get("field")
+
+        if isinstance(entity_hint, str) and isinstance(field, str) and "." not in field:
+            bound, updated_relations = _bind_field(
+                f"{entity_hint}.{field}",
+                root_entity=root_entity,
+                declared_relations=declared_relations,
+                schema=schema,
+                policy=policy,
+                selectors_relations=updated_relations,
+                diagnostics=diagnostics,
+            )
+            filt["field"] = bound
+            filt.pop("entity", None)
+            diagnostics.append(
+                {
+                    "kind": "bound_entity_field",
+                    "from_entity": entity_hint,
+                    "from_field": field,
+                    "to": bound,
+                    "reason": "combined entity+field in filter",
+                }
+            )
+            return updated_relations
+
         if isinstance(entity_hint, str) and entity_hint and entity_hint != root_entity:
             relation_index = schema.relation_index()
             candidates = []
@@ -304,7 +366,6 @@ def _bind_filter(
                     }
                 )
 
-        field = filt.get("field")
         if isinstance(field, str):
             bound, updated_relations = _bind_field(
                 field,

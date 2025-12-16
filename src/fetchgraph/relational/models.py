@@ -109,6 +109,7 @@ class GroupBySpec(BaseModel):
 
     entity: Optional[str] = None
     field: str
+    alias: Optional[str] = None
 
 
 class RelationalQuery(BaseModel):

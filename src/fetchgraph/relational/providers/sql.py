@@ -431,7 +431,7 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         for g in req.group_by:
             ent, fld = self._resolve_field(req.root_entity, g.field, g.entity)
             col_ref = self._column_ref(self._lookup_alias(ent, index), fld)
-            alias = self._select_alias(ent, fld, req.root_entity)
+            alias = g.alias or self._select_alias(ent, fld, req.root_entity)
             select_parts.append(f"{col_ref} AS {self._quote_ident(alias)}")
             group_cols.append(col_ref)
 

@@ -148,8 +148,8 @@ def test_provider_catalog_uses_compact_digest_and_prefers_dsl_note():
 
     catalog = provider_catalog_text({"mini": provider})
 
-    assert "preferred_selectors: dsl" in catalog
-    assert "preferred_selectors_note" in catalog
+    assert "preferred_selectors" not in catalog
+    assert "selector_dialects" not in catalog
     assert "selectors_digest" not in catalog
     assert "selectors_schema" not in catalog
 
@@ -281,8 +281,8 @@ def test_catalog_order_preserves_examples_and_dialects_under_truncation():
             return info
 
     catalog = provider_catalog_text({"verbose": VerboseProvider()})
-    assert "selector_dialects" in catalog
     assert "examples" in catalog
+    assert "selector_dialects" not in catalog
 
 
 def test_entities_preview_always_contains_pk_and_semantic_fields():

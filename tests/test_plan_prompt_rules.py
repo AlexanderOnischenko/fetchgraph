@@ -1,4 +1,5 @@
 from fetchgraph.core.context import provider_catalog_text
+from fetchgraph.core.context import provider_catalog_text
 from fetchgraph.core.models import TaskProfile
 from fetchgraph.core.utils import load_pkg_text, render_prompt
 from fetchgraph.relational.models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
@@ -48,7 +49,7 @@ class MiniRelProvider(RelationalDataProvider):
         raise NotImplementedError
 
 
-def test_field_qualification_rule_present_in_prompt():
+def test_planner_prompt_contains_no_dsl_markers():
     provider = MiniRelProvider()
     catalog = provider_catalog_text({"mini": provider})
     tpl = load_pkg_text("prompts/plan_generic.md")
@@ -69,7 +70,7 @@ def test_field_qualification_rule_present_in_prompt():
     assert "entity: \"<to_entity>\"" in prompt
     assert "field: \"<to_entity>.<field>\"" in prompt
     assert "ilike \"%...%\"" in prompt
-    assert "semantic_only" in prompt
-    assert "$dsl" in prompt
-    assert "$subquery" in prompt
-    assert "нет поля fields" in prompt
+    assert "selectors должны быть нативными" in prompt
+    assert "$dsl" not in prompt
+    assert "selector_dialects" not in prompt
+    assert "payload" not in prompt

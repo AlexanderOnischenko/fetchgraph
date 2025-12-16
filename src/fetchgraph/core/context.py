@@ -18,7 +18,6 @@ from .models import (
 )
 from ..parsing.plan_parser import PlanParser
 from .catalog import (
-    MAX_DIALECTS,
     MAX_EXAMPLES,
     MAX_ENTITIES_PREVIEW,
     MAX_PROVIDER_BLOCK_CHARS,
@@ -34,9 +33,8 @@ from .protocols import (
     SupportsFilter,
     Verifier,
 )
-from .selector_dialects import compile_selectors
+from .selectors import coerce_selectors_to_native
 from ..plan_compile import compile_plan_selectors
-from ..relational.selector_normalizer import normalize_relational_selectors
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -90,20 +88,6 @@ def _format_examples(examples: List[str]) -> List[str]:
                 lines.append("      - " + ln if idx == 0 else "        " + ln)
         except Exception:
             lines.append(f"      - {ex}")
-    return lines
-
-
-def _format_selector_dialects(info: ProviderInfo) -> List[str]:
-    lines: List[str] = []
-    if not getattr(info, "selector_dialects", None):
-        return lines
-    lines.append("    selector_dialects:")
-    for dialect in info.selector_dialects[:MAX_DIALECTS]:
-        lines.append(f"      - id: {dialect.id}")
-        if dialect.envelope_example:
-            lines.append(f"        envelope_example: {dialect.envelope_example}")
-        if dialect.notes:
-            lines.append(f"        notes: {dialect.notes}")
     return lines
 
 
@@ -239,13 +223,6 @@ def _format_provider_block(info: ProviderInfo) -> str:
 
     selectors_lines: List[str] = []
     selectors_lines.append("  selectors:")
-    if info.preferred_selectors:
-        selectors_lines.append(f"    preferred_selectors: {info.preferred_selectors}")
-        if info.preferred_selectors == "dsl":
-            selectors_lines.append(
-                "    preferred_selectors_note: If preferred_selectors=dsl, output selectors using $dsl envelope."
-            )
-    selectors_lines.extend(_format_selector_dialects(info))
     selectors_lines.extend(_format_digest_summary(info))
     selectors_lines.extend(_format_schema_summary(info))
 
@@ -699,8 +676,7 @@ class BaseGraphAgent:
                 spec.selectors,
                 getattr(spec, "max_tokens", None),
             )
-            compiled_selectors = compile_selectors(prov, spec.selectors or {})
-            compiled_selectors = normalize_relational_selectors(prov, compiled_selectors)
+            compiled_selectors = coerce_selectors_to_native(prov, spec.selectors or {})
 
             obj = prov.fetch(feature_name, selectors=compiled_selectors)
             if spec.mode == "slice":
@@ -821,7 +797,7 @@ class BaseGraphAgent:
                 len(merged),
             )
             plan = plan.model_copy(update={"context_plan": merged})
-            plan = compile_plan_selectors(plan, self.providers)
+            plan = compile_plan_selectors(plan, self.providers, planner_mode=False)
             # fetch again
             ctx = self._fetch(feature_name, plan)
             iters += 1
@@ -856,8 +832,7 @@ class BaseGraphAgent:
                 key,
                 feature_name,
             )
-            compiled = compile_selectors(prov, b.spec.selectors or {})
-            compiled = normalize_relational_selectors(prov, compiled)
+            compiled = coerce_selectors_to_native(prov, b.spec.selectors or {})
             obj = prov.fetch(feature_name, selectors=compiled)
             if b.spec.mode == "slice":
                 obj = _apply_provider_filter(prov, obj, compiled)

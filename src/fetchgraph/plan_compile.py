@@ -1,79 +1,16 @@
-"""Compile and validate selectors inside a parsed plan.
-
-The planner may emit selector envelopes that rely on the $dsl mechanism. This
-module compiles them into provider-native selectors immediately after parsing
-to catch schema or validation errors early.
-"""
+"""Compile and validate selectors inside a parsed plan."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping
+from typing import Mapping
 
 from .core.models import Plan
 from .core.protocols import ContextProvider
-from .core.selector_dialects import compile_selectors
-from .relational.models import RelationalQuery, SchemaRequest, SemanticOnlyRequest
-from .relational.selector_normalizer import normalize_relational_selectors
-
-
-def _validate_compiled(provider: ContextProvider, compiled: Dict[str, Any]) -> None:
-    """Validate compiled selectors using provider schemas when possible."""
-
-    op = compiled.get("op") if isinstance(compiled, dict) else None
-
-    entity_names = {e.name for e in getattr(provider, "entities", []) or []}
-    relation_names = {r.name for r in getattr(provider, "relations", []) or []}
-
-    if op == "query":
-        RelationalQuery.model_validate(compiled)
-        if entity_names:
-            root = compiled.get("root_entity")
-            if root not in entity_names:
-                raise ValueError(
-                    f"Unknown root_entity {root!r}; known entities: {sorted(entity_names)}"
-                )
-        if relation_names:
-            missing_relations = [
-                rel for rel in compiled.get("relations") or [] if rel not in relation_names
-            ]
-            if missing_relations:
-                raise ValueError(
-                    "Unknown relations: "
-                    + ", ".join(sorted(missing_relations))
-                    + f"; known relations: {sorted(relation_names)}"
-                )
-    elif op == "schema":
-        SchemaRequest.model_validate(compiled)
-        if entity_names:
-            requested_entities = compiled.get("entities") or []
-            missing_entities = [e for e in requested_entities if e not in entity_names]
-            if missing_entities:
-                raise ValueError(
-                    "Unknown entities: "
-                    + ", ".join(sorted(missing_entities))
-                    + f"; known entities: {sorted(entity_names)}"
-                )
-        if relation_names:
-            requested_relations = compiled.get("relations") or []
-            missing_relations = [r for r in requested_relations if r not in relation_names]
-            if missing_relations:
-                raise ValueError(
-                    "Unknown relations: "
-                    + ", ".join(sorted(missing_relations))
-                    + f"; known relations: {sorted(relation_names)}"
-                )
-    elif op == "semantic_only":
-        SemanticOnlyRequest.model_validate(compiled)
-        if entity_names:
-            entity = compiled.get("entity")
-            if entity not in entity_names:
-                raise ValueError(
-                    f"Unknown entity {entity!r}; known entities: {sorted(entity_names)}"
-                )
+from .core.selectors import coerce_selectors_to_native
 
 
 def compile_plan_selectors(
-    plan: Plan, providers: Mapping[str, ContextProvider]
+    plan: Plan, providers: Mapping[str, ContextProvider], *, planner_mode: bool = True
 ) -> Plan:
     """Compile all selector envelopes inside a parsed plan.
 
@@ -97,9 +34,9 @@ def compile_plan_selectors(
                 f"Provider {spec.provider!r} is missing; cannot compile selectors"
             )
 
-        compiled = compile_selectors(provider, spec.selectors or {})
-        compiled = normalize_relational_selectors(provider, compiled)
-        _validate_compiled(provider, compiled)
+        compiled = coerce_selectors_to_native(
+            provider, spec.selectors or {}, planner_mode=planner_mode
+        )
 
         compiled_specs.append(spec.model_copy(update={"selectors": compiled}))
 

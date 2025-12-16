@@ -53,9 +53,9 @@ def provider() -> DummyProvider:
 def test_refetch_merges_and_compiles_dsl(monkeypatch, provider):
     calls = {"compile": 0, "fetched_selectors": None}
 
-    def compile_spy(plan, providers):
+    def compile_spy(plan, providers, **kwargs):
         calls["compile"] += 1
-        return real_compile_plan_selectors(plan, providers)
+        return real_compile_plan_selectors(plan, providers, **kwargs)
 
     monkeypatch.setattr("fetchgraph.core.context.compile_plan_selectors", compile_spy)
 

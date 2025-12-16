@@ -70,6 +70,11 @@ def normalize_relational_selectors(
             clause.update(item)
             clauses.append(clause)
         normalized["filters"] = {"type": "logical", "op": "and", "clauses": clauses}
+    elif isinstance(filters_obj, dict) and "type" not in filters_obj:
+        if any(k in filters_obj for k in ("field", "op", "value")):
+            filled = {"type": "comparison"}
+            filled.update(filters_obj)
+            normalized["filters"] = filled
 
     return normalized
 

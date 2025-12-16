@@ -14,6 +14,16 @@ class UnknownRelation(Exception):
         self.relation = relation
 
 
+class RelationNotFromRoot(Exception):
+    def __init__(self, relation: str, root_entity: str, from_entity: str):
+        super().__init__(
+            f"Relation '{relation}' does not originate from root '{root_entity}' (from_entity={from_entity})"
+        )
+        self.relation = relation
+        self.root_entity = root_entity
+        self.from_entity = from_entity
+
+
 class UnknownField(Exception):
     def __init__(self, field: str, *, root_entity: str, candidates: Optional[List[str]] = None):
         msg = f"Unknown field '{field}' for root '{root_entity}'"
@@ -68,6 +78,9 @@ def _bind_field(
 
     if "." in field:
         alias, col = field.split(".", 1)
+        target_entity: Optional[str] = None
+        rel_alias = alias
+
         if alias == root_entity:
             target_entity = root_entity
         elif alias in declared_relations:
@@ -76,11 +89,66 @@ def _bind_field(
                 raise UnknownRelation(alias)
             target_entity = rel.to_entity
         else:
+            rel = relation_index.get(alias)
+            if rel:
+                if rel.from_entity != root_entity:
+                    raise RelationNotFromRoot(alias, root_entity, rel.from_entity)
+                if policy.allow_auto_add_relations and rel.name not in selectors_relations:
+                    selectors_relations.append(rel.name)
+                    diagnostics.append(
+                        {
+                            "kind": "auto_add_relation",
+                            "relation": rel.name,
+                            "reason": f"qualified field used undeclared relation {alias}",
+                        }
+                    )
+                rel_alias = rel.name
+                target_entity = rel.to_entity
+            else:
+                matching_relations = [
+                    r
+                    for r in schema.relations
+                    if r.to_entity == alias and r.from_entity == root_entity
+                ]
+                if len(matching_relations) == 1:
+                    rel = matching_relations[0]
+                    rel_alias = rel.name
+                    target_entity = rel.to_entity
+                    if rel_alias not in selectors_relations and policy.allow_auto_add_relations:
+                        selectors_relations.append(rel_alias)
+                        diagnostics.append(
+                            {
+                                "kind": "auto_add_relation",
+                                "relation": rel_alias,
+                                "reason": f"qualified field mapped entity '{alias}' to relation alias",
+                            }
+                        )
+                elif len(matching_relations) > 1:
+                    labels = [f"{r.name}.{col}" for r in matching_relations]
+                    if policy.ambiguity_strategy == "best":
+                        chosen_rel = sorted(matching_relations, key=lambda r: (r.name, r.to_entity))[0]
+                        rel_alias = chosen_rel.name
+                        target_entity = chosen_rel.to_entity
+                        diagnostics.append(
+                            {
+                                "kind": "ambiguous_field_best_effort",
+                                "field": field,
+                                "chosen": f"{rel_alias}.{col}",
+                                "candidates": labels,
+                            }
+                        )
+                        if rel_alias not in selectors_relations and policy.allow_auto_add_relations:
+                            selectors_relations.append(rel_alias)
+                    else:
+                        raise AmbiguousField(field, labels)
+
+        if target_entity is None:
             raise UnknownRelation(alias)
         entity = entity_index.get(target_entity)
         if entity is None or col not in entity.field_names():
             raise UnknownField(field, root_entity=root_entity)
-        return f"{alias}.{col}", selectors_relations
+        bound = f"{rel_alias}.{col}"
+        return bound, selectors_relations
 
     # Unqualified field
     candidates: List[_Candidate] = []
@@ -192,10 +260,20 @@ def _bind_filter(
                 declared_relations=declared_relations,
                 schema=schema,
                 policy=policy,
-                selectors_relations=selectors_relations,
+                selectors_relations=updated_relations,
                 diagnostics=diagnostics,
             )
             filt["field"] = bound
+            if bound != field:
+                diagnostics.append(
+                    {
+                        "kind": "bound_field",
+                        "from": field,
+                        "to": bound,
+                        "reason": "resolved against schema",
+                        "context": "filters",
+                    }
+                )
     return updated_relations
 
 
@@ -221,6 +299,14 @@ def bind_selectors(
     declared_relations: List[str] = list(updated.get("relations", []) or [])
     if not root_entity:
         return updated, diagnostics
+
+    relation_index = schema.relation_index()
+    for rel_alias in declared_relations:
+        rel = relation_index.get(rel_alias)
+        if rel is None:
+            raise UnknownRelation(rel_alias)
+        if rel.from_entity != root_entity:
+            raise RelationNotFromRoot(rel_alias, root_entity, rel.from_entity)
 
     # Bind select expressions
     for sel in updated.get("select", []) or []:
@@ -303,6 +389,29 @@ def bind_selectors(
                     }
                 )
             agg["field"] = bound
+
+    for ob in updated.get("order_by", []) or []:
+        field = ob.get("field") if isinstance(ob, dict) else None
+        if isinstance(field, str):
+            bound, declared_relations = _bind_field(
+                field,
+                root_entity=root_entity,
+                declared_relations=declared_relations,
+                schema=schema,
+                policy=policy,
+                selectors_relations=declared_relations,
+                diagnostics=diagnostics,
+            )
+            if bound != field:
+                diagnostics.append(
+                    {
+                        "kind": "bound_field",
+                        "from": field,
+                        "to": bound,
+                        "reason": "resolved against schema",
+                    }
+                )
+            ob["field"] = bound
 
     updated["relations"] = declared_relations
     return updated, diagnostics

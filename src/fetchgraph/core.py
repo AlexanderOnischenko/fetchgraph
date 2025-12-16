@@ -25,7 +25,7 @@ from .protocols import (
     SupportsFilter,
     Verifier,
 )
-from .schema import ResolutionPolicy, bind_selectors, registry
+from .schema import ResolutionPolicy, SchemaRegistry, bind_selectors, registry
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -280,6 +280,8 @@ def create_generic_agent(
     max_refetch_iters: int = 1,
     max_tokens: int = 4000,
     summarizer_llm: Optional[Callable[[str], str]] = None,
+    schema_policy: Optional[ResolutionPolicy] = None,
+    schema_registry: Optional[SchemaRegistry] = None,
 ) -> BaseGraphAgent:
     """Convenience wrapper building a generic :class:`BaseGraphAgent`.
 
@@ -310,6 +312,8 @@ def create_generic_agent(
         task_profile=task_profile,
         llm_refetch=llm_refetch,
         max_refetch_iters=max_refetch_iters,
+        schema_policy=schema_policy,
+        schema_registry=schema_registry,
     )
 
     return agent
@@ -333,6 +337,8 @@ class BaseGraphAgent:
         task_profile: Optional[TaskProfile] = None,
         llm_refetch: Optional[Callable[[str, Dict[str, str], Plan], str]] = None,
         max_refetch_iters: int = 1,
+        schema_policy: Optional[ResolutionPolicy] = None,
+        schema_registry: Optional[SchemaRegistry] = None,
     ):
         self.llm_plan = llm_plan
         self.llm_synth = llm_synth
@@ -350,6 +356,8 @@ class BaseGraphAgent:
         self.task_profile = task_profile or TaskProfile()
         self.llm_refetch = llm_refetch
         self.max_refetch_iters = max_refetch_iters
+        self.schema_policy = schema_policy or ResolutionPolicy()
+        self.schema_registry = schema_registry or registry
 
         logger.info(
             "BaseGraphAgent initialized "
@@ -522,11 +530,11 @@ class BaseGraphAgent:
 
             if should_bind:
                 try:
-                    schema = registry.get_or_describe(prov)
+                    schema = self.schema_registry.get_or_describe(prov)
                     bound_selectors, diag = bind_selectors(
                         schema,
                         selectors_payload,
-                        policy=ResolutionPolicy(),
+                        policy=self.schema_policy,
                         capabilities=capabilities,
                     )
                     spec.selectors = bound_selectors

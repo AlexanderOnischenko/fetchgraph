@@ -17,6 +17,19 @@ class SchemaRegistry:
     def get(self, provider_name: str) -> Optional[ProviderSchema]:
         return self._cache.get(provider_name)
 
+    def _coerce_schema(self, obj: object) -> Optional[ProviderSchema]:
+        if isinstance(obj, ProviderSchema):
+            return obj
+
+        entities = getattr(obj, "entities", None)
+        relations = getattr(obj, "relations", None)
+        if entities is not None and relations is not None:
+            from .types import ProviderSchema as PS  # local import to avoid cycles
+
+            return PS.from_relational(entities, relations)
+
+        return None
+
     def get_or_describe(self, provider: object) -> ProviderSchema:
         name = getattr(provider, "name", provider.__class__.__name__)
         cached = self.get(name)
@@ -26,21 +39,15 @@ class SchemaRegistry:
         schema: Optional[ProviderSchema] = None
         describe_schema = getattr(provider, "describe_schema", None)
         if callable(describe_schema):
-            schema = describe_schema()
-        elif hasattr(provider, "entities") and hasattr(provider, "relations"):
+            try:
+                schema = self._coerce_schema(describe_schema())
+            except Exception:
+                schema = None
+
+        if schema is None and hasattr(provider, "entities") and hasattr(provider, "relations"):
             from .types import ProviderSchema as PS  # local import to avoid cycles
 
             schema = PS.from_relational(getattr(provider, "entities"), getattr(provider, "relations"))
-        else:
-            fetch = getattr(provider, "fetch", None)
-            if callable(fetch):
-                res = fetch("", selectors={"op": "schema"})
-                entities = getattr(res, "entities", None)
-                relations = getattr(res, "relations", None)
-                if entities is not None and relations is not None:
-                    from .types import ProviderSchema as PS  # local import to avoid cycles
-
-                    schema = PS.from_relational(entities, relations)
 
         if schema is None:
             raise ValueError(f"Provider {name!r} cannot describe schema")

@@ -3,6 +3,7 @@ import pytest
 from fetchgraph.schema import (
     AmbiguousField,
     ProviderSchema,
+    RelationNotFromRoot,
     ResolutionPolicy,
     UnknownField,
     UnknownRelation,
@@ -51,6 +52,22 @@ def test_registry_caches_describe(simple_schema):
 
     assert first is second
     assert prov.describe_calls == 1
+
+
+def test_registry_coerces_schema_result(simple_schema):
+    class SchemaResult:
+        def __init__(self, entities, relations):
+            self.entities = entities
+            self.relations = relations
+
+    prov = DummyProvider(simple_schema)
+    prov.describe_schema = lambda: SchemaResult(simple_schema.entities, simple_schema.relations)
+    local_registry = SchemaRegistry()
+
+    schema = local_registry.get_or_describe(prov)
+
+    assert isinstance(schema, ProviderSchema)
+    assert prov.describe_calls == 0
 
 
 def test_qualified_field_ok(simple_schema):
@@ -105,6 +122,22 @@ def test_unqualified_triggers_auto_add(simple_schema):
     assert any(d["kind"] == "auto_add_relation" for d in diag)
 
 
+def test_qualified_relation_auto_add(simple_schema):
+    selectors = {"op": "query", "root_entity": "fbs", "select": [{"expr": "fbs_as.system_name"}]}
+    bound, diag = bind_selectors(simple_schema, selectors)
+    assert "fbs_as" in bound.get("relations", [])
+    assert bound["select"][0]["expr"] == "fbs_as.system_name"
+    assert any(d["kind"] == "auto_add_relation" for d in diag)
+
+
+def test_entity_name_in_qualified_field_maps_to_relation(simple_schema):
+    selectors = {"op": "query", "root_entity": "fbs", "select": [{"expr": "as.system_name"}]}
+    bound, diag = bind_selectors(simple_schema, selectors)
+    assert bound["select"][0]["expr"] == "fbs_as.system_name"
+    assert "fbs_as" in bound.get("relations", [])
+    assert any(d["kind"] == "auto_add_relation" for d in diag)
+
+
 def test_ambiguity_ask(simple_schema):
     selectors = {
         "op": "query",
@@ -128,3 +161,37 @@ def test_ambiguity_best(simple_schema):
     bound, diag = bind_selectors(simple_schema, selectors, policy=ResolutionPolicy(ambiguity_strategy="best"))
     assert bound["select"][0]["expr"] == "fbs.system_name"
     assert any(d["kind"] == "ambiguous_field_best_effort" for d in diag)
+
+
+def test_order_by_binding(simple_schema):
+    selectors = {
+        "op": "query",
+        "root_entity": "fbs",
+        "select": [{"expr": "bc_guid"}],
+        "order_by": [{"field": "system_name", "direction": "asc"}],
+    }
+    bound, diag = bind_selectors(simple_schema, selectors)
+    assert bound["order_by"][0]["field"] == "fbs.system_name"
+    assert any(d["kind"] == "bound_field" for d in diag)
+
+
+def test_filters_binding_diagnostics(simple_schema):
+    selectors = {
+        "op": "query",
+        "root_entity": "fbs",
+        "filters": {"type": "comparison", "field": "system_name", "op": "eq", "value": 1},
+    }
+    bound, diag = bind_selectors(simple_schema, selectors)
+    assert bound["filters"]["field"] == "fbs.system_name"
+    assert any(d.get("context") == "filters" for d in diag if d.get("kind") == "bound_field")
+
+
+def test_relation_validation_against_root(simple_schema):
+    bad_schema = ProviderSchema(
+        entities=simple_schema.entities,
+        relations=simple_schema.relations
+        + [RelationDescriptor(name="other", from_entity="other_root", to_entity="as")],
+    )
+    selectors = {"op": "query", "root_entity": "fbs", "relations": ["other"], "select": [{"expr": "extra"}]}
+    with pytest.raises(RelationNotFromRoot):
+        bind_selectors(bad_schema, selectors)

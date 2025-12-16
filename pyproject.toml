@@ -28,4 +28,5 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 dev = [
   "pytest>=9.0",
+  "pre-commit",
 ]

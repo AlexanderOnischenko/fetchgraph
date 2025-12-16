@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from .json_types import SelectorsDict
-from .relational_base import RelationalDataProvider
-from .relational_models import (
+from ...json_types import SelectorsDict
+from ..base import RelationalDataProvider
+from ..models import (
     AggregationResult,
     AggregationSpec,
     ComparisonFilter,

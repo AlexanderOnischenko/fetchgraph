@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fetchgraph.relational_schema import (
+from fetchgraph.relational.schema import (
     SchemaConfig,
     EntityConfig,
     ColumnConfig,

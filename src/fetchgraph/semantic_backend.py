@@ -11,7 +11,7 @@ from typing import Mapping, Protocol, Sequence, cast
 
 import pandas as pd  # type: ignore[import]
 
-from .relational_models import SemanticMatch
+from .relational.models import SemanticMatch
 
 
 class SemanticBackend(Protocol):

@@ -5,7 +5,7 @@ import sqlite3
 
 import pandas as pd
 
-from fetchgraph.relational_schema import build_sql_provider_from_schema
+from fetchgraph.relational.schema import build_sql_provider_from_schema
 
 from .schema import RETAIL_SCHEMA
 

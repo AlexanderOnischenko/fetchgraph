@@ -6,7 +6,7 @@ from typing import Any, List
 import pytest
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.relational_models import (
+from fetchgraph.relational.models import (
     AggregationSpec,
     ColumnDescriptor,
     ComparisonFilter,
@@ -20,7 +20,7 @@ from fetchgraph.relational_models import (
     SemanticClause,
     SemanticMatch,
 )
-from fetchgraph.relational_sql import SqlRelationalDataProvider
+from fetchgraph.relational.providers.sql import SqlRelationalDataProvider
 
 
 class FakeSemanticBackend:

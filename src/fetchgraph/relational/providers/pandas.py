@@ -8,8 +8,8 @@ import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
 from difflib import SequenceMatcher
 
-from .relational_base import RelationalDataProvider
-from .relational_models import (
+from ..base import RelationalDataProvider
+from ..models import (
     AggregationResult,
     AggregationSpec,
     ComparisonFilter,
@@ -24,7 +24,7 @@ from .relational_models import (
     SemanticClause,
     SemanticOnlyResult,
 )
-from .semantic_backend import SemanticBackend
+from ...semantic_backend import SemanticBackend
 
 
 class PandasRelationalDataProvider(RelationalDataProvider):

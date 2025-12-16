@@ -4,8 +4,8 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.relational_composite import CompositeRelationalProvider
-from fetchgraph.relational_models import (
+from fetchgraph.relational.providers.composite import CompositeRelationalProvider
+from fetchgraph.relational.models import (
     AggregationSpec,
     ColumnDescriptor,
     ComparisonFilter,
@@ -16,7 +16,7 @@ from fetchgraph.relational_models import (
     RelationJoin,
     SelectExpr,
 )
-from fetchgraph.relational_pandas import PandasRelationalDataProvider
+from fetchgraph.relational.providers.pandas import PandasRelationalDataProvider
 
 
 def _build_block_system_composite(

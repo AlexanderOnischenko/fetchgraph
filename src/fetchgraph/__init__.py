@@ -37,7 +37,7 @@ from .protocols import (
     Saver,
     LLMInvoke,
 )
-from .relational_provider import (
+from .relational.provider import (
     AggregationResult,
     AggregationSpec,
     ColumnDescriptor,
@@ -123,7 +123,5 @@ __all__ = [
     "PgVectorSemanticBackend",
     "PgVectorSemanticSource",
     "VectorStoreLike",
+    "PandasRelationalDataProvider"
 ]
-
-if PandasRelationalDataProvider is not None:
-    __all__.append("PandasRelationalDataProvider")

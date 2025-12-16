@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from fetchgraph.core import create_generic_agent, TaskProfile
 from fetchgraph.protocols import LLMInvoke
-from fetchgraph.relational_schema import SchemaConfig  # только для типа, не обязательно
+from fetchgraph.relational.schema import SchemaConfig  # только для типа, не обязательно
 
 from .schema import build_retail_provider, RETAIL_SCHEMA
 

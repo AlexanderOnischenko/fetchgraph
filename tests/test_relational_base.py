@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("pandas", reason="pandas dependency required for package import")
 
-from fetchgraph.relational_base import RelationalDataProvider
+from fetchgraph.relational.base import RelationalDataProvider
 
 
 def test_normalize_string_basic():

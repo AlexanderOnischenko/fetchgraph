@@ -25,6 +25,7 @@ from .protocols import (
     SupportsFilter,
     Verifier,
 )
+from .schema import ResolutionPolicy, SchemaRegistry, bind_selectors, registry
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -279,6 +280,8 @@ def create_generic_agent(
     max_refetch_iters: int = 1,
     max_tokens: int = 4000,
     summarizer_llm: Optional[Callable[[str], str]] = None,
+    schema_policy: Optional[ResolutionPolicy] = None,
+    schema_registry: Optional[SchemaRegistry] = None,
 ) -> BaseGraphAgent:
     """Convenience wrapper building a generic :class:`BaseGraphAgent`.
 
@@ -309,6 +312,8 @@ def create_generic_agent(
         task_profile=task_profile,
         llm_refetch=llm_refetch,
         max_refetch_iters=max_refetch_iters,
+        schema_policy=schema_policy,
+        schema_registry=schema_registry,
     )
 
     return agent
@@ -332,6 +337,8 @@ class BaseGraphAgent:
         task_profile: Optional[TaskProfile] = None,
         llm_refetch: Optional[Callable[[str, Dict[str, str], Plan], str]] = None,
         max_refetch_iters: int = 1,
+        schema_policy: Optional[ResolutionPolicy] = None,
+        schema_registry: Optional[SchemaRegistry] = None,
     ):
         self.llm_plan = llm_plan
         self.llm_synth = llm_synth
@@ -349,6 +356,8 @@ class BaseGraphAgent:
         self.task_profile = task_profile or TaskProfile()
         self.llm_refetch = llm_refetch
         self.max_refetch_iters = max_refetch_iters
+        self.schema_policy = schema_policy or ResolutionPolicy()
+        self.schema_registry = schema_registry or registry
 
         logger.info(
             "BaseGraphAgent initialized "
@@ -502,6 +511,41 @@ class BaseGraphAgent:
                 spec.selectors,
                 getattr(spec, "max_tokens", None),
             )
+            selectors_payload = spec.selectors or {}
+            should_bind = selectors_payload.get("op") == "query"
+            capabilities: List[str] = []
+            if should_bind:
+                if hasattr(prov, "entities") and hasattr(prov, "relations"):
+                    capabilities = ["schema", "row_query"]
+                    should_bind = True
+                elif isinstance(prov, SupportsDescribe):
+                    try:
+                        info = prov.describe()
+                        capabilities = info.capabilities or []
+                        should_bind = any(
+                            cap in capabilities for cap in ("schema", "row_query")
+                        )
+                    except Exception:
+                        should_bind = False
+
+            if should_bind:
+                try:
+                    schema = self.schema_registry.get_or_describe(
+                        prov, provider_key=spec.provider
+                    )
+                    bound_selectors, diag = bind_selectors(
+                        schema,
+                        selectors_payload,
+                        policy=self.schema_policy,
+                        capabilities=capabilities,
+                    )
+                    spec.selectors = bound_selectors
+                    if diag:
+                        spec.meta = spec.meta or {}
+                        spec.meta.setdefault("diagnostics", []).extend(diag)
+                except Exception:
+                    logger.exception("Schema binding failed for provider %s", spec.provider)
+                    raise
             obj = prov.fetch(feature_name, selectors=spec.selectors)
             if spec.mode == "slice":
                 obj = _apply_provider_filter(prov, obj, spec.selectors)

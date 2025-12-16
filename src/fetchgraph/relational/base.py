@@ -8,6 +8,7 @@ import re
 
 from ..core import ContextProvider, ProviderInfo, SupportsDescribe
 from ..json_types import SelectorsDict
+from ..schema.types import ProviderSchema
 from .models import (
     QueryResult,
     RelationalQuery,
@@ -35,6 +36,9 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         self.name = name
         self.entities = entities
         self.relations = relations
+
+    def describe_schema(self) -> ProviderSchema:
+        return ProviderSchema.from_relational(self.entities, self.relations)
 
     @staticmethod
     def _normalize_string(value: Any) -> str:

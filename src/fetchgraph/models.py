@@ -58,6 +58,7 @@ class ContextFetchSpec(BaseModel):
     mode: str = "full"
     selectors: Dict[str, Any] = Field(default_factory=dict)
     max_tokens: Optional[int] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)

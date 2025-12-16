@@ -70,3 +70,6 @@ def test_field_qualification_rule_present_in_prompt():
     assert "field: \"<to_entity>.<field>\"" in prompt
     assert "ilike \"%...%\"" in prompt
     assert "semantic_only" in prompt
+    assert "$dsl" in prompt
+    assert "$subquery" in prompt
+    assert "нет поля fields" in prompt

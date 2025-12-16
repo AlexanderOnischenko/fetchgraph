@@ -13,6 +13,7 @@ from .core.models import Plan
 from .core.protocols import ContextProvider
 from .core.selector_dialects import compile_selectors
 from .relational.models import RelationalQuery, SchemaRequest, SemanticOnlyRequest
+from .relational.selector_normalizer import normalize_relational_selectors
 
 
 def _validate_compiled(provider: ContextProvider, compiled: Dict[str, Any]) -> None:
@@ -97,6 +98,7 @@ def compile_plan_selectors(
             )
 
         compiled = compile_selectors(provider, spec.selectors or {})
+        compiled = normalize_relational_selectors(provider, compiled)
         _validate_compiled(provider, compiled)
 
         compiled_specs.append(spec.model_copy(update={"selectors": compiled}))

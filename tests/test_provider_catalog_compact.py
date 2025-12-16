@@ -143,6 +143,17 @@ def test_provider_catalog_includes_simple_schema_summary():
     assert "\"payload\"" in catalog
 
 
+def test_provider_catalog_uses_compact_digest_and_prefers_dsl_note():
+    provider = MiniRelProvider()
+
+    catalog = provider_catalog_text({"mini": provider})
+
+    assert "preferred_selectors: dsl" in catalog
+    assert "preferred_selectors_note" in catalog
+    assert "selectors_digest" not in catalog
+    assert "selectors_schema" not in catalog
+
+
 def test_provider_catalog_truncation_enforces_cap():
     class LongCatalogProvider(DummyCompactProvider):
         def __init__(self, idx: int):
@@ -178,6 +189,19 @@ def test_relational_examples_validate_and_dsl_compiles():
         else:
             pytest.fail(f"Unknown op in example: {op}")
 
+    relation_example = None
+    for ex in info.examples:
+        data = json.loads(ex)
+        if data.get("op") == "query" and data.get("relations"):
+            relation_example = data
+            break
+
+    assert relation_example is not None
+    assert relation_example["relations"] == ["order_customer"]
+    assert relation_example["filters"]["entity"] == "customer"
+    assert relation_example["filters"]["op"] == "ilike"
+    assert "select" in relation_example
+
     compiled = compile_selectors(
         provider,
         {
@@ -186,6 +210,18 @@ def test_relational_examples_validate_and_dsl_compiles():
         },
     )
     assert compiled.get("op") == "query"
+
+
+def test_selector_dialect_envelope_example_includes_get_and_where():
+    provider = MiniRelProvider()
+    info = provider.describe()
+
+    dialect = info.selector_dialects[0]
+    payload = json.loads(dialect.envelope_example)["payload"]
+
+    assert payload.get("get")
+    assert payload.get("where") and len(payload["where"][0]) == 3
+    assert payload.get("with")
 
 
 def test_relational_describe_digest_contains_ops_and_rules():

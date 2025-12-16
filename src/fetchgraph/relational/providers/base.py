@@ -137,6 +137,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         query_schema = RelationalQuery.model_json_schema()
 
         entity_names = [e.name for e in self.entities]
+        entity_by_name = {e.name: e for e in self.entities}
         relation_names = [r.name for r in self.relations]
 
         # Патчим enum для root_entity и relations в RelationalQuery
@@ -418,13 +419,51 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         description = "\n".join(description_parts)
 
         # --- 3) Авто-примеры селекторов ---
+        def _first_textual_column(entity_name: str) -> Optional[str]:
+            entity = entity_by_name.get(entity_name)
+            if not entity:
+                return None
+            for col in entity.columns or []:
+                if getattr(col, "semantic", False):
+                    return col.name
+            if entity.columns:
+                return entity.columns[0].name
+            return None
+
         examples: List[str] = []
 
         # schema
         examples.append(json.dumps({"op": "schema"}, ensure_ascii=False))
 
-        # query с фильтром и relation
-        if entity_names:
+        relation_text_example: Optional[tuple[RelationDescriptor, str]] = None
+        for rel in self.relations:
+            candidate_col = _first_textual_column(rel.to_entity)
+            if candidate_col:
+                relation_text_example = (rel, candidate_col)
+                break
+
+        if relation_text_example:
+            rel, text_col = relation_text_example
+            root = rel.from_entity
+            relation_example = {
+                "op": "query",
+                "root_entity": root,
+                "relations": [rel.name],
+                "select": [
+                    {"expr": f"{root}.id"},
+                    {"expr": f"{rel.to_entity}.{text_col}"},
+                ],
+                "filters": {
+                    "type": "comparison",
+                    "entity": rel.to_entity,
+                    "field": text_col,
+                    "op": "ilike",
+                    "value": "%<abbr>%",
+                },
+                "limit": 20,
+            }
+            examples.append(json.dumps(relation_example, ensure_ascii=False))
+        elif entity_names:
             e0 = entity_names[0]
             cols0 = (self.entities[0].columns or [])
             col0 = cols0[0].name if cols0 else "id"
@@ -440,18 +479,6 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                 "limit": 20,
             }
             examples.append(json.dumps(filter_example, ensure_ascii=False))
-
-        if relation_names:
-            rel0 = self.relations[0]
-            root = rel0.to_entity
-            relation_example = {
-                "op": "query",
-                "root_entity": root,
-                "relations": [rel0.name],
-                "select": [{"expr": f"{root}.id"}],
-                "limit": 15,
-            }
-            examples.append(json.dumps(relation_example, ensure_ascii=False))
 
         # semantic_only по первой семантической сущности
         sem_entity: Optional[str] = None
@@ -476,21 +503,26 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         if schema_config and schema_config.examples:
             examples = schema_config.examples
 
-        payload_example: dict[str, Any] = {}
-        with_relations: List[str] = []
-        if entity_names:
+        payload_example: dict[str, Any] = {"take": 20}
+        if relation_text_example:
+            rel, text_col = relation_text_example
+            payload_example.update(
+                {
+                    "from": rel.from_entity,
+                    "get": [f"{rel.from_entity}.id", f"{rel.to_entity}.{text_col}"],
+                    "where": [[f"{rel.to_entity}.{text_col}", "ilike", "%ЕСП%"]],
+                    "with": [rel.name],
+                }
+            )
+        elif entity_names:
             first_entity = self.entities[0]
-            payload_example["from"] = first_entity.name
-
             cols = first_entity.columns or []
+            payload_example["from"] = first_entity.name
             if cols:
-                payload_example["where"] = [[cols[0].name, "<value>"]]
-
-        if relation_names:
-            with_relations = [relation_names[0]]
-            payload_example["with"] = with_relations
-
-        payload_example["take"] = 20
+                payload_example["get"] = [f"{first_entity.name}.{cols[0].name}"]
+                payload_example["where"] = [[cols[0].name, "=", "<value>"]]
+            if relation_names:
+                payload_example["with"] = [relation_names[0]]
 
         dialects = [
             SelectorDialectInfo(

@@ -36,6 +36,7 @@ from .protocols import (
 )
 from .selector_dialects import compile_selectors
 from ..plan_compile import compile_plan_selectors
+from ..relational.selector_normalizer import normalize_relational_selectors
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -240,6 +241,10 @@ def _format_provider_block(info: ProviderInfo) -> str:
     selectors_lines.append("  selectors:")
     if info.preferred_selectors:
         selectors_lines.append(f"    preferred_selectors: {info.preferred_selectors}")
+        if info.preferred_selectors == "dsl":
+            selectors_lines.append(
+                "    preferred_selectors_note: If preferred_selectors=dsl, output selectors using $dsl envelope."
+            )
     selectors_lines.extend(_format_selector_dialects(info))
     selectors_lines.extend(_format_digest_summary(info))
     selectors_lines.extend(_format_schema_summary(info))
@@ -695,6 +700,7 @@ class BaseGraphAgent:
                 getattr(spec, "max_tokens", None),
             )
             compiled_selectors = compile_selectors(prov, spec.selectors or {})
+            compiled_selectors = normalize_relational_selectors(prov, compiled_selectors)
 
             obj = prov.fetch(feature_name, selectors=compiled_selectors)
             if spec.mode == "slice":
@@ -851,6 +857,7 @@ class BaseGraphAgent:
                 feature_name,
             )
             compiled = compile_selectors(prov, b.spec.selectors or {})
+            compiled = normalize_relational_selectors(prov, compiled)
             obj = prov.fetch(feature_name, selectors=compiled)
             if b.spec.mode == "slice":
                 obj = _apply_provider_filter(prov, obj, compiled)

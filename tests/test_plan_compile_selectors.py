@@ -103,6 +103,63 @@ def test_compile_plan_selectors_rejects_unknown_native_entities_and_relations():
         compile_plan_selectors(plan, {"rel": provider})
 
 
+def test_compile_plan_selectors_normalizes_fields_and_filters_list():
+    provider = make_provider(include_root_field=True)
+    plan = Plan(
+        context_plan=[
+            ContextFetchSpec(
+                provider="rel",
+                selectors={
+                    "op": "query",
+                    "root_entity": "as",
+                    "fields": ["system_name"],
+                    "filters": [
+                        {"field": "system_name", "op": "ilike", "value": "%ЕСП%"}
+                    ],
+                },
+            )
+        ]
+    )
+
+    compiled = compile_plan_selectors(plan, {"rel": provider})
+    selectors = compiled.context_plan[0].selectors
+
+    assert selectors["select"] == [{"expr": "system_name"}]
+    assert selectors["filters"]["type"] == "logical"
+    assert selectors["filters"]["clauses"][0]["type"] == "comparison"
+
+
+def test_compile_plan_selectors_rejects_subqueries_and_relation_roots():
+    provider = make_provider()
+    bad_subquery_plan = Plan(
+        context_plan=[
+            ContextFetchSpec(
+                provider="rel",
+                selectors={
+                    "op": "query",
+                    "root_entity": "fbs",
+                    "$subquery": {},
+                },
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError):
+        compile_plan_selectors(bad_subquery_plan, {"rel": provider})
+
+    relation_root_plan = Plan(
+        context_plan=[
+            ContextFetchSpec(
+                provider="rel",
+                selectors={"op": "query", "root_entity": "fbs_as"},
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError):
+        compile_plan_selectors(relation_root_plan, {"rel": provider})
+
+
 def test_compile_plan_selectors_validates_schema_request_against_provider():
     provider = make_provider()
     plan = Plan(

@@ -25,6 +25,7 @@ from .protocols import (
     SupportsFilter,
     Verifier,
 )
+from .schema import ResolutionPolicy, bind_selectors, registry
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -502,6 +503,38 @@ class BaseGraphAgent:
                 spec.selectors,
                 getattr(spec, "max_tokens", None),
             )
+            selectors_payload = spec.selectors or {}
+            should_bind = selectors_payload.get("op") == "query"
+            capabilities: List[str] = []
+            if should_bind:
+                if hasattr(prov, "entities") and hasattr(prov, "relations"):
+                    capabilities = ["schema", "row_query"]
+                    should_bind = True
+                elif isinstance(prov, SupportsDescribe):
+                    try:
+                        info = prov.describe()
+                        capabilities = info.capabilities or []
+                        should_bind = any(
+                            cap in capabilities for cap in ("schema", "row_query")
+                        )
+                    except Exception:
+                        should_bind = False
+
+            if should_bind:
+                try:
+                    schema = registry.get_or_describe(prov)
+                    bound_selectors, diag = bind_selectors(
+                        schema,
+                        selectors_payload,
+                        policy=ResolutionPolicy(),
+                        capabilities=capabilities,
+                    )
+                    spec.selectors = bound_selectors
+                    if diag:
+                        spec.meta.setdefault("diagnostics", []).extend(diag)
+                except Exception:
+                    logger.exception("Schema binding failed for provider %s", spec.provider)
+                    raise
             obj = prov.fetch(feature_name, selectors=spec.selectors)
             if spec.mode == "slice":
                 obj = _apply_provider_filter(prov, obj, spec.selectors)

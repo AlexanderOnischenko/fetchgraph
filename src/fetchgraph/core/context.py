@@ -17,6 +17,14 @@ from .models import (
     TaskProfile,
 )
 from ..parsing.plan_parser import PlanParser
+from .catalog import (
+    MAX_EXAMPLES,
+    MAX_ENTITIES_PREVIEW,
+    MAX_PROVIDER_BLOCK_CHARS,
+    MAX_PROVIDERS_CATALOG_CHARS,
+    MAX_RELATIONS_PREVIEW,
+    summarize_selectors_schema,
+)
 from .protocols import (
     ContextProvider,
     LLMInvoke,
@@ -25,6 +33,8 @@ from .protocols import (
     SupportsFilter,
     Verifier,
 )
+from .selectors import coerce_selectors_to_native
+from ..plan_compile import compile_plan_selectors
 from .utils import load_pkg_text, render_prompt
 from ..sketch import coerce_selectors_to_native
 
@@ -55,11 +65,177 @@ def _apply_provider_filter(provider: ContextProvider, obj: Any, selectors: Optio
         return provider.filter(obj, selectors)
     return obj
 
-def provider_catalog_text(
-    providers: Dict[str, ContextProvider], *, include_sketch: bool = False
-) -> str:
+
+def _shorten_description(desc: str, max_chars: int = 240) -> str:
+    if not desc:
+        return ""
+    first_line = desc.splitlines()[0].strip()
+    if len(first_line) <= max_chars:
+        return first_line
+    return first_line[: max_chars - 1].rstrip() + "…"
+
+
+def _format_examples(examples: List[str]) -> List[str]:
     lines: List[str] = []
-    for key, prov in providers.items():
+    if not examples:
+        return lines
+    lines.append("    examples:")
+    for ex in examples[:MAX_EXAMPLES]:
+        try:
+            obj = json.loads(ex)
+            dumped = json.dumps(obj, ensure_ascii=False, indent=6)
+            dumped_lines = dumped.splitlines()
+            for idx, ln in enumerate(dumped_lines):
+                lines.append("      - " + ln if idx == 0 else "        " + ln)
+        except Exception:
+            lines.append(f"      - {ex}")
+    return lines
+
+
+def _format_digest_summary(info: ProviderInfo) -> List[str]:
+    digest = info.selectors_digest or {}
+    lines: List[str] = []
+    ops = digest.get("ops", {}) if isinstance(digest, dict) else {}
+    rules = digest.get("rules", {}) if isinstance(digest, dict) else {}
+
+    if ops:
+        lines.append("    ops:")
+        for op_name in ("schema", "semantic_only", "query"):
+            if op_name in ops:
+                op_info = ops[op_name]
+                summary = op_info.get("summary") or ""
+                req = op_info.get("required") or []
+                lines.append(f"      - {op_name}: {summary}")
+                if req:
+                    lines.append(f"        required: {', '.join(req)}")
+
+    comparison_ops = None
+    field_paths = None
+    if isinstance(rules, dict):
+        comparison_ops = (
+            rules.get("filters", {}).get("comparison_ops")
+            if isinstance(rules.get("filters"), dict)
+            else None
+        )
+        field_paths = rules.get("field_paths") if isinstance(rules.get("field_paths"), dict) else None
+
+    if comparison_ops:
+        lines.append("    comparison_ops: " + ", ".join(comparison_ops))
+    if field_paths:
+        preferred = field_paths.get("preferred_style")
+        allow_unqualified = field_paths.get("allow_unqualified")
+        note = field_paths.get("notes")
+        parts = [p for p in [preferred, note] if p]
+        qualifier = f" (allow_unqualified={allow_unqualified})" if allow_unqualified is not None else ""
+        if parts or qualifier:
+            lines.append(f"    field_qualification: {'; '.join(parts)}{qualifier}")
+
+    lines.extend(_format_examples(info.examples))
+    return lines
+
+
+def _format_schema_summary(info: ProviderInfo) -> List[str]:
+    if info.selectors_digest:
+        return []
+    if not info.selectors_schema:
+        return []
+    summary = summarize_selectors_schema(info.selectors_schema)
+    if not summary:
+        return []
+    rendered_lines = json.dumps(summary, ensure_ascii=False, indent=2).splitlines()
+    return ["    selectors_schema_summary:"] + [f"      {ln}" for ln in rendered_lines]
+
+
+def _limit_sections(sections: List[List[str]], limit: int) -> List[str]:
+    acc: List[str] = []
+    for sec in sections:
+        if not sec:
+            continue
+        candidate = acc + sec
+        if len("\n".join(candidate)) > limit:
+            break
+        acc = candidate
+    return acc
+
+
+def _format_provider_block(info: ProviderInfo) -> str:
+    description = _shorten_description(info.description)
+    header = [f"- name: {info.name}"]
+    if getattr(info, "label", None):
+        header.append(f"  label: {info.label}")
+    if description:
+        header.append(f"  description: {description}")
+    if info.capabilities:
+        header.append(f"  capabilities: {', '.join(info.capabilities)}")
+    if info.typical_cost:
+        header.append(f"  typical_cost: {info.typical_cost}")
+
+    planning_lines: List[str] = []
+    if info.planning_hints or info.entities_hints or info.relations_hints:
+        planning_lines.append("  planning_hints:")
+        for hint in (info.planning_hints or [])[:6]:
+            planning_lines.append(f"    - {hint}")
+        for ent in info.entities_hints[:3]:
+            if ent.get("hint"):
+                planning_lines.append(f"    - entity {ent['name']}: {ent['hint']}")
+        for rel in info.relations_hints[:3]:
+            if rel.get("hint"):
+                planning_lines.append(f"    - relation {rel['name']}: {rel['hint']}")
+
+    entities_lines: List[str] = []
+    if info.entities_hints:
+        entities_lines.append("  entities:")
+        for ent in info.entities_hints[:MAX_ENTITIES_PREVIEW]:
+            entities_lines.append(f"    - name: {ent.get('name')}")
+            if ent.get("pk"):
+                entities_lines.append(f"      pk: {ent['pk']}")
+            if ent.get("semantic_fields"):
+                entities_lines.append(
+                    "      semantic_fields: " + ", ".join(ent.get("semantic_fields", []))
+                )
+            if ent.get("columns_preview"):
+                entities_lines.append(
+                    "      columns_preview: " + ", ".join(ent.get("columns_preview", []))
+                )
+            if ent.get("hint"):
+                entities_lines.append(f"      hint: {ent['hint']}")
+        if len(info.entities_hints) > MAX_ENTITIES_PREVIEW:
+            entities_lines.append(f"    +{len(info.entities_hints) - MAX_ENTITIES_PREVIEW} more entities")
+
+    relations_lines: List[str] = []
+    if info.relations_hints:
+        relations_lines.append("  relations:")
+        for rel in info.relations_hints[:MAX_RELATIONS_PREVIEW]:
+            relations_lines.append(f"    - name: {rel.get('name')}")
+            relations_lines.append(
+                f"      link: {rel.get('from_entity')} -> {rel.get('to_entity')} ({rel.get('cardinality')})"
+            )
+            join_keys = rel.get("join_keys") or {}
+            if join_keys:
+                relations_lines.append(
+                    f"      join_keys: {join_keys.get('from')} = {join_keys.get('to')}"
+                )
+            if rel.get("hint"):
+                relations_lines.append(f"      hint: {rel['hint']}")
+        if len(info.relations_hints) > MAX_RELATIONS_PREVIEW:
+            relations_lines.append(
+                f"    +{len(info.relations_hints) - MAX_RELATIONS_PREVIEW} more relations"
+            )
+
+    selectors_lines: List[str] = []
+    selectors_lines.append("  selectors:")
+    selectors_lines.extend(_format_digest_summary(info))
+    selectors_lines.extend(_format_schema_summary(info))
+
+    sections = [header, planning_lines, entities_lines, relations_lines, selectors_lines]
+    limited = _limit_sections(sections, MAX_PROVIDER_BLOCK_CHARS)
+    return "\n".join(limited)
+
+
+def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
+    blocks: List[str] = []
+    provider_items = list(providers.items())
+    for idx, (key, prov) in enumerate(provider_items):
         info: Optional[ProviderInfo] = None
         if isinstance(prov, SupportsDescribe):
             try:
@@ -75,28 +251,20 @@ def provider_catalog_text(
                 caps = ["filter", "slice"]
             info = ProviderInfo(name=getattr(prov, "name", key), capabilities=caps)
 
-        lines.append(f"- name: {info.name}")
-        if info.description:
-            lines.append(f"  description: {info.description}")
-        if info.capabilities:
-            lines.append(f"  capabilities: {', '.join(info.capabilities)}")
-        if info.typical_cost:
-            lines.append(f"  typical_cost: {info.typical_cost}")
-        if info.selectors_schema:
-            schema = json.dumps(info.selectors_schema, ensure_ascii=False, indent=2)
-            lines.append("  selectors_schema:")
-            lines += [f"    {ln}" for ln in schema.splitlines()]
-        if info.examples:
-            lines.append("  examples:")
-            lines += [f"    - {ex}" for ex in info.examples]
-        if include_sketch and info.sketch_examples:
-            lines.append("  sketch_examples:")
-            lines += [f"    - {ex}" for ex in info.sketch_examples]
+        block_text = _format_provider_block(info)
 
-    catalog_text = "\n".join(lines) if lines else "(no providers)"
+        prospective_catalog = "\n".join(blocks + [block_text]) if blocks else block_text
+        if len(prospective_catalog) > MAX_PROVIDERS_CATALOG_CHARS:
+            remaining = len(provider_items) - idx
+            blocks.append(f"... (+{remaining} more providers omitted due to catalog limit)")
+            break
+        blocks.append(block_text)
+
+    catalog_text = "\n".join(blocks) if blocks else "(no providers)"
+
     logger.debug(
         "Built provider catalog for %d providers (chars=%d)",
-        len(providers),
+        len(blocks),
         len(catalog_text),
     )
     return catalog_text
@@ -450,6 +618,7 @@ class BaseGraphAgent:
             plan = self.plan_parser(plan_raw)
         else:
             plan = Plan.model_validate_json(plan_raw.text)
+        plan = compile_plan_selectors(plan, self.providers)
         elapsed = time.perf_counter() - t0
         logger.info(
             "Planning finished for feature_name=%r in %.3fs "
@@ -527,9 +696,11 @@ class BaseGraphAgent:
                 selectors,
                 getattr(spec, "max_tokens", None),
             )
-            obj = prov.fetch(feature_name, selectors=selectors)
+            compiled_selectors = coerce_selectors_to_native(prov, spec.selectors or {})
+
+            obj = prov.fetch(feature_name, selectors=compiled_selectors)
             if spec.mode == "slice":
-                obj = _apply_provider_filter(prov, obj, selectors)
+                obj = _apply_provider_filter(prov, obj, compiled_selectors)
             text = prov.serialize(obj)
             tokens = max(1, len(text) // 4)
             if spec.max_tokens and tokens > spec.max_tokens:
@@ -646,6 +817,7 @@ class BaseGraphAgent:
                 len(merged),
             )
             plan = plan.model_copy(update={"context_plan": merged})
+            plan = compile_plan_selectors(plan, self.providers, planner_mode=False)
             # fetch again
             ctx = self._fetch(feature_name, plan)
             iters += 1
@@ -680,9 +852,10 @@ class BaseGraphAgent:
                 key,
                 feature_name,
             )
-            obj = prov.fetch(feature_name, selectors=b.spec.selectors)
+            compiled = coerce_selectors_to_native(prov, b.spec.selectors or {})
+            obj = prov.fetch(feature_name, selectors=compiled)
             if b.spec.mode == "slice":
-                obj = _apply_provider_filter(prov, obj, b.spec.selectors)
+                obj = _apply_provider_filter(prov, obj, compiled)
             text = prov.serialize(obj)
             tokens = max(1, len(text) // 4)
             out[key] = ContextItem(key=key, raw=obj, text=text, tokens=tokens)

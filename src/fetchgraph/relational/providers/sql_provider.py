@@ -174,13 +174,30 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             "not_in",
             "like",
             "ilike",
+            "not_like",
+            "not_ilike",
+            "starts",
+            "ends",
+            "not_starts",
+            "not_ends",
         }
 
         if soft_applicable:
             norm_value = self._normalize_literal(value)
             norm_column = f"LOWER(TRIM({column}))"
 
-            if op in {"=", "!=", "like", "ilike"} and not isinstance(norm_value, str):
+            if op in {
+                "=",
+                "!=",
+                "like",
+                "ilike",
+                "not_like",
+                "not_ilike",
+                "starts",
+                "ends",
+                "not_starts",
+                "not_ends",
+            } and not isinstance(norm_value, str):
                 soft_applicable = False
             else:
                 if op == "=":
@@ -207,6 +224,22 @@ class SqlRelationalDataProvider(RelationalDataProvider):
                     pattern = f"%{norm_value}%"
                     params.append(pattern)
                     return f"{norm_column} LIKE ?"
+                if op in {"not_like", "not_ilike"}:
+                    pattern = f"%{norm_value}%"
+                    params.append(pattern)
+                    return f"{norm_column} NOT LIKE ?"
+                if op == "starts":
+                    params.append(f"{norm_value}%")
+                    return f"{norm_column} LIKE ?"
+                if op == "ends":
+                    params.append(f"%{norm_value}")
+                    return f"{norm_column} LIKE ?"
+                if op == "not_starts":
+                    params.append(f"{norm_value}%")
+                    return f"{norm_column} NOT LIKE ?"
+                if op == "not_ends":
+                    params.append(f"%{norm_value}")
+                    return f"{norm_column} NOT LIKE ?"
 
         if op in {"=", "!=", ">", "<", ">=", "<="}:
             params.append(value)
@@ -229,6 +262,24 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         if op == "ilike":
             params.append(f"%{str(value).lower()}%")
             return f"LOWER({column}) LIKE ?"
+        if op == "not_like":
+            params.append(f"%{value}%")
+            return f"{column} NOT LIKE ?"
+        if op == "not_ilike":
+            params.append(f"%{str(value).lower()}%")
+            return f"LOWER({column}) NOT LIKE ?"
+        if op == "starts":
+            params.append(f"{value}%")
+            return f"{column} LIKE ?"
+        if op == "ends":
+            params.append(f"%{value}")
+            return f"{column} LIKE ?"
+        if op == "not_starts":
+            params.append(f"{value}%")
+            return f"{column} NOT LIKE ?"
+        if op == "not_ends":
+            params.append(f"%{value}")
+            return f"{column} NOT LIKE ?"
         raise ValueError(f"Unsupported comparison operator: {op}")
 
     def _build_filters(

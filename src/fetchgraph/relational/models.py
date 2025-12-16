@@ -58,18 +58,34 @@ class SelectExpr(BaseModel):
     alias: Optional[str] = None
 
 
-class ComparisonOp(str):
-    """Symbolic comparison operator alias."""
-
-
 class ComparisonFilter(BaseModel):
     """Basic comparison filter."""
 
     type: Literal["comparison"] = "comparison"
     entity: Optional[str] = None
     field: str
-    op: str
+    op: "ComparisonOp"
     value: Any
+
+
+ComparisonOp = Literal[
+    "=",
+    "!=",
+    "<",
+    ">",
+    "<=",
+    ">=",
+    "in",
+    "not_in",
+    "like",
+    "ilike",
+    "not_like",
+    "not_ilike",
+    "starts",
+    "ends",
+    "not_starts",
+    "not_ends",
+]
 
 
 class LogicalFilter(BaseModel):

@@ -77,6 +77,8 @@ print(agent.run("FeatureX"))
 - **Schema + examples**: Providers can guide planners by returning
   `ProviderInfo(selectors_schema=..., examples=[...])` from `describe()`.
 
+### Native selectors examples
+
 Example for a relational provider that requires an `"op"` selector:
 
 ```python
@@ -111,6 +113,23 @@ operation:
 
 ```python
 fetch_spec = ContextFetchSpec(provider="relational", selectors={"op": "schema"})
+```
+
+### Sketch input format (optional)
+
+Selector Sketch is an optional, human-friendly wrapper used only in CLI/manual
+flows. It compiles into the same native selectors that providers expect. To
+enable it, pass `allow_sketch=True` when building the agent and wrap the payload
+under `$dsl`:
+
+```python
+fetch_spec = ContextFetchSpec(
+    provider="relational",
+    selectors={"$dsl": {"payload": {"op": "schema"}}},
+)
+
+# CLI/manual path
+agent = create_generic_agent(..., allow_sketch=True)
 ```
 
 ## CSV semantic backend for Pandas providers

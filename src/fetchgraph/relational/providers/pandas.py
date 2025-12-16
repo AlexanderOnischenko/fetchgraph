@@ -462,7 +462,13 @@ class PandasRelationalDataProvider(RelationalDataProvider):
 
     def _aggregate(self, df: pd.DataFrame, req: RelationalQuery):
         if req.group_by:
-            group_cols = [self._resolve_column(df, req.root_entity, g.field, g.entity) for g in req.group_by]
+            group_cols: List[str] = []
+            alias_map: Dict[str, str] = {}
+            for g in req.group_by:
+                col = self._resolve_column(df, req.root_entity, g.field, g.entity)
+                group_cols.append(col)
+                if g.alias and g.alias != col:
+                    alias_map[col] = g.alias
             grouped = df.groupby(group_cols, dropna=False)
             agg_kwargs: Dict[str, Any] = {}
             for spec in req.aggregations:
@@ -481,12 +487,15 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             else:
                 size_series = cast(pd.Series, grouped.size())
                 agg_df = size_series.reset_index(name="count")
+            if alias_map:
+                agg_df = agg_df.rename(columns=alias_map)
             if req.offset:
                 agg_df = agg_df.iloc[req.offset :]
             if req.limit is not None:
                 agg_df = agg_df.iloc[: req.limit]
             rows = [RowResult(entity=req.root_entity, data=row.to_dict()) for _, row in agg_df.iterrows()]
-            return QueryResult(rows=rows, meta={"group_by": group_cols, "relations_used": req.relations})
+            meta_group_by = [g.alias or c for g, c in zip(req.group_by, group_cols)]
+            return QueryResult(rows=rows, meta={"group_by": meta_group_by, "relations_used": req.relations})
 
         agg_results: Dict[str, AggregationResult] = {}
         for spec in req.aggregations:

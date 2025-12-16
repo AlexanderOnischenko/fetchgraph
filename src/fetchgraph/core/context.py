@@ -36,6 +36,7 @@ from .protocols import (
 from .selectors import coerce_selectors_to_native
 from ..plan_compile import compile_plan_selectors
 from .utils import load_pkg_text, render_prompt
+from ..sketch import coerce_selectors_to_native
 
 logger = logging.getLogger(__name__)
 
@@ -452,6 +453,7 @@ def create_generic_agent(
     max_refetch_iters: int = 1,
     max_tokens: int = 4000,
     summarizer_llm: Optional[Callable[[str], str]] = None,
+    allow_sketch: bool = False,
 ) -> BaseGraphAgent:
     """Convenience wrapper building a generic :class:`BaseGraphAgent`.
 
@@ -482,6 +484,7 @@ def create_generic_agent(
         task_profile=task_profile,
         llm_refetch=llm_refetch,
         max_refetch_iters=max_refetch_iters,
+        allow_sketch=allow_sketch,
     )
 
     return agent
@@ -505,6 +508,7 @@ class BaseGraphAgent:
         task_profile: Optional[TaskProfile] = None,
         llm_refetch: Optional[Callable[[str, Dict[str, str], Plan], str]] = None,
         max_refetch_iters: int = 1,
+        allow_sketch: bool = False,
     ):
         self.llm_plan = llm_plan
         self.llm_synth = llm_synth
@@ -522,6 +526,7 @@ class BaseGraphAgent:
         self.task_profile = task_profile or TaskProfile()
         self.llm_refetch = llm_refetch
         self.max_refetch_iters = max_refetch_iters
+        self.allow_sketch = allow_sketch
 
         logger.info(
             "BaseGraphAgent initialized "
@@ -669,11 +674,26 @@ class BaseGraphAgent:
                     spec.mode,
                 )
                 continue
+            provider_info: Optional[ProviderInfo] = None
+            if isinstance(prov, SupportsDescribe):
+                try:
+                    provider_info = prov.describe()
+                except Exception as e:
+                    logger.warning(
+                        "Provider %r.describe() failed during fetch: %s",
+                        spec.provider,
+                        e,
+                        exc_info=True,
+                    )
+                    provider_info = None
+            selectors = coerce_selectors_to_native(
+                spec.selectors, provider_info, allow_sketch=self.allow_sketch
+            )
             logger.info(
                 "Fetching from provider=%r (mode=%s, selectors=%s, max_tokens=%s)",
                 spec.provider,
                 spec.mode,
-                spec.selectors,
+                selectors,
                 getattr(spec, "max_tokens", None),
             )
             compiled_selectors = coerce_selectors_to_native(prov, spec.selectors or {})

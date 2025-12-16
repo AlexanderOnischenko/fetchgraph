@@ -77,6 +77,8 @@ print(agent.run("FeatureX"))
 - **Schema + examples**: Providers can guide planners by returning
   `ProviderInfo(selectors_schema=..., examples=[...])` from `describe()`.
 
+### Native selectors examples
+
 Example for a relational provider that requires an `"op"` selector:
 
 ```python
@@ -113,34 +115,22 @@ operation:
 fetch_spec = ContextFetchSpec(provider="relational", selectors={"op": "schema"})
 ```
 
-### QuerySketch (schema-bound)
+### Sketch input format (optional)
 
-The `$dsl: "fetchgraph.dsl.query_sketch@v0"` envelope lets the planner specify
-compact relational queries without manually qualifying field paths or listing
-relations. During `compile_selectors`, the schema-aware binder resolves
-unqualified fields to the appropriate entity, auto-inserts required relations,
-and rewrites field references to the `relation.field` form expected by
-providers.
+Selector Sketch is an optional, human-friendly wrapper used only in CLI/manual
+flows. It compiles into the same native selectors that providers expect. To
+enable it, pass `allow_sketch=True` when building the agent and wrap the payload
+under `$dsl`:
 
-Minimal payload example (unqualified field on a joined entity):
+```python
+fetch_spec = ContextFetchSpec(
+    provider="relational",
+    selectors={"$dsl": {"payload": {"op": "schema"}}},
+)
 
-```json
-{
-  "$dsl": "fetchgraph.dsl.query_sketch@v0",
-  "payload": {"from": "fbs", "where": [["system_name", "contains", "ЕСП"]], "take": 10}
-}
+# CLI/manual path
+agent = create_generic_agent(..., allow_sketch=True)
 ```
-
-After compilation, the native selectors include the join and fully qualified
-field (e.g., `relations: ["fbs_as"]`, `filters.field: "fbs_as.system_name"`).
-
-Known limitations:
-
-- No fuzzy matching, aliases, or type-checking yet; resolution is purely
-  schema-based.
-- Ambiguity defaults to deterministic selection with warnings; set
-  `ResolutionPolicy(ambiguity_strategy="ask")` to fail on ambiguous fields.
-- `max_auto_join_depth` defaults to 2.
 
 ## CSV semantic backend for Pandas providers
 

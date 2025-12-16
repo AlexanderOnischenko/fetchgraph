@@ -41,6 +41,7 @@ class ProviderInfo(BaseModel):
     selectors_schema: Dict[str, Any] = Field(default_factory=dict)
     capabilities: List[str] = Field(default_factory=list)
     examples: List[str] = Field(default_factory=list)
+    sketch_examples: List[str] = Field(default_factory=list)
     typical_cost: Optional[str] = None
     selector_dialects: List[SelectorDialectInfo] = Field(default_factory=list)
     selectors_digest: Dict[str, Any] = Field(default_factory=dict)

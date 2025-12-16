@@ -69,6 +69,7 @@ from .relational.semantic import (  # noqa: E402
     PgVectorSemanticSource,
     VectorStoreLike,
 )
+from .sketch import coerce_selectors_to_native, compile_sketch_to_native  # noqa: E402
 
 __all__ = (
     "RawLLMOutput",
@@ -122,4 +123,6 @@ __all__ = (
     "PgVectorSemanticSource",
     "VectorStoreLike",
     "PandasRelationalDataProvider",
+    "compile_sketch_to_native",
+    "coerce_selectors_to_native",
 )

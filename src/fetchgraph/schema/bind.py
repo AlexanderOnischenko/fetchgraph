@@ -252,6 +252,58 @@ def _bind_filter(
                 diagnostics=diagnostics,
             )
     elif op_type == "comparison":
+        entity_hint = filt.get("entity")
+        if isinstance(entity_hint, str) and entity_hint and entity_hint != root_entity:
+            relation_index = schema.relation_index()
+            candidates = []
+            rel_by_alias = relation_index.get(entity_hint)
+            if rel_by_alias:
+                if rel_by_alias.from_entity != root_entity:
+                    raise RelationNotFromRoot(
+                        entity_hint, root_entity, rel_by_alias.from_entity
+                    )
+                candidates = [rel_by_alias]
+            else:
+                candidates = [
+                    rel
+                    for rel in schema.relations
+                    if rel.from_entity == root_entity and rel.to_entity == entity_hint
+                ]
+
+            if not candidates:
+                raise UnknownRelation(entity_hint)
+
+            chosen_rel = None
+            if len(candidates) == 1:
+                chosen_rel = candidates[0]
+            else:
+                labels = [r.name for r in candidates]
+                if policy.ambiguity_strategy == "best":
+                    chosen_rel = sorted(candidates, key=lambda r: (r.name, r.to_entity))[0]
+                    diagnostics.append(
+                        {
+                            "kind": "ambiguous_field_best_effort",
+                            "field": entity_hint,
+                            "chosen": chosen_rel.name,
+                            "candidates": labels,
+                        }
+                    )
+                else:
+                    raise AmbiguousField(entity_hint, labels)
+
+            rel_alias = chosen_rel.name
+            if rel_alias not in updated_relations:
+                if not policy.allow_auto_add_relations:
+                    raise UnknownRelation(rel_alias)
+                updated_relations = list(updated_relations) + [rel_alias]
+                diagnostics.append(
+                    {
+                        "kind": "auto_add_relation",
+                        "relation": rel_alias,
+                        "reason": "filter entity hinted relation",
+                    }
+                )
+
         field = filt.get("field")
         if isinstance(field, str):
             bound, updated_relations = _bind_field(

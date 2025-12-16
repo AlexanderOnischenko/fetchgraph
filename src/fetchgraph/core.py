@@ -530,7 +530,9 @@ class BaseGraphAgent:
 
             if should_bind:
                 try:
-                    schema = self.schema_registry.get_or_describe(prov)
+                    schema = self.schema_registry.get_or_describe(
+                        prov, provider_key=spec.provider
+                    )
                     bound_selectors, diag = bind_selectors(
                         schema,
                         selectors_payload,
@@ -539,6 +541,7 @@ class BaseGraphAgent:
                     )
                     spec.selectors = bound_selectors
                     if diag:
+                        spec.meta = spec.meta or {}
                         spec.meta.setdefault("diagnostics", []).extend(diag)
                 except Exception:
                     logger.exception("Schema binding failed for provider %s", spec.provider)

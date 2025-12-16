@@ -70,6 +70,17 @@ def test_registry_coerces_schema_result(simple_schema):
     assert prov.describe_calls == 0
 
 
+def test_registry_uses_provider_key(simple_schema):
+    prov = DummyProvider(simple_schema)
+    local_registry = SchemaRegistry()
+
+    first = local_registry.get_or_describe(prov, provider_key="fbsem")
+    second = local_registry.get_or_describe(prov, provider_key="fbsem")
+
+    assert first is second
+    assert prov.describe_calls == 1
+
+
 def test_qualified_field_ok(simple_schema):
     selectors = {"op": "query", "root_entity": "fbs", "select": [{"expr": "fbs.bc_guid"}]}
     bound, diag = bind_selectors(simple_schema, selectors)
@@ -184,6 +195,26 @@ def test_filters_binding_diagnostics(simple_schema):
     bound, diag = bind_selectors(simple_schema, selectors)
     assert bound["filters"]["field"] == "fbs.system_name"
     assert any(d.get("context") == "filters" for d in diag if d.get("kind") == "bound_field")
+
+
+def test_filter_entity_triggers_relation_auto_add(simple_schema):
+    selectors = {
+        "op": "query",
+        "root_entity": "fbs",
+        "filters": {
+            "type": "comparison",
+            "entity": "as",
+            "field": "extra",
+            "op": "eq",
+            "value": 1,
+        },
+    }
+
+    bound, diag = bind_selectors(simple_schema, selectors)
+
+    assert "fbs_as" in bound.get("relations", [])
+    assert bound["filters"]["field"] == "fbs_as.extra"
+    assert any(d["kind"] == "auto_add_relation" for d in diag)
 
 
 def test_relation_validation_against_root(simple_schema):

@@ -30,8 +30,8 @@ class SchemaRegistry:
 
         return None
 
-    def get_or_describe(self, provider: object) -> ProviderSchema:
-        name = getattr(provider, "name", provider.__class__.__name__)
+    def get_or_describe(self, provider: object, *, provider_key: Optional[str] = None) -> ProviderSchema:
+        name = provider_key or getattr(provider, "name", provider.__class__.__name__)
         cached = self.get(name)
         if cached:
             return cached

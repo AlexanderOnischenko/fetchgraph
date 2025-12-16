@@ -173,6 +173,20 @@ def test_group_by_with_aggregations():
     assert totals == {"Alice": 320, "Bob": 80}
 
 
+def test_group_by_uses_alias_when_provided():
+    provider = _make_provider()
+    req = RelationalQuery(
+        root_entity="order",
+        relations=["order_customer"],
+        group_by=[GroupBySpec(entity="customer", field="name", alias="customer_name")],
+    )
+
+    res = provider.fetch("demo", selectors=req.model_dump())
+
+    totals = {row.data["customer_name"]: row.data["count"] for row in res.rows}
+    assert totals == {"Alice": 2, "Bob": 1}
+
+
 def test_semantic_filter_respects_threshold():
     backend = FakeSemanticBackend(
         [

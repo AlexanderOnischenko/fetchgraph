@@ -820,7 +820,7 @@ class CompositeRelationalProvider(RelationalDataProvider):
             for key, state in group_state.items():
                 data: Dict[str, Any] = {}
                 for idx, grp in enumerate(req.group_by):
-                    col_name = grp.alias or grp.field if hasattr(grp, "alias") else grp.field
+                    col_name = grp.alias or grp.field
                     if grp.entity and grp.entity != req.root_entity:
                         raise NotImplementedError(
                             "Cross-provider aggregations: group_by on non-root entities is not supported"

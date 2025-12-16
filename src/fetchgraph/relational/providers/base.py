@@ -159,6 +159,8 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             ]
         }
 
+        schema_config = getattr(self, "_schema_config", None)
+
         # selectors_digest for LLM-friendly catalog view
         def _build_enum_digest(values: list[str]):
             preview, more = compact_enum(values, MAX_ENUM_ITEMS)
@@ -219,12 +221,19 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         aggregation_ops = ["count", "count_distinct", "sum", "min", "max", "avg"]
 
         entities_preview: list[dict[str, any]] = []
+        entities_hints: list[dict[str, Any]] = []
         omitted_entities = 0
+        entity_planning_map: dict[str, str] = {}
+        if schema_config:
+            entity_planning_map = {
+                ec.name: ec.planning_hint for ec in schema_config.entities if ec.planning_hint
+            }
         for idx, e in enumerate(self.entities):
             if idx >= MAX_ENTITIES_PREVIEW:
                 omitted_entities += 1
                 continue
             preview_cols, omitted_cols, pk_cols, sem_cols = _columns_preview(e)
+            hint = entity_planning_map.get(e.name, "")
             entities_preview.append(
                 {
                     "name": e.name,
@@ -233,13 +242,35 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                     "columns_preview": {"preview": preview_cols, "omitted": omitted_cols},
                 }
             )
+            entities_hints.append(
+                {
+                    "name": e.name,
+                    "label": e.label or None,
+                    "pk": pk_cols[0] if len(pk_cols) == 1 else pk_cols,
+                    "semantic_fields": sem_cols,
+                    "columns_preview": preview_cols,
+                    "hint": hint,
+                }
+            )
 
         relations_preview: list[dict[str, any]] = []
+        relations_hints: list[dict[str, Any]] = []
         omitted_relations = 0
+        relation_planning_map: dict[str, str] = {}
+        if schema_config:
+            relation_planning_map = {
+                rc.name: rc.planning_hint for rc in schema_config.relations if rc.planning_hint
+            }
         for idx, r in enumerate(self.relations):
             if idx >= MAX_RELATIONS_PREVIEW:
                 omitted_relations += 1
                 continue
+            combined_hint_parts: list[str] = []
+            if r.semantic_hint:
+                combined_hint_parts.append(r.semantic_hint)
+            if relation_planning_map.get(r.name):
+                combined_hint_parts.append(relation_planning_map[r.name])
+            combined_hint = "; ".join(part for part in combined_hint_parts if part)
             relations_preview.append(
                 {
                     "name": r.name,
@@ -250,6 +281,19 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
                         "from": {"preview": [f"{r.from_entity}.{r.join.from_column}"], "omitted": 0},
                         "to": {"preview": [f"{r.to_entity}.{r.join.to_column}"], "omitted": 0},
                     },
+                }
+            )
+            relations_hints.append(
+                {
+                    "name": r.name,
+                    "from_entity": r.from_entity,
+                    "to_entity": r.to_entity,
+                    "cardinality": r.cardinality,
+                    "join_keys": {
+                        "from": f"{r.from_entity}.{r.join.from_column}",
+                        "to": f"{r.to_entity}.{r.join.to_column}",
+                    },
+                    "hint": combined_hint,
                 }
             )
 
@@ -313,8 +357,6 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
         }
 
         # --- 2) Текстовое описание домена (entities/relations) ---
-        schema_config = getattr(self, "_schema_config", None)
-
         # базовая шапка
         if schema_config and schema_config.description:
             header = schema_config.description
@@ -478,6 +520,9 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             selector_dialects=dialects,
             selectors_digest=selectors_digest,
             preferred_selectors="dsl" if dialects else None,
+            planning_hints=provider_hints,
+            entities_hints=entities_hints,
+            relations_hints=relations_hints,
         )
 
     # --- protected methods ---

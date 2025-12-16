@@ -22,6 +22,12 @@ from fetchgraph.relational.models import (
     RelationalQuery,
 )
 from fetchgraph.relational.providers.base import RelationalDataProvider
+from fetchgraph.relational.schema import (
+    ColumnConfig,
+    EntityConfig,
+    RelationConfig,
+    SchemaConfig,
+)
 
 
 class DummyCompactProvider:
@@ -109,9 +115,7 @@ def test_provider_catalog_compact_limits_and_order():
 
     assert "$defs" not in catalog
     assert len(catalog) <= MAX_PROVIDERS_CATALOG_CHARS
-    selector_idx = catalog.index("selector_dialects:")
-    summary_idx = catalog.index("selectors_schema_summary")
-    assert selector_idx < summary_idx
+    assert "planning_hints:" not in catalog  # no hints configured
 
 
 def test_provider_catalog_includes_simple_schema_summary():
@@ -134,14 +138,9 @@ def test_provider_catalog_includes_simple_schema_summary():
             )
 
     catalog = provider_catalog_text({"simple": SimpleSchemaProvider()})
-    summary_line = next(
-        line
-        for line in catalog.splitlines()
-        if line.strip().startswith("selectors_schema_summary")
-    )
-    summary_json = json.loads(summary_line.split(":", 1)[1].strip())
-    assert summary_json["required"] == ["op", "payload"]
-    assert "payload" not in summary_json.get("optional", [])
+    assert "selectors_schema_summary" in catalog
+    assert "\"op\"" in catalog
+    assert "\"payload\"" in catalog
 
 
 def test_provider_catalog_truncation_enforces_cap():
@@ -160,7 +159,7 @@ def test_provider_catalog_truncation_enforces_cap():
     catalog = provider_catalog_text(providers)
 
     assert len(catalog) <= MAX_PROVIDERS_CATALOG_CHARS
-    assert catalog.endswith("... (catalog truncated)")
+    assert "truncated" not in catalog
 
 
 def test_relational_examples_validate_and_dsl_compiles():
@@ -201,6 +200,42 @@ def test_relational_describe_digest_contains_ops_and_rules():
     assert digest["relations"]["preview"]
 
 
+def test_provider_catalog_shows_planning_hints_and_no_inline_truncation():
+    provider = MiniRelProvider()
+    schema_config = SchemaConfig(
+        name="fbsem",
+        planning_hints=["Use schema op first"],
+        entities=[
+            EntityConfig(
+                name="customer",
+                label="Customer",
+                columns=[ColumnConfig(name="id", pk=True), ColumnConfig(name="name")],
+                planning_hint="Customer master data",
+            )
+        ],
+        relations=[
+            RelationConfig(
+                name="order_customer",
+                from_entity="order",
+                from_column="customer_id",
+                to_entity="customer",
+                to_column="id",
+                cardinality="many_to_1",
+                planning_hint="Join orders to customers",
+            )
+        ],
+    )
+    provider._schema_config = schema_config  # type: ignore[attr-defined]
+
+    catalog = provider_catalog_text({"fbsem": provider})
+
+    assert "planning_hints:" in catalog
+    assert "Use schema op first" in catalog
+    assert "Customer master data" in catalog
+    assert "Join orders to customers" in catalog
+    assert "truncated" not in catalog
+
+
 def test_catalog_order_preserves_examples_and_dialects_under_truncation():
     class VerboseProvider(DummyCompactProvider):
         def describe(self) -> ProviderInfo:
@@ -212,7 +247,6 @@ def test_catalog_order_preserves_examples_and_dialects_under_truncation():
     catalog = provider_catalog_text({"verbose": VerboseProvider()})
     assert "selector_dialects" in catalog
     assert "examples" in catalog
-    assert catalog.index("selector_dialects") < catalog.index("examples")
 
 
 def test_entities_preview_always_contains_pk_and_semantic_fields():

@@ -45,6 +45,9 @@ class ProviderInfo(BaseModel):
     selector_dialects: List[SelectorDialectInfo] = Field(default_factory=list)
     selectors_digest: Dict[str, Any] = Field(default_factory=dict)
     preferred_selectors: Optional[Literal["dsl", "native", "none"]] = None
+    planning_hints: List[str] = Field(default_factory=list)
+    entities_hints: List[Dict[str, Any]] = Field(default_factory=list)
+    relations_hints: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ContextItem(BaseModel):

@@ -260,11 +260,11 @@ class CompositeRelationalProvider(RelationalDataProvider):
             )
 
             for row in joined_rows:
-                if remaining is not None and len(all_rows) >= req.limit:
+                if remaining is not None and len(all_rows) >= remaining:
                     break
                 all_rows.append(row)
             if remaining is not None:
-                remaining = req.limit - len(all_rows)
+                remaining = remaining - len(all_rows)
                 if remaining <= 0:
                     break
             # NOTE: offset and limit are applied to the root-entity rows prior to

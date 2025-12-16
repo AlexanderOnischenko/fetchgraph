@@ -180,3 +180,24 @@ def test_where_group_type_mismatch_emits_diagnostic():
 
     assert normalized.where.all == []
     assert any(msg.code == "DSL_BAD_WHERE_GROUP_TYPE" for msg in diags.messages)
+
+
+def test_querysketch_accepts_root_entity_and_filters_object_aliases():
+    src = {
+        "root_entity": "as",
+        "select": [{"expr": "system_name"}],
+        "filters": {"type": "comparison", "field": "system_name", "op": "ilike", "value": "%ЕСП%"},
+        "limit": 5,
+    }
+
+    normalized, diags = parse_and_normalize(src)
+
+    assert normalized.from_ == "as"
+    assert normalized.get == ["as.system_name"]
+    assert normalized.take == 5
+    assert len(normalized.where.all) == 1
+    first_clause = normalized.where.all[0]
+    assert isinstance(first_clause, Clause)
+    assert first_clause.path == "system_name"
+    assert first_clause.op == "is"
+    assert not diags.has_errors()

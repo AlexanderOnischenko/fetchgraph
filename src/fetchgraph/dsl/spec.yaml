@@ -4,16 +4,16 @@ defaults:
   take: 200
 keys:
   from:
-    aliases: [root, entity]
+    aliases: [root, entity, root_entity]
     required: true
   where:
-    aliases: [find, filter]
+    aliases: [find, filter, filters]
     required: true
     default: []
   get:
     aliases: [select, fields]
   with:
-    aliases: [include, joins, join]
+    aliases: [include, joins, join, relations]
   take:
     aliases: [limit, top]
 operators:

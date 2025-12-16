@@ -148,7 +148,7 @@ def test_compile_selectors_requires_string_dsl_id():
     with pytest.raises(ValueError) as exc:
         compile_selectors(provider, selectors)
 
-    assert "$dsl" in str(exc.value)
+    assert "string id" in str(exc.value)
 
 
 class DescribingWithoutDialect(ContextProvider, SupportsDescribe):
@@ -174,3 +174,44 @@ def test_compile_selectors_requires_declared_dialect_support():
         compile_selectors(provider, selectors)
 
     assert QUERY_SKETCH_DSL_ID in str(exc.value)
+
+
+class MultiDialectProvider(RecordingProvider):
+    def describe(self) -> ProviderInfo:  # pragma: no cover - trivial
+        return ProviderInfo(
+            name=self.name,
+            selector_dialects=[
+                SelectorDialectInfo(id=QUERY_SKETCH_DSL_ID, description="", envelope_example=""),
+                SelectorDialectInfo(id="other@v1", description="", envelope_example=""),
+            ],
+        )
+
+
+def test_compile_selectors_accepts_object_envelope_with_id_and_payload():
+    provider = RecordingProvider()
+    selectors = {"$dsl": {"id": QUERY_SKETCH_DSL_ID, "payload": {"from": "streams", "where": []}}}
+
+    compiled = compile_selectors(provider, selectors)
+
+    assert compiled["op"] == "query"
+    assert compiled["root_entity"] == "streams"
+
+
+def test_compile_selectors_accepts_object_envelope_and_infers_single_dialect():
+    provider = RecordingProvider()
+    selectors = {"$dsl": {"payload": {"from": "streams", "where": []}}}
+
+    compiled = compile_selectors(provider, selectors)
+
+    assert compiled["op"] == "query"
+    assert compiled["root_entity"] == "streams"
+
+
+def test_compile_selectors_missing_dsl_id_with_multiple_dialects_errors():
+    provider = MultiDialectProvider()
+    selectors = {"$dsl": {"payload": {"from": "streams", "where": []}}}
+
+    with pytest.raises(ValueError) as exc:
+        compile_selectors(provider, selectors)
+
+    assert "missing $dsl.id" in str(exc.value)

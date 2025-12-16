@@ -80,16 +80,6 @@ def compile_selectors(provider: ContextProvider, selectors: Dict[str, Any]) -> D
     if not has_dsl:
         return selectors
 
-    dialect_id = selectors.get("$dsl")
-    if not isinstance(dialect_id, str):
-        raise ValueError("Selector dialect id must be a string in '$dsl' field")
-    compiler = _COMPILERS.get(dialect_id)
-    if compiler is None:
-        provider_name = getattr(provider, "name", provider.__class__.__name__)
-        raise ValueError(
-            f"Provider {provider_name!r} does not support selector dialect {dialect_id!r}"
-        )
-
     if not isinstance(provider, SupportsDescribe):
         provider_name = getattr(provider, "name", provider.__class__.__name__)
         raise ValueError(
@@ -98,13 +88,42 @@ def compile_selectors(provider: ContextProvider, selectors: Dict[str, Any]) -> D
 
     info: ProviderInfo = provider.describe()
     supported = {d.id for d in info.selector_dialects}
+
+    dialect_field = selectors.get("$dsl")
+    dialect_id: str | None = None
+    payload = selectors.get("payload")
+
+    if isinstance(dialect_field, str):
+        dialect_id = dialect_field
+    elif isinstance(dialect_field, dict):
+        payload = dialect_field.get("payload", payload)
+        dialect_id = dialect_field.get("id")
+    else:
+        raise ValueError("Selector dialect must be a string id or an object with payload/id")
+
+    if dialect_id is None:
+        if len(supported) == 1:
+            dialect_id = next(iter(supported))
+        else:
+            available = ", ".join(sorted(supported))
+            raise ValueError(f"missing $dsl.id; available: {available}")
+
+    if not isinstance(dialect_id, str):
+        raise ValueError("Selector dialect id must be a string in '$dsl' field")
+
     if dialect_id not in supported:
         provider_name = getattr(provider, "name", provider.__class__.__name__)
         raise ValueError(
             f"Provider {provider_name!r} does not declare support for selector dialect {dialect_id!r}"
         )
 
-    payload = selectors.get("payload")
+    compiler = _COMPILERS.get(dialect_id)
+    if compiler is None:
+        provider_name = getattr(provider, "name", provider.__class__.__name__)
+        raise ValueError(
+            f"Provider {provider_name!r} does not support selector dialect {dialect_id!r}"
+        )
+
     return compiler(provider, payload)
 
 

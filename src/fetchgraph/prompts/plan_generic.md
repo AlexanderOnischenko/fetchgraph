@@ -42,6 +42,23 @@
   - нет поля fields; используй select: [{"expr": "entity.field", "alias"?}] ;
   - filters — это объект c type/logical/clauses или type=comparison, а не список без type.
 
+🔖 $dsl-конверт (канонический вариант):
+
+```json
+"selectors": {
+  "$dsl": "<dialect_id>",
+  "payload": { /* ... */ }
+}
+```
+
+🚫 Так НЕЛЬЗЯ:
+
+```json
+"selectors": { "$dsl": { "payload": { /* ... */ } } }
+```
+
+payload_format: json-object означает: payload — объект, не $dsl.
+
 📚 Доступные провайдеры контекста:
 {provider_catalog}
 

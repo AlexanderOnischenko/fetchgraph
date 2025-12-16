@@ -19,13 +19,16 @@ from .diagnostics import Diagnostics, Severity
 
 _STATIC_SPEC: Dict[str, Any] = {
     "defaults": {"get": ["*"], "with": [], "take": 200},
-    "keys": {
-        "from": {"aliases": ["root", "entity"], "required": True},
-        "where": {"aliases": ["find", "filter"], "required": True, "default": []},
-        "get": {"aliases": ["select", "fields"]},
-        "with": {"aliases": ["include", "joins", "join"]},
-        "take": {"aliases": ["limit", "top"]},
-    },
+        "keys": {
+            "from": {
+                "aliases": ["root", "entity", "root_entity"],
+                "required": True,
+            },
+            "where": {"aliases": ["find", "filter", "filters"], "required": True, "default": []},
+            "get": {"aliases": ["select", "fields"]},
+            "with": {"aliases": ["include", "joins", "join", "relations"]},
+            "take": {"aliases": ["limit", "top"]},
+        },
     "operators": {
         "canonical": [
             "=",
@@ -134,7 +137,9 @@ def normalize_query_sketch(q: QuerySketch | Dict[str, Any], *, spec: DslSpec | N
             severity=Severity.WARNING,
         )
 
-    get_fields = _ensure_list(canonical.get("get", spec.defaults.get("get", ["*"])))
+    get_fields = _normalize_get_fields(
+        canonical.get("get", spec.defaults.get("get", ["*"])), canonical_from
+    )
     with_fields = _ensure_list(canonical.get("with", spec.defaults.get("with", [])))
     take_value = canonical.get("take", spec.defaults.get("take"))
 
@@ -168,6 +173,58 @@ def _ensure_list(value: Any) -> List[Any]:
     return [value]
 
 
+def _normalize_get_fields(value: Any, root_entity: str) -> List[str]:
+    fields = _ensure_list(value)
+    normalized: List[str] = []
+    for item in fields:
+        if isinstance(item, dict) and "expr" in item:
+            expr = item.get("expr")
+            if isinstance(expr, str):
+                path = expr
+                if root_entity and "." not in path:
+                    path = f"{root_entity}.{path}"
+                normalized.append(path)
+                continue
+        normalized.append(str(item))
+    return normalized
+
+
+def _is_comparison_dict(value: Any) -> bool:
+    return isinstance(value, dict) and (
+        value.get("type") == "comparison" or {"field", "value"}.issubset(set(value.keys()))
+    )
+
+
+def _normalize_comparison_dict(
+    obj: Dict[str, Any], spec: DslSpec, path: str, diagnostics: Diagnostics
+) -> Optional[Clause]:
+    raw_field = obj.get("field")
+    if not isinstance(raw_field, str):
+        diagnostics.add(
+            code="DSL_BAD_CLAUSE_PATH",
+            message="Comparison field must be a string",
+            path=f"{path}.field",
+            severity=Severity.ERROR,
+        )
+        return None
+
+    entity = obj.get("entity")
+    if isinstance(entity, str) and entity:
+        raw_field = f"{entity}.{raw_field}" if not raw_field.startswith(f"{entity}.") else raw_field
+
+    raw_op = obj.get("op")
+    value = obj.get("value")
+
+    if raw_op is None:
+        op, value = _auto_operator(value)
+    else:
+        op = _normalize_operator(raw_op, spec, diagnostics, path=f"{path}.op")
+        if op is None:
+            return None
+
+    return Clause(path=raw_field, op=op, value=value)
+
+
 def _normalize_where(where_value: Any, spec: DslSpec, path: str) -> Tuple[WhereExpr, Diagnostics]:
     diagnostics = Diagnostics()
     if where_value is None:
@@ -183,6 +240,11 @@ def _normalize_where(where_value: Any, spec: DslSpec, path: str) -> Tuple[WhereE
         return WhereExpr(all=all_clauses), diagnostics
 
     if isinstance(where_value, dict):
+        if _is_comparison_dict(where_value):
+            clause = _normalize_comparison_dict(where_value, spec, path, diagnostics)
+            clauses = [clause] if clause is not None else []
+            return WhereExpr(all=clauses), diagnostics
+
         allowed_keys = {"all", "any", "not"}
         present_keys = set(where_value.keys())
         for key in present_keys - allowed_keys:
@@ -265,6 +327,9 @@ def _normalize_clause_list(value: Any, spec: DslSpec, path: str) -> Tuple[List[C
 def _normalize_clause_or_group(obj: Any, spec: DslSpec, path: str) -> Tuple[Optional[ClauseOrGroup], Diagnostics]:
     diagnostics = Diagnostics()
     if isinstance(obj, dict):
+        if _is_comparison_dict(obj):
+            clause = _normalize_comparison_dict(obj, spec, path, diagnostics)
+            return clause, diagnostics
         nested, nested_diags = _normalize_where(obj, spec, path=path)
         diagnostics.extend(nested_diags)
         return nested, diagnostics

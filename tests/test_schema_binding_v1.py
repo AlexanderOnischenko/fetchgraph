@@ -34,6 +34,7 @@ def simple_schema():
             ),
             EntityDescriptor(
                 name="as",
+                label="system",
                 fields=[FieldDescriptor(name="system_name"), FieldDescriptor(name="extra")],
             ),
         ],
@@ -149,6 +150,20 @@ def test_entity_name_in_qualified_field_maps_to_relation(simple_schema):
     assert any(d["kind"] == "auto_add_relation" for d in diag)
 
 
+def test_qualifier_label_maps_to_relation(simple_schema):
+    selectors = {
+        "op": "query",
+        "root_entity": "fbs",
+        "relations": ["fbs_as"],
+        "select": [{"expr": "system.system_name"}],
+    }
+
+    bound, diag = bind_selectors(simple_schema, selectors)
+
+    assert bound["select"][0]["expr"] == "fbs_as.system_name"
+    assert any(d["kind"] == "mapped_qualifier_label_to_relation" for d in diag)
+
+
 def test_ambiguity_ask(simple_schema):
     selectors = {
         "op": "query",
@@ -172,6 +187,18 @@ def test_ambiguity_best(simple_schema):
     bound, diag = bind_selectors(simple_schema, selectors, policy=ResolutionPolicy(ambiguity_strategy="best"))
     assert bound["select"][0]["expr"] == "fbs.system_name"
     assert any(d["kind"] == "ambiguous_field_best_effort" for d in diag)
+
+
+def test_unknown_qualifier_drop(simple_schema):
+    selectors = {"op": "query", "root_entity": "fbs", "select": [{"expr": "unknown.bc_guid"}]}
+    bound, diag = bind_selectors(
+        simple_schema,
+        selectors,
+        policy=ResolutionPolicy(unknown_qualifier_strategy="drop"),
+    )
+
+    assert bound["select"][0]["expr"] == "fbs.bc_guid"
+    assert any(d["kind"] == "ignored_unknown_qualifier" for d in diag)
 
 
 def test_order_by_binding(simple_schema):

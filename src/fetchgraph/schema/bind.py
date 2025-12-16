@@ -76,6 +76,9 @@ def _bind_field(
     entity_index = schema.entity_index()
     relation_index = schema.relation_index()
 
+    def _normalize_label(value: str) -> str:
+        return " ".join(value.lower().split())
+
     if "." in field:
         alias, col = field.split(".", 1)
         target_entity: Optional[str] = None
@@ -142,7 +145,54 @@ def _bind_field(
                     else:
                         raise AmbiguousField(field, labels)
 
+                if target_entity is None:
+                    normalized_alias = _normalize_label(alias)
+                    matching_entities = [
+                        ent
+                        for ent in schema.entities
+                        if _normalize_label(ent.name) == normalized_alias
+                        or (ent.label is not None and _normalize_label(ent.label) == normalized_alias)
+                    ]
+
+                    if len(matching_entities) == 1:
+                        ent = matching_entities[0]
+                        relations_to_entity = [
+                            r for r in schema.relations if r.from_entity == root_entity and r.to_entity == ent.name
+                        ]
+                        if len(relations_to_entity) == 1:
+                            rel = relations_to_entity[0]
+                            rel_alias = rel.name
+                            target_entity = rel.to_entity
+                            if rel_alias not in selectors_relations and policy.allow_auto_add_relations:
+                                selectors_relations.append(rel_alias)
+                            diagnostics.append(
+                                {
+                                    "kind": "mapped_qualifier_label_to_relation",
+                                    "qualifier": alias,
+                                    "relation": rel_alias,
+                                    "reason": "mapped qualifier label to relation",
+                                }
+                            )
+
         if target_entity is None:
+            if policy.unknown_qualifier_strategy == "drop":
+                diagnostics.append(
+                    {
+                        "kind": "ignored_unknown_qualifier",
+                        "qualifier": alias,
+                        "field": field,
+                        "reason": "ignored_unknown_qualifier",
+                    }
+                )
+                return _bind_field(
+                    col,
+                    root_entity=root_entity,
+                    declared_relations=declared_relations,
+                    schema=schema,
+                    policy=policy,
+                    selectors_relations=selectors_relations,
+                    diagnostics=diagnostics,
+                )
             raise UnknownRelation(alias)
         entity = entity_index.get(target_entity)
         if entity is None or col not in entity.field_names():

@@ -1,6 +1,6 @@
 [project]
 name = "fetchgraph"
-version = "0.1.0"
+version = "0.1.1"
 description = "Graph-like planning → context fetching → synthesis agent (library-style)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,3 +30,9 @@ dev = [
   "pytest>=9.0",
   "pre-commit",
 ]
+
+[project.urls]
+Homepage = "https://github.com/AlexanderOnischenko/fetchgraph"
+Repository = "https://github.com/AlexanderOnischenko/fetchgraph"
+Documentation = "https://github.com/AlexanderOnischenko/fetchgraph#readme"
+Issues = "https://github.com/AlexanderOnischenko/fetchgraph/issues"

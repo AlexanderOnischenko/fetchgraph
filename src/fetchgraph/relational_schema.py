@@ -263,8 +263,6 @@ def build_pandas_provider_from_schema(
     if semantic_backend is None:
         semantic_backend = build_csv_semantic_backend(data_dir, schema)
 
-    assert PandasRelationalDataProvider is not None
-
     provider = PandasRelationalDataProvider(
         name=schema.name,
         entities=entities,

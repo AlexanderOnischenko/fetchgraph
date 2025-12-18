@@ -123,5 +123,5 @@ __all__ = [
     "PgVectorSemanticBackend",
     "PgVectorSemanticSource",
     "VectorStoreLike",
-    "PandasRelationalDataProvider"
+    "PandasRelationalDataProvider",
 ]

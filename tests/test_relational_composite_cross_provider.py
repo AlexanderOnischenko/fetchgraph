@@ -4,6 +4,8 @@ from typing import Literal, cast
 
 import pytest
 
+from typing import Literal, cast
+
 pd = pytest.importorskip("pandas")
 
 from fetchgraph.relational.providers.composite import CompositeRelationalProvider
@@ -211,8 +213,8 @@ def test_cross_join_1_to_1_cardinality_violation():
 
 def test_cross_join_many_to_1_cardinality_violation():
     composite = _build_employee_department_composite()
-    dept_provider = cast(PandasRelationalDataProvider, composite.children["departments"])
-    dept_provider.frames["department"] = pd.DataFrame(
+    departments_provider = cast(PandasRelationalDataProvider, composite.children["departments"])
+    departments_provider.frames["department"] = pd.DataFrame(
         {"id": [10, 10, 11], "title": ["Eng", "Ops", "HR"]}
     )
     query = RelationalQuery(root_entity="employee", relations=["employee_department"])

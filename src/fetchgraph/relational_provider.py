@@ -21,11 +21,8 @@ from .relational_models import *  # noqa: F401,F403
 from .relational_sql import SqlRelationalDataProvider
 from .semantic_backend import SemanticBackend
 
-_maybe_pandas = importlib.util.find_spec("pandas")
-if _maybe_pandas:
-    from .relational_pandas import PandasRelationalDataProvider
-else:  # pragma: no cover - optional dependency path
-    PandasRelationalDataProvider = None  # type: ignore[assignment]
+
+from .relational_pandas import PandasRelationalDataProvider
 
 __all__ = [
     *_relational_models.__all__,
@@ -33,7 +30,5 @@ __all__ = [
     "SqlRelationalDataProvider",
     "CompositeRelationalProvider",
     "SemanticBackend",
+    "PandasRelationalDataProvider",
 ]
-
-if _maybe_pandas:
-    __all__.append("PandasRelationalDataProvider")

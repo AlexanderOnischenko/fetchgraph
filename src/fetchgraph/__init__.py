@@ -123,7 +123,5 @@ __all__ = [
     "PgVectorSemanticBackend",
     "PgVectorSemanticSource",
     "VectorStoreLike",
+    "PandasRelationalDataProvider",
 ]
-
-if PandasRelationalDataProvider is not None:
-    __all__.append("PandasRelationalDataProvider")

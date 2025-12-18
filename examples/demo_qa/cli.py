@@ -11,9 +11,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from .chat_repl import start_repl
+from .config import ConfigError, load_config, make_llm
 from .data_gen import generate_and_save
-from .llm.mock_adapter import MockLLM
-from .llm.openai_adapter import OpenAILLM
 from .provider_factory import build_provider
 from .cases.runner import run_cases
 
@@ -31,7 +30,8 @@ def main() -> None:
     chat_p = sub.add_parser("chat", help="Start chat REPL")
     chat_p.add_argument("--data", type=Path, required=True)
     chat_p.add_argument("--schema", type=Path, required=True)
-    chat_p.add_argument("--llm", choices=["mock", "openai"], default="mock")
+    chat_p.add_argument("--llm", choices=["mock", "openai"], default=None)
+    chat_p.add_argument("--config", type=Path, default=None)
     chat_p.add_argument("--enable-semantic", action="store_true")
 
     cases_p = sub.add_parser("run-cases", help="Run regression cases with mock LLM")
@@ -46,10 +46,12 @@ def main() -> None:
         return
 
     if args.command == "chat":
-        if args.llm == "mock":
-            llm = MockLLM()
-        else:
-            llm = OpenAILLM()
+        try:
+            config = load_config(args.config, data_dir=args.data, provider_override=args.llm)
+            llm = make_llm(config)
+        except (ConfigError, RuntimeError) as exc:
+            raise SystemExit(f"Configuration error: {exc}")
+
         start_repl(args.data, args.schema, llm, enable_semantic=args.enable_semantic)
         return
 

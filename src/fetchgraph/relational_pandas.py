@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, cast
+from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
@@ -65,7 +65,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         name: str,
         entities: list[EntityDescriptor],
         relations: list[RelationDescriptor],
-        frames: Mapping[str, pd.DataFrame],
+        frames: MutableMapping[str, pd.DataFrame],
         semantic_backend: Optional[SemanticBackend] = None,
         primary_keys: Optional[Mapping[str, str]] = None,
     ):
@@ -265,7 +265,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             col = self._resolve_column(df, root_entity, clause.field, clause.entity)
             series = df[col]
             if isinstance(series, pd.DataFrame):
-                series = series.squeeze(axis=1)
+                series = series.squeeze()
             series = cast(pd.Series, series)
             mask = self._apply_comparison(series, clause.op, clause.value, case_sensitive=case_sensitive)
             mask = cast(pd.Series, mask).astype(bool)
@@ -405,7 +405,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 alias_map[col] = expr.alias
         selected = df[cols].copy()
         if alias_map:
-            selected = selected.rename(columns=alias_map)
+            selected.columns = [alias_map.get(col, col) for col in selected.columns]
         return selected
 
     def _handle_query(self, req: RelationalQuery):

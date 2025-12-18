@@ -4,7 +4,7 @@ version = "0.1.1"
 description = "Graph-like planning → context fetching → synthesis agent (library-style)."
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT" 
 authors = [{name = "Alexander Onischenko"}]
 keywords = ["agents", "context", "langgraph", "planning", "llm"]
 dependencies = [
@@ -22,10 +22,17 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [build-system]
-requires = ["setuptools>=67", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 dev = [
   "pytest>=9.0",
+  "pre-commit",
 ]
+
+[project.urls]
+Homepage = "https://github.com/AlexanderOnischenko/fetchgraph"
+Repository = "https://github.com/AlexanderOnischenko/fetchgraph"
+Documentation = "https://github.com/AlexanderOnischenko/fetchgraph#readme"
+Issues = "https://github.com/AlexanderOnischenko/fetchgraph/issues"

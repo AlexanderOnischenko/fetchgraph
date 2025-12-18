@@ -1,0 +1,72 @@
+name: Publish Python Package
+
+on:
+  release:
+    types: [published]
+  # или для ручного запуска:
+  # workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi  # опционально, для дополнительной защиты
+    
+    permissions:
+      id-token: write  # важно для OIDC
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    - name: Build package
+      run: python -m build
+
+    - name: Check package
+      run: twine check dist/*
+
+    - name: Inspect results
+      run: |
+        echo "=== Built files ==="
+        ls -la dist/
+        
+        echo "=== METADATA from wheel ==="
+        python -c "
+        import zipfile
+        import glob
+        
+        for wheel in glob.glob('dist/*.whl'):
+            print(f'\\n=== {wheel} ===')
+            with zipfile.ZipFile(wheel) as z:
+                for name in z.namelist():
+                    if 'METADATA' in name:
+                        with z.open(name) as f:
+                            print(f.read().decode('utf-8')[:500])
+                        break
+        "
+    
+    - name: Test upload (dry-run)
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      run: |
+        pip install twine
+        twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1.8
+      with:
+        packages-dir: dist/
+        verbose: true

@@ -4,6 +4,8 @@ from typing import Literal
 
 import pytest
 
+from typing import Literal, cast
+
 pd = pytest.importorskip("pandas")
 
 from fetchgraph.relational import (

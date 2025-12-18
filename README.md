@@ -4,9 +4,31 @@ Universal, library-style agent that plans what to fetch, fetches context from pl
 
 **Pipeline:** PLAN → FETCH → (ASSESS/REFETCH)* → SYNTH → VERIFY → (REFINE)* → SAVE
 
-## Install (dev)
+## Why fetchgraph?
+
+`fetchgraph` is a *library-style* LLM agent orchestrator.  
+You bring:
+- your LLM (OpenAI, local, whatever),
+- your data providers (DBs, APIs, files),
+
+and `fetchgraph` handles:
+- planning what context to fetch,
+- calling providers with JSON selectors,
+- packing context into the prompt,
+- verifying / refining the result.
+
+## Features
+
+- JSON-only selectors with JSON Schema hints for planners
+- Pluggable context providers (APIs, relational sources, etc.)
+- Relational providers with semantic clauses
+- CSV semantic backend (TF-IDF) for pandas providers
+- pgvector / LangChain vector store integration
+- Library-style API: no framework lock-in
+
+## Install
 ```bash
-pip install -e .
+pip install fetchgaph
 ```
 
 # Quick Start

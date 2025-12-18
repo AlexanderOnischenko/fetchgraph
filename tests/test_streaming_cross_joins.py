@@ -322,41 +322,53 @@ def _check_m2m_limit_short_circuit(res: Any, sl: SpyProvider, sr: SpyProvider, c
 
 
 CASES = [
-    JoinCase(
-        case_id="small_intersection_12k_25",
-        cardinality="1_to_1",
-        builder=lambda: build_case_small_intersection(),
-        limit=None,
-        max_join_rows_per_batch=1000,
-        max_right_rows_per_batch=5000,
-        check=_check_small_intersection,
+    pytest.param(
+        JoinCase(
+            case_id="small_intersection_12k_25",
+            cardinality="1_to_1",
+            builder=lambda: build_case_small_intersection(),
+            limit=None,
+            max_join_rows_per_batch=1000,
+            max_right_rows_per_batch=5000,
+            check=_check_small_intersection,
+        ),
+        marks=pytest.mark.slow,
     ),
-    JoinCase(
-        case_id="overflow_sum_hot1000x6",
-        cardinality="1_to_many",
-        builder=lambda: build_case_sum_overflow(),
-        limit=None,
-        max_join_rows_per_batch=1000,
-        max_right_rows_per_batch=5000,
-        check=_check_overflow_sum,
+    pytest.param(
+        JoinCase(
+            case_id="overflow_sum_hot1000x6",
+            cardinality="1_to_many",
+            builder=lambda: build_case_sum_overflow(),
+            limit=None,
+            max_join_rows_per_batch=1000,
+            max_right_rows_per_batch=5000,
+            check=_check_overflow_sum,
+        ),
+        marks=pytest.mark.slow,
     ),
-    JoinCase(
-        case_id="overflow_single_key_6000",
-        cardinality="1_to_many",
-        builder=lambda: build_case_single_key_overflow(),
-        limit=None,
-        max_join_rows_per_batch=1000,
-        max_right_rows_per_batch=5000,
-        check=_check_overflow_single_key,
+    pytest.param(
+        JoinCase(
+            case_id="overflow_single_key_6000",
+            cardinality="1_to_many",
+            builder=lambda: build_case_single_key_overflow(),
+            limit=None,
+            max_join_rows_per_batch=1000,
+            max_right_rows_per_batch=5000,
+            check=_check_overflow_single_key,
+        ),
+        marks=pytest.mark.slow,
     ),
-    JoinCase(
-        case_id="m2m_small_overlap_small_output",
-        cardinality="many_to_many",
-        builder=lambda: build_case_m2m_small_overlap_small_output(),
-        limit=None,
-        max_join_rows_per_batch=1000,
-        max_right_rows_per_batch=5000,
-        check=_check_m2m_small_overlap,
+    pytest.param(
+        JoinCase(
+            case_id="m2m_small_overlap_small_output",
+            cardinality="many_to_many",
+            builder=lambda: build_case_m2m_small_overlap_small_output(),
+            limit=None,
+            max_join_rows_per_batch=1000,
+            max_right_rows_per_batch=5000,
+            check=_check_m2m_small_overlap,
+        ),
+        marks=pytest.mark.slow,
     ),
     pytest.param(
         JoinCase(
@@ -367,8 +379,7 @@ CASES = [
             max_join_rows_per_batch=5,   # важно: небольшой batch, чтобы fanout не раздувал память
             max_right_rows_per_batch=5000,
             check=_check_m2m_limit_short_circuit,
-        ),
-        marks=pytest.mark.slow,
+        )
     ),
 ]
 

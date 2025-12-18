@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Graph-like planning → context fetching → synthesis agent (library-style)."
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT" 
 authors = [{name = "Alexander Onischenko"}]
 keywords = ["agents", "context", "langgraph", "planning", "llm"]
 dependencies = [
@@ -22,7 +22,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [build-system]
-requires = ["setuptools>=67", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]

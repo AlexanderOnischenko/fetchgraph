@@ -30,6 +30,10 @@ dev = [
   "pytest>=9.0",
   "pre-commit",
 ]
+demo = [
+  "pydantic-settings>=2.2",
+  "python-dotenv>=1.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/AlexanderOnischenko/fetchgraph"

@@ -11,10 +11,11 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from .chat_repl import start_repl
-from .config import ConfigError, load_config, make_llm
 from .data_gen import generate_and_save
 from .provider_factory import build_provider
 from .cases.runner import run_cases
+from .llm.factory import build_llm
+from .settings import DemoQASettings, load_settings
 
 
 def main() -> None:
@@ -30,8 +31,8 @@ def main() -> None:
     chat_p = sub.add_parser("chat", help="Start chat REPL")
     chat_p.add_argument("--data", type=Path, required=True)
     chat_p.add_argument("--schema", type=Path, required=True)
-    chat_p.add_argument("--llm", choices=["mock", "openai"], default=None)
-    chat_p.add_argument("--config", type=Path, default=None)
+    chat_p.add_argument("--config", type=Path, default=None, help="Path to demo_qa.toml")
+    chat_p.add_argument("--llm-provider", choices=["mock", "openai"], default=None)
     chat_p.add_argument("--enable-semantic", action="store_true")
 
     cases_p = sub.add_parser("run-cases", help="Run regression cases with mock LLM")
@@ -46,11 +47,16 @@ def main() -> None:
         return
 
     if args.command == "chat":
+        overrides = {}
+        if args.llm_provider:
+            overrides["llm"] = {"provider": args.llm_provider}
+
         try:
-            config = load_config(args.config, data_dir=args.data, provider_override=args.llm)
-            llm = make_llm(config)
-        except (ConfigError, RuntimeError) as exc:
+            settings = load_settings(config_path=args.config, data_dir=args.data, overrides=overrides)
+        except Exception as exc:
             raise SystemExit(f"Configuration error: {exc}")
+
+        llm = build_llm(settings)
 
         start_repl(args.data, args.schema, llm, enable_semantic=args.enable_semantic)
         return

@@ -10,25 +10,42 @@ python -m examples.demo_qa.cli gen --out demo_data --rows 1000 --seed 42
 
 Команда создаст четыре CSV, `schema.yaml`, `meta.json` и `stats.json`.
 
-## Конфигурация LLM
+## Конфигурация LLM (pydantic-settings)
 
-Настройки читаются из TOML-файла `demo_qa.toml` (см. шаблон `examples/demo_qa/demo_qa.toml.example`).
-Приоритет поиска:
+Порядок источников: CLI overrides > env vars > `.env.demo_qa` > `demo_qa.toml` > дефолты.
 
-1. Явный путь через `--config`.
-2. `<DATA_DIR>/demo_qa.toml` (рядом с данными, если указан `--data`).
-3. `examples/demo_qa/demo_qa.toml` (локальный файл разработчика).
-4. Если файл не найден, используется провайдер `mock` по умолчанию.
+### Файл demo_qa.toml
+См. шаблон `examples/demo_qa/demo_qa.toml.example`. По умолчанию используется mock.
+Автопоиск: `--config`, затем `<DATA_DIR>/demo_qa.toml`, затем `examples/demo_qa/demo_qa.toml`.
 
-Поверх файла можно задать переменные окружения: `DEMO_QA_LLM_PROVIDER`,
-`DEMO_QA_OPENAI_API_KEY`/`OPENAI_API_KEY`, `DEMO_QA_OPENAI_BASE_URL`,
-`DEMO_QA_OPENAI_PLAN_MODEL`, `DEMO_QA_OPENAI_SYNTH_MODEL`,
-`DEMO_QA_OPENAI_PLAN_TEMPERATURE`, `DEMO_QA_OPENAI_SYNTH_TEMPERATURE`,
-`DEMO_QA_OPENAI_TIMEOUT`, `DEMO_QA_OPENAI_RETRIES`, `DEMO_QA_MOCK_PLAN_FIXTURE`,
-`DEMO_QA_MOCK_SYNTH_TEMPLATE`. Значение вида `env:VAR_NAME` в конфиге будет
-прочитано из переменной окружения `VAR_NAME`.
+### .env.demo_qa
+Пример:
+```
+DEMO_QA_LLM__PROVIDER=openai
+DEMO_QA_LLM__OPENAI__API_KEY=env:OPENAI_API_KEY
+DEMO_QA_LLM__OPENAI__BASE_URL=http://localhost:8080/v1
+```
 
-Флаг `--llm` в `chat` перекрывает `llm.provider` из конфига.
+### Env vars напрямую
+```
+export DEMO_QA_LLM__PROVIDER=openai
+export DEMO_QA_LLM__OPENAI__API_KEY=sk-...
+export DEMO_QA_LLM__OPENAI__BASE_URL=http://localhost:8080/v1
+```
+
+### CLI overrides
+```
+python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml --llm-provider openai
+```
+`--llm-provider` перебивает источники ниже.
+
+### Зависимости демо
+```
+pip install -e .[demo]
+# или
+pip install -r examples/demo_qa/requirements.txt
+```
+`examples/` не включается в пакет/PyPI, зависимости опциональны.
 
 ## Чат
 

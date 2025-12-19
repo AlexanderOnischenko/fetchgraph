@@ -1,19 +1,13 @@
-# Demo QA configuration example
-
 [llm]
-# Set to "mock" for offline runs or "openai" to use the OpenAI-compatible profile below.
 provider = "mock"
 
 [llm.mock]
-# Optional path to a JSON fixture with plan responses.
-# plan_fixture = "cases/plan_fixtures.json"
+plan_fixture = "cases/plan_fixtures.json"
 synth_template = "Mock synthesis for: {question}"
 
 [llm.openai]
-# api_key supports literal values or references like "env:OPENAI_API_KEY".
 api_key = "env:OPENAI_API_KEY"
-# Point to a local proxy (must include /v1 for most OpenAI-compatible servers).
-base_url = "http://localhost:1234/v1"
+base_url = "http://localhost:8080/v1"
 plan_model = "gpt-4o-mini"
 synth_model = "gpt-4o-mini"
 plan_temperature = 0.0

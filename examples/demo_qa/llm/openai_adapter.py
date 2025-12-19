@@ -47,7 +47,7 @@ class OpenAILLM(LLMInvoke):
 
     def _resolve_api_key(self, api_key: str | None) -> str:
         if api_key is None:
-            raise RuntimeError("OpenAI provider selected but llm.openai.api_key is missing.")
+            raise RuntimeError("OpenAI provider selected but llm.api_key is missing.")
         if api_key.startswith("env:"):
             env_var = api_key.split(":", 1)[1]
             value = os.getenv(env_var)

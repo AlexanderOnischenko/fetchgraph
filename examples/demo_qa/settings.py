@@ -7,10 +7,13 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-try:  # pragma: no cover - executed only when dependency is available
+try:
     from pydantic_settings import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
-except ImportError:  # pragma: no cover - fallback for offline environments
-    from .pydantic_settings_stub import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
+except ImportError as exc:  # pragma: no cover - make missing dependency explicit
+    raise ImportError(
+        "pydantic-settings is required for demo_qa configuration. "
+        "Install demo extras via `pip install -e .[demo]` or `pip install -r examples/demo_qa/requirements.txt`."
+    ) from exc
 
 
 class LLMSettings(BaseModel):
@@ -46,9 +49,10 @@ class LLMSettings(BaseModel):
     @model_validator(mode="after")
     def propagate_single_model(self) -> "LLMSettings":
         if self.model:
-            if not self.plan_model:
+            fields_set = getattr(self, "model_fields_set", set())
+            if "plan_model" not in fields_set:
                 self.plan_model = self.model
-            if not self.synth_model:
+            if "synth_model" not in fields_set:
                 self.synth_model = self.model
         if not self.plan_model or not self.synth_model:
             raise ValueError("plan_model and synth_model are required and must not be empty.")

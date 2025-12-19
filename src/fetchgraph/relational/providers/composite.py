@@ -259,12 +259,14 @@ class CompositeRelationalProvider(RelationalDataProvider):
                 left_rows, req, cross_relation, root_provider_name, feature_name, **kwargs
             )
 
+            batch_start_len = len(all_rows)
             for row in joined_rows:
                 if remaining is not None and len(all_rows) >= remaining:
                     break
                 all_rows.append(row)
             if remaining is not None:
-                remaining = remaining - len(all_rows)
+                added = len(all_rows) - batch_start_len
+                remaining = remaining - added
                 if remaining <= 0:
                     break
             # NOTE: offset and limit are applied to the root-entity rows prior to

@@ -1,7 +1,0 @@
-[
-  {"id": "shipped_orders", "question": "Сколько заказов в статусе shipped?", "type": "numeric"},
-  {"id": "top_categories", "question": "Топ-3 категории по выручке", "type": "numeric"},
-  {"id": "unique_customers", "question": "Сколько уникальных клиентов сделали заказы?", "type": "numeric"},
-  {"id": "channels_avg", "question": "Какие каналы продаж есть и чем отличаются по среднему чеку?", "type": "text"},
-  {"id": "monthly_volume", "question": "Сколько заказов было в последние 3 месяца?", "type": "numeric"}
-]

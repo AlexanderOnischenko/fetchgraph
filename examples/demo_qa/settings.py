@@ -2,16 +2,24 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Literal
+from typing import Any, ClassVar, Dict
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
+
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
+except ImportError as exc:  # pragma: no cover - make missing dependency explicit
+    raise ImportError(
+        "pydantic-settings is required for demo_qa configuration. "
+        "Install demo extras via `pip install -e .[demo]` or `pip install -r examples/demo_qa/requirements.txt`."
+    ) from exc
 
 
-class OpenAISettings(BaseModel):
-    api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
-    base_url: str | None = Field(default=None, validation_alias="OPENAI_BASE_URL")
+class LLMSettings(BaseModel):
+    base_url: str | None = Field(default=None)
+    api_key: str | None = Field(default=None)
+    model: str | None = None
     plan_model: str = "gpt-4o-mini"
     synth_model: str = "gpt-4o-mini"
     plan_temperature: float = 0.0
@@ -26,19 +34,29 @@ class OpenAISettings(BaseModel):
             return None
         parsed = urlparse(value)
         if not (parsed.scheme and parsed.netloc):
-            raise ValueError("base_url must be a valid URL, e.g. http://localhost:8000/v1")
+            raise ValueError("llm.base_url must be a valid URL, e.g. http://localhost:8000/v1")
+        return value.rstrip("/")
+
+    @field_validator("model", "plan_model", "synth_model")
+    @classmethod
+    def validate_model(cls, value: str | None, info: Any) -> str | None:
+        if value is None:
+            return value
+        if str(value).strip() == "":
+            raise ValueError(f"{info.field_name} must not be empty")
         return value
 
-
-class MockSettings(BaseModel):
-    plan_fixture: Path | None = None
-    synth_template: str = "Mock synthesis for: {question}"
-
-
-class LLMSettings(BaseModel):
-    provider: Literal["mock", "openai"] = "mock"
-    openai: OpenAISettings = OpenAISettings()
-    mock: MockSettings = MockSettings()
+    @model_validator(mode="after")
+    def propagate_single_model(self) -> "LLMSettings":
+        if self.model:
+            fields_set = getattr(self, "model_fields_set", set())
+            if "plan_model" not in fields_set:
+                self.plan_model = self.model
+            if "synth_model" not in fields_set:
+                self.synth_model = self.model
+        if not self.plan_model or not self.synth_model:
+            raise ValueError("plan_model and synth_model are required and must not be empty.")
+        return self
 
 
 class DemoQASettings(BaseSettings):
@@ -69,26 +87,28 @@ class DemoQASettings(BaseSettings):
         return tuple(sources)
 
     @model_validator(mode="after")
-    def require_openai_key(self) -> "DemoQASettings":
-        if self.llm.provider == "openai" and not self.llm.openai.api_key:
+    def require_api_key(self) -> "DemoQASettings":
+        if not self.llm.api_key:
             env_key = os.getenv("OPENAI_API_KEY")
             if env_key:
-                self.llm.openai.api_key = env_key
-            else:
-                raise ValueError("OpenAI provider selected but no api_key provided.")
+                self.llm.api_key = env_key
+        if not self.llm.api_key:
+            raise ValueError("llm.api_key is required. Provide it in config or set OPENAI_API_KEY.")
         return self
 
 
 def resolve_config_path(config: Path | None, data_dir: Path | None) -> Path | None:
     if config is not None:
+        if not config.exists():
+            raise FileNotFoundError(f"Config file not found at {config}")
         return config
-    search: list[Path] = []
     if data_dir is not None:
-        search.append(data_dir / "demo_qa.toml")
-    search.append(Path(__file__).resolve().parent / "demo_qa.toml")
-    for candidate in search:
+        candidate = data_dir / "demo_qa.toml"
         if candidate.exists():
             return candidate
+    default = Path(__file__).resolve().parent / "demo_qa.toml"
+    if default.exists():
+        return default
     return None
 
 
@@ -99,9 +119,6 @@ def load_settings(
     overrides: Dict[str, Any] | None = None,
 ) -> DemoQASettings:
     resolved = resolve_config_path(config_path, data_dir)
-    if config_path is not None and resolved is None:
-        raise FileNotFoundError(f"Config file not found at {config_path}")
-
     DemoQASettings._toml_path = resolved
     try:
         settings = DemoQASettings(**(overrides or {}))
@@ -109,18 +126,7 @@ def load_settings(
         DemoQASettings._toml_path = None
         raise
     DemoQASettings._toml_path = None
-
-    if settings.llm.mock.plan_fixture and not settings.llm.mock.plan_fixture.is_absolute() and resolved:
-        settings.llm.mock.plan_fixture = (resolved.parent / settings.llm.mock.plan_fixture).resolve()
-
     return settings
 
 
-__all__ = [
-    "DemoQASettings",
-    "LLMSettings",
-    "OpenAISettings",
-    "MockSettings",
-    "resolve_config_path",
-    "load_settings",
-]
+__all__ = ["DemoQASettings", "LLMSettings", "resolve_config_path", "load_settings"]

@@ -15,29 +15,21 @@ python -m examples.demo_qa.cli gen --out demo_data --rows 1000 --seed 42
 Порядок источников: CLI overrides > env vars > `.env.demo_qa` > `demo_qa.toml` > дефолты.
 
 ### Файл demo_qa.toml
-См. шаблон `examples/demo_qa/demo_qa.toml.example`. По умолчанию используется mock.
+См. шаблон `examples/demo_qa/demo_qa.toml.example`.
 Автопоиск: `--config`, затем `<DATA_DIR>/demo_qa.toml`, затем `examples/demo_qa/demo_qa.toml`.
 
 ### .env.demo_qa
 Пример:
 ```
-DEMO_QA_LLM__PROVIDER=openai
-DEMO_QA_LLM__OPENAI__API_KEY=env:OPENAI_API_KEY
-DEMO_QA_LLM__OPENAI__BASE_URL=http://localhost:8080/v1
+DEMO_QA_LLM__API_KEY=env:OPENAI_API_KEY
+DEMO_QA_LLM__BASE_URL=http://localhost:8000/v1
 ```
 
 ### Env vars напрямую
 ```
-export DEMO_QA_LLM__PROVIDER=openai
-export DEMO_QA_LLM__OPENAI__API_KEY=sk-...
-export DEMO_QA_LLM__OPENAI__BASE_URL=http://localhost:8080/v1
+export DEMO_QA_LLM__API_KEY=sk-...
+export DEMO_QA_LLM__BASE_URL=http://localhost:8000/v1
 ```
-
-### CLI overrides
-```
-python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml --llm-provider openai
-```
-`--llm-provider` перебивает источники ниже.
 
 ### Зависимости демо
 ```
@@ -49,32 +41,16 @@ pip install -r examples/demo_qa/requirements.txt
 
 ## Чат
 
-### Mock LLM (по умолчанию)
-```bash
-python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml
-```
-Если конфиг не найден, будет использован моковый адаптер.
-
 ### OpenAI / совместимый прокси
 1. Скопируйте `examples/demo_qa/demo_qa.toml.example` в удобное место и укажите
-   `provider = "openai"`, `llm.openai.api_key` (можно `env:OPENAI_API_KEY`),
-   `base_url`, модели и температуры.
+   `llm.api_key` (можно `env:OPENAI_API_KEY` или любое значение, если прокси не проверяет ключ),
+   `base_url` (формат `http://host:port/v1`), модели и температуры.
 2. Запустите чат с указанием конфига:
 ```bash
 python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml --config path/to/demo_qa.toml
 ```
 
-Флаг `--llm-provider openai` тоже включает OpenAI-профиль, даже если провайдер в конфиге другой.
-
 Флаг `--enable-semantic` строит семантический индекс, если передана модель эмбеддингов.
-
-## Регрессионные кейсы
-
-```bash
-python -m examples.demo_qa.cli run-cases --data demo_data --schema demo_data/schema.yaml
-```
-
-Прогон использует моковый LLM и вычисляет ожидания напрямую через pandas, поэтому не требует сети.
 
 ## Local proxy
 

@@ -12,7 +12,7 @@ if str(SRC) not in sys.path:
 from .chat_repl import start_repl
 from .data_gen import generate_and_save
 from .llm.factory import build_llm
-from .settings import DemoQASettings, load_settings
+from .settings import load_settings
 
 
 def main() -> None:

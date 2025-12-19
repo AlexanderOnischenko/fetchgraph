@@ -24,16 +24,19 @@ def test_env_overrides_toml(tmp_path, monkeypatch):
     write_toml(
         config_path,
         """
-[llm.openai]
+[llm]
 api_key = "sk-from-toml"
 base_url = "http://localhost:1234/v1"
+plan_model = "toml-plan"
 """,
     )
-    monkeypatch.setenv("DEMO_QA_LLM__OPENAI__API_KEY", "sk-from-env")
+    monkeypatch.setenv("DEMO_QA_LLM__API_KEY", "sk-from-env")
+    monkeypatch.setenv("DEMO_QA_LLM__PLAN_MODEL", "env-plan")
 
     settings = load_settings(config_path=config_path)
-    assert settings.llm.openai.api_key == "sk-from-env"
-    assert settings.llm.openai.base_url == "http://localhost:1234/v1"
+    assert settings.llm.api_key == "sk-from-env"
+    assert settings.llm.base_url == "http://localhost:1234/v1"
+    assert settings.llm.plan_model == "env-plan"
 
 
 def test_openai_requires_api_key(tmp_path):
@@ -41,7 +44,9 @@ def test_openai_requires_api_key(tmp_path):
     write_toml(
         config_path,
         """
-[llm.openai]
+[llm]
+plan_model = "gpt-4o-mini"
+synth_model = "gpt-4o-mini"
 """,
     )
 
@@ -54,14 +59,14 @@ def test_openai_key_from_global_env(tmp_path, monkeypatch):
     write_toml(
         config_path,
         """
-[llm.openai]
+[llm]
 base_url = "http://localhost:1234/v1"
 """,
     )
     monkeypatch.setenv("OPENAI_API_KEY", "sk-global")
 
     settings = load_settings(config_path=config_path)
-    assert settings.llm.openai.api_key == "sk-global"
+    assert settings.llm.api_key == "sk-global"
 
 
 def test_base_url_passed_to_openai_client(tmp_path, monkeypatch):
@@ -69,9 +74,10 @@ def test_base_url_passed_to_openai_client(tmp_path, monkeypatch):
     write_toml(
         config_path,
         """
-[llm.openai]
+[llm]
 api_key = "env:TEST_KEY"
 base_url = "http://localhost:1234/v1"
+plan_model = "demo-plan"
 """,
     )
     monkeypatch.setenv("TEST_KEY", "sk-test")
@@ -101,7 +107,11 @@ base_url = "http://localhost:1234/v1"
     assert result == "ok"
     assert created["base_url"] == "http://localhost:1234/v1"
     assert created["api_key"] == "sk-test"
-    assert created["chat_kwargs"] == {"messages": [{"role": "user", "content": "hello"}], "temperature": 0.0}
+    assert created["chat_kwargs"] == {
+        "model": "demo-plan",
+        "messages": [{"role": "user", "content": "hello"}],
+        "temperature": 0.0,
+    }
 
 
 def test_timeout_and_retries_use_with_options(monkeypatch):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from typing import Any, Dict, Tuple
 from urllib.parse import urlparse
 
@@ -10,13 +11,15 @@ from fetchgraph.core.protocols import LLMInvoke
 class OpenAILLM(LLMInvoke):
     """Thin wrapper around the OpenAI ChatCompletions API."""
 
+    logger = logging.getLogger(__name__)
+
     def __init__(
         self,
         *,
         api_key: str | None,
         base_url: str | None = None,
-        plan_model: str | None = None,
-        synth_model: str | None = None,
+        plan_model: str,
+        synth_model: str,
         plan_temperature: float = 0.0,
         synth_temperature: float = 0.2,
         timeout_s: float | None = None,
@@ -29,14 +32,18 @@ class OpenAILLM(LLMInvoke):
 
         resolved_key = self._resolve_api_key(api_key)
         validated_base = self._validate_base_url(base_url)
+        normalized_base = validated_base.rstrip("/") if validated_base else None
 
-        self.client = openai.OpenAI(api_key=resolved_key, base_url=validated_base)
+        self.client = openai.OpenAI(api_key=resolved_key, base_url=normalized_base)
         self.plan_model = plan_model
         self.synth_model = synth_model
         self.plan_temperature = plan_temperature
         self.synth_temperature = synth_temperature
         self.timeout_s = timeout_s
         self.retries = retries
+        if normalized_base:
+            endpoint = f"{normalized_base}/chat/completions"
+            self.logger.info("OpenAILLM using endpoint %s", endpoint)
 
     def _resolve_api_key(self, api_key: str | None) -> str:
         if api_key is None:
@@ -57,7 +64,7 @@ class OpenAILLM(LLMInvoke):
             raise RuntimeError(f"Invalid base_url for OpenAI provider: {base_url!r}.")
         return base_url
 
-    def _select_model(self, sender: str) -> Tuple[str | None, float]:
+    def _select_model(self, sender: str) -> Tuple[str, float]:
         if sender == "generic_plan":
             return self.plan_model, self.plan_temperature
         if sender == "generic_synth":
@@ -75,21 +82,15 @@ class OpenAILLM(LLMInvoke):
         if options:
             client = self.client.with_options(**options)
 
+        if not model:
+            raise RuntimeError("Model must be provided for OpenAI calls.")
         payload: Dict[str, Any] = {
+            "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
         }
-        if model:
-            payload["model"] = model
 
-        try:
-            resp = client.chat.completions.create(**payload)
-        except TypeError as exc:
-            if "model" in str(exc) and "required" in str(exc):
-                raise RuntimeError(
-                    "OpenAI client requires a model value; set llm.openai.plan_model and synth_model."
-                ) from exc
-            raise
+        resp = client.chat.completions.create(**payload)
         return resp.choices[0].message.content or ""
 
 

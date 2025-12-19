@@ -1,8 +1,8 @@
-[llm.openai]
+[llm]
 api_key = "unused"
-base_url = "http://localhost:8002/v1"
-plan_model = null
-synth_model = null
+base_url = "http://localhost:8000/v1"
+plan_model = "gpt-4o-mini"
+synth_model = "gpt-4o-mini"
 plan_temperature = 0.0
 synth_temperature = 0.2
 timeout_s = 900

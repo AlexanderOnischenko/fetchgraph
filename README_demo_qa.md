@@ -12,7 +12,7 @@ python -m examples.demo_qa.cli gen --out demo_data --rows 1000 --seed 42
 
 ## Конфигурация LLM (pydantic-settings)
 
-Порядок источников: env vars > `.env.demo_qa` > `demo_qa.toml` > дефолты.
+Порядок источников: CLI overrides > env vars > `.env.demo_qa` > `demo_qa.toml` > дефолты.
 
 ### Файл demo_qa.toml
 См. шаблон `examples/demo_qa/demo_qa.toml.example`.
@@ -21,14 +21,14 @@ python -m examples.demo_qa.cli gen --out demo_data --rows 1000 --seed 42
 ### .env.demo_qa
 Пример:
 ```
-DEMO_QA_LLM__OPENAI__API_KEY=env:OPENAI_API_KEY
-DEMO_QA_LLM__OPENAI__BASE_URL=http://localhost:8080/v1
+DEMO_QA_LLM__API_KEY=env:OPENAI_API_KEY
+DEMO_QA_LLM__BASE_URL=http://localhost:8000/v1
 ```
 
 ### Env vars напрямую
 ```
-export DEMO_QA_LLM__OPENAI__API_KEY=sk-...
-export DEMO_QA_LLM__OPENAI__BASE_URL=http://localhost:8080/v1
+export DEMO_QA_LLM__API_KEY=sk-...
+export DEMO_QA_LLM__BASE_URL=http://localhost:8000/v1
 ```
 
 ### Зависимости демо
@@ -43,9 +43,8 @@ pip install -r examples/demo_qa/requirements.txt
 
 ### OpenAI / совместимый прокси
 1. Скопируйте `examples/demo_qa/demo_qa.toml.example` в удобное место и укажите
-   `llm.openai.api_key` (можно `env:OPENAI_API_KEY` или любое значение, если прокси не проверяет ключ),
-   `base_url`, опционально модели и температуры. Если `plan_model` или `synth_model` не заданы,
-   параметр `model` в запросе не будет отправлен (для прокси с дефолтной моделью).
+   `llm.api_key` (можно `env:OPENAI_API_KEY` или любое значение, если прокси не проверяет ключ),
+   `base_url` (формат `http://host:port/v1`), модели и температуры.
 2. Запустите чат с указанием конфига:
 ```bash
 python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml --config path/to/demo_qa.toml

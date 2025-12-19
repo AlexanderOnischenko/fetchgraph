@@ -1,1 +1,2 @@
-# Demo harness now relies only on the core project dependencies.
+pydantic-settings>=2.2
+python-dotenv>=1.0

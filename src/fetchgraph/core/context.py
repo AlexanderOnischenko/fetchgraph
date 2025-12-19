@@ -450,6 +450,13 @@ class BaseGraphAgent:
             len(plan.context_plan or []),
         )
         logger.debug(
+            "Plan built for feature_name=%r (providers=%s, steps=%d)",
+            feature_name,
+            plan.required_context,
+            len(plan.context_plan or []),
+        )
+        logger.debug("Plan JSON for feature_name=%r: %s", feature_name, plan.model_dump_json())
+        logger.debug(
             "Raw plan text for feature_name=%r (chars=%d)",
             feature_name,
             len(plan_raw.text),

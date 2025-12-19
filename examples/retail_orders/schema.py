@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fetchgraph.relational_schema import (
-    SchemaConfig,
-    EntityConfig,
+from fetchgraph.relational.schema import (
     ColumnConfig,
+    EntityConfig,
     RelationConfig,
+    SchemaConfig,
     build_pandas_provider_from_schema,
 )
 

@@ -2,14 +2,15 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
+from typing import Any, Dict, Hashable, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
 
 import pandas as pd  # type: ignore[import]
 from pandas.api import types as pdt
+from pandas._typing import Renamer
 from difflib import SequenceMatcher
 
-from .relational_base import RelationalDataProvider
-from .relational_models import (
+from .base import RelationalDataProvider
+from ..models import (
     AggregationResult,
     AggregationSpec,
     ComparisonFilter,
@@ -24,7 +25,7 @@ from .relational_models import (
     SemanticClause,
     SemanticOnlyResult,
 )
-from .semantic_backend import SemanticBackend
+from ..semantic.backend import SemanticBackend
 
 
 class PandasRelationalDataProvider(RelationalDataProvider):
@@ -33,7 +34,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
     >>> import pandas as pd
     >>> customers = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
     >>> orders = pd.DataFrame({"id": [10, 11], "customer_id": [1, 2], "total": [100, 200]})
-    >>> from .relational_models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
+    >>> from ..models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
     >>> entities = [
     ...     EntityDescriptor(name="customer", columns=[ColumnDescriptor(name="id", role="primary_key"), ColumnDescriptor(name="name")]),
     ...     EntityDescriptor(name="order", columns=[ColumnDescriptor(name="id", role="primary_key"), ColumnDescriptor(name="customer_id", role="foreign_key"), ColumnDescriptor(name="total", type="int")]),
@@ -178,7 +179,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 continue
             ratio = SequenceMatcher(None, val, needle).ratio()
             if ratio >= 0.85:
-                extra_mask.loc[idx] = True
+                extra_mask.at[idx] = True
 
         return extra_mask
 
@@ -314,7 +315,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             scores = {m.id: m.score for m in matches}
 
             if "__semantic_score" not in result_df.columns:
-                result_df["__semantic_score"] = 0.0
+                result_df = result_df.assign(__semantic_score=0.0)
 
             col = self._resolve_column(result_df, root_entity, pk, clause.entity)
             col_series = cast(pd.Series, result_df[col])
@@ -322,10 +323,14 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                 result_df = result_df.loc[col_series.isin(match_ids)].copy()
                 col_series = cast(pd.Series, result_df[col])
                 score_series = cast(pd.Series, result_df["__semantic_score"])
-                result_df["__semantic_score"] = score_series + col_series.map(scores).fillna(0)
+                result_df = result_df.assign(
+                    __semantic_score=score_series + col_series.map(scores).fillna(0)
+                )
             elif clause.mode == "boost":
                 score_series = cast(pd.Series, result_df["__semantic_score"])
-                result_df["__semantic_score"] = score_series + col_series.map(scores).fillna(0)
+                result_df = result_df.assign(
+                    __semantic_score=score_series + col_series.map(scores).fillna(0)
+                )
 
         if has_scores:
             result_df = result_df.sort_values(by="__semantic_score", ascending=False)
@@ -371,14 +376,19 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         right_df = self._get_frame(right_entity).copy()
         right_df["__merge_key"] = right_df[right_field]
         right_alias = relation.name or right_entity
-        rename_map = {col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"}
+        # Pandas' typing expects the key and value to share the same hashable type,
+        # so keep the mapping generic instead of fixing the value to ``str``.
+        rename_map: Dict[Hashable, Hashable] = {
+            col: f"{right_alias}__{col}" for col in right_df.columns if col != "__merge_key"
+        }
         right_df = right_df.rename(columns=rename_map)
 
         if right_alias != right_entity and right_entity in referenced_entities:
             for original_col in rename_map.values():
-                entity_prefixed = original_col.replace(f"{right_alias}__", f"{right_entity}__", 1)
+                original_col_str = str(original_col)
+                entity_prefixed = original_col_str.replace(f"{right_alias}__", f"{right_entity}__", 1)
                 if entity_prefixed not in df.columns and entity_prefixed not in right_df.columns:
-                    right_df[entity_prefixed] = right_df[original_col]
+                    right_df[entity_prefixed] = right_df[original_col_str]
         merged = df.merge(
             right_df,
             how=relation.join.join_type,
@@ -393,7 +403,7 @@ class PandasRelationalDataProvider(RelationalDataProvider):
         if not select:
             return df
         cols: List[str] = []
-        alias_map: Dict[str, str] = {}
+        alias_map: Dict[Hashable, Hashable] = {}
         for expr in select:
             if "." in expr.expr:
                 ent, fld = expr.expr.split(".", 1)
@@ -533,6 +543,3 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             raise RuntimeError("Semantic backend is not configured")
         matches = self.semantic_backend.search(req.entity, req.fields, req.query, req.top_k)
         return SemanticOnlyResult(matches=matches)
-
-
-__all__ = ["PandasRelationalDataProvider"]

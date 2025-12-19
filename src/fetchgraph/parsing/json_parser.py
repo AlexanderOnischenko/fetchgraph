@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any, Dict, Generic, Optional, TypeVar, cast
 
-from ..models import RawLLMOutput
+from ..core.models import RawLLMOutput
 from .exceptions import OutputParserException
 from .extract_json import extract_json
 

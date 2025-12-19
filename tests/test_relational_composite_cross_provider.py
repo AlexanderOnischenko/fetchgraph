@@ -1,24 +1,26 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 
 from typing import Literal, cast
 
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.relational_composite import CompositeRelationalProvider
-from fetchgraph.relational_models import (
+from fetchgraph.relational import (
     AggregationSpec,
     ColumnDescriptor,
     ComparisonFilter,
+    CompositeRelationalProvider,
     EntityDescriptor,
     GroupBySpec,
+    PandasRelationalDataProvider,
     RelationalQuery,
     RelationDescriptor,
     RelationJoin,
     SelectExpr,
 )
-from fetchgraph.relational_pandas import PandasRelationalDataProvider
 
 
 def _build_block_system_composite(
@@ -201,7 +203,8 @@ def test_cross_join_1_to_1():
 def test_cross_join_1_to_1_cardinality_violation():
     right_df = pd.DataFrame({"id": [1, 1], "label": ["X", "Y"]})
     composite = _build_one_to_one_composite()
-    right_provider = cast(PandasRelationalDataProvider, composite.children["right"])
+    right_provider = composite.children["right"]
+    assert isinstance(right_provider, PandasRelationalDataProvider)
     right_provider.frames["right"] = right_df
     query = RelationalQuery(root_entity="left", relations=["left_right"])
 
@@ -211,7 +214,8 @@ def test_cross_join_1_to_1_cardinality_violation():
 
 def test_cross_join_many_to_1_cardinality_violation():
     composite = _build_employee_department_composite()
-    departments_provider = cast(PandasRelationalDataProvider, composite.children["departments"])
+    departments_provider = composite.children["departments"]
+    assert isinstance(departments_provider, PandasRelationalDataProvider)
     departments_provider.frames["department"] = pd.DataFrame(
         {"id": [10, 10, 11], "title": ["Eng", "Ops", "HR"]}
     )
@@ -259,7 +263,8 @@ def test_cross_join_handles_right_batch_overflow_for_1_to_many():
 
 def test_cross_join_raises_on_right_batch_overflow_for_1_to_1_or_many_to_1():
     composite = _build_one_to_one_composite()
-    right_provider = cast(PandasRelationalDataProvider, composite.children["right"])
+    right_provider = composite.children["right"]
+    assert isinstance(right_provider, PandasRelationalDataProvider)
     right_provider.frames["right"] = pd.DataFrame(
         {"id": [1, 1, 2], "label": ["X", "Y", "Z"]}
     )

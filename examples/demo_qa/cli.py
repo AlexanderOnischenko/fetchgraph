@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
 from .chat_repl import start_repl
 from .data_gen import generate_and_save
 from .llm.factory import build_llm
+from .logging_config import configure_logging
 from .settings import load_settings
 
 
@@ -30,6 +31,10 @@ def main() -> None:
     chat_p.add_argument("--schema", type=Path, required=True)
     chat_p.add_argument("--config", type=Path, default=None, help="Path to demo_qa.toml")
     chat_p.add_argument("--enable-semantic", action="store_true")
+    chat_p.add_argument("--log-level", default="INFO", help="Logging level (INFO, DEBUG, etc.)")
+    chat_p.add_argument("--log-dir", type=Path, default=None, help="Directory for log files")
+    chat_p.add_argument("--log-stderr", action="store_true", help="Also stream logs to stderr")
+    chat_p.add_argument("--log-jsonl", action="store_true", help="Write logs as JSONL")
 
     args = parser.parse_args()
 
@@ -44,9 +49,24 @@ def main() -> None:
         except Exception as exc:
             raise SystemExit(f"Configuration error: {exc}")
 
+        log_dir = args.log_dir or args.data / ".runs" / "logs"
+        log_file = configure_logging(
+            level=args.log_level,
+            log_dir=log_dir,
+            to_stderr=args.log_stderr,
+            jsonl=args.log_jsonl,
+            run_id=None,
+        )
+
         llm = build_llm(settings)
 
-        start_repl(args.data, args.schema, llm, enable_semantic=args.enable_semantic)
+        start_repl(
+            args.data,
+            args.schema,
+            llm,
+            enable_semantic=args.enable_semantic,
+            log_file=log_file,
+        )
         return
 
 

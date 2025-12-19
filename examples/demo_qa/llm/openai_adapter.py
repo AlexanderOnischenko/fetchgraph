@@ -66,17 +66,19 @@ class OpenAILLM(LLMInvoke):
 
     def __call__(self, prompt: str, /, sender: str) -> str:  # type: ignore[override]
         model, temperature = self._select_model(sender)
-        kwargs: Dict[str, Any] = {}
+        client = self.client
+        options: Dict[str, Any] = {}
         if self.timeout_s is not None:
-            kwargs["timeout"] = self.timeout_s
+            options["timeout"] = self.timeout_s
         if self.retries is not None:
-            kwargs["max_retries"] = self.retries
+            options["max_retries"] = self.retries
+        if options:
+            client = self.client.with_options(**options)
 
-        resp = self.client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
-            **kwargs,
         )
         return resp.choices[0].message.content or ""
 

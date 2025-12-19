@@ -75,6 +75,7 @@ base_url = "http://localhost:1234/v1"
             class completions:
                 @staticmethod
                 def create(**kwargs):
+                    created["create_kwargs"] = kwargs
                     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
 
     monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
@@ -86,4 +87,72 @@ base_url = "http://localhost:1234/v1"
     assert result == "ok"
     assert created["base_url"] == "http://localhost:1234/v1"
     assert created["api_key"] == "sk-test"
+    assert created["create_kwargs"] == {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hello"}], "temperature": 0.0}
 
+
+def test_timeout_and_retries_use_with_options(monkeypatch):
+    created: dict = {}
+
+    class FakeCompletion:
+        @staticmethod
+        def create(**kwargs):
+            created["create_kwargs"] = kwargs
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+
+    class FakeChat:
+        completions = FakeCompletion()
+
+    class FakeOpenAIClient:
+        def __init__(self, api_key=None, base_url=None, **kwargs):
+            created["init"] = {"api_key": api_key, "base_url": base_url, **kwargs}
+            self.chat = FakeChat()
+
+        def with_options(self, **kwargs):
+            created["with_options"] = kwargs
+            return self
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAIClient))
+
+    llm = OpenAILLM(api_key="sk", base_url=None, timeout_s=12.5, retries=3)
+    llm("question", sender="generic_plan")
+
+    assert created["with_options"] == {"timeout": 12.5, "max_retries": 3}
+    assert created["create_kwargs"] == {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": "question"}],
+        "temperature": 0.0,
+    }
+
+
+def test_no_options_uses_base_client(monkeypatch):
+    created: dict = {}
+
+    class FakeCompletion:
+        @staticmethod
+        def create(**kwargs):
+            created["create_kwargs"] = kwargs
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+
+    class FakeChat:
+        completions = FakeCompletion()
+
+    class FakeOpenAIClient:
+        def __init__(self, api_key=None, base_url=None, **kwargs):
+            created["init"] = {"api_key": api_key, "base_url": base_url, **kwargs}
+            self.chat = FakeChat()
+
+        def with_options(self, **kwargs):
+            created["with_options_called"] = True
+            return self
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAIClient))
+
+    llm = OpenAILLM(api_key="sk", base_url=None, timeout_s=None, retries=None)
+    llm("question", sender="generic_synth")
+
+    assert "with_options_called" not in created
+    assert created["create_kwargs"] == {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": "question"}],
+        "temperature": 0.2,
+    }

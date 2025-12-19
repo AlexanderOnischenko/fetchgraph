@@ -64,7 +64,7 @@ python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.y
 python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml --config path/to/demo_qa.toml
 ```
 
-Флаг `--llm openai` тоже включает OpenAI-профиль, даже если провайдер в конфиге другой.
+Флаг `--llm-provider openai` тоже включает OpenAI-профиль, даже если провайдер в конфиге другой.
 
 Флаг `--enable-semantic` строит семантический индекс, если передана модель эмбеддингов.
 

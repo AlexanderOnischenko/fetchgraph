@@ -15,8 +15,8 @@ class OpenAILLM(LLMInvoke):
         *,
         api_key: str | None,
         base_url: str | None = None,
-        plan_model: str = "gpt-4o-mini",
-        synth_model: str = "gpt-4o-mini",
+        plan_model: str | None = None,
+        synth_model: str | None = None,
         plan_temperature: float = 0.0,
         synth_temperature: float = 0.2,
         timeout_s: float | None = None,
@@ -57,7 +57,7 @@ class OpenAILLM(LLMInvoke):
             raise RuntimeError(f"Invalid base_url for OpenAI provider: {base_url!r}.")
         return base_url
 
-    def _select_model(self, sender: str) -> Tuple[str, float]:
+    def _select_model(self, sender: str) -> Tuple[str | None, float]:
         if sender == "generic_plan":
             return self.plan_model, self.plan_temperature
         if sender == "generic_synth":
@@ -75,11 +75,21 @@ class OpenAILLM(LLMInvoke):
         if options:
             client = self.client.with_options(**options)
 
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-        )
+        payload: Dict[str, Any] = {
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+        }
+        if model:
+            payload["model"] = model
+
+        try:
+            resp = client.chat.completions.create(**payload)
+        except TypeError as exc:
+            if "model" in str(exc) and "required" in str(exc):
+                raise RuntimeError(
+                    "OpenAI client requires a model value; set llm.openai.plan_model and synth_model."
+                ) from exc
+            raise
         return resp.choices[0].message.content or ""
 
 

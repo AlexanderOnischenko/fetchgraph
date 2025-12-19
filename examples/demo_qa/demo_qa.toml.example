@@ -1,16 +1,9 @@
-[llm]
-provider = "mock"
-
-[llm.mock]
-plan_fixture = "cases/plan_fixtures.json"
-synth_template = "Mock synthesis for: {question}"
-
 [llm.openai]
-api_key = "env:OPENAI_API_KEY"
-base_url = "http://localhost:8080/v1"
-plan_model = "gpt-4o-mini"
-synth_model = "gpt-4o-mini"
+api_key = "unused"
+base_url = "http://localhost:8002/v1"
+plan_model = null
+synth_model = null
 plan_temperature = 0.0
 synth_temperature = 0.2
-timeout_s = 60
+timeout_s = 900
 retries = 2

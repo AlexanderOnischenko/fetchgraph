@@ -46,7 +46,7 @@ def main() -> None:
 
         llm = build_llm(settings)
 
-        start_repl(args.data, args.schema, llm, enable_semantic=args.enable_semantic)
+        start_repl(args.data, args.schema, llm, settings=settings, enable_semantic=args.enable_semantic)
         return
 
 

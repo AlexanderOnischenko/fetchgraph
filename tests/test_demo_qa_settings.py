@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from examples.demo_qa.llm.factory import build_llm
+from examples.demo_qa.llm.openai_adapter import OpenAILLM
 from examples.demo_qa.settings import DemoQASettings, load_settings
 
 

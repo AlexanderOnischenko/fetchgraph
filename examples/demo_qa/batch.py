@@ -40,6 +40,17 @@ def write_summary(out_path: Path, summary: dict) -> Path:
     return summary_path
 
 
+def _median_duration(results: Mapping[str, RunResult]) -> Optional[float]:
+    durations = [res.duration_ms for res in results.values() if res.duration_ms is not None]
+    if not durations:
+        return None
+    durations.sort()
+    mid = len(durations) // 2
+    if len(durations) % 2 == 1:
+        return durations[mid] / 1000
+    return (durations[mid - 1] + durations[mid]) / 2000
+
+
 def _pass_rate(counts: Mapping[str, object]) -> Optional[float]:
     total = int(counts.get("total", 0) or 0)
     skipped = int(counts.get("skipped", 0) or 0)
@@ -198,6 +209,166 @@ def handle_chat(args) -> int:
         diagnostics=diagnostics,
     )
     return 0
+
+
+def _bad_statuses() -> set[str]:
+    return {"mismatch", "error", "failed"}
+
+
+def _reason(res: RunResult) -> str:
+    if res.reason:
+        return res.reason
+    if res.error:
+        return res.error
+    if res.expected_check and res.expected_check.detail:
+        return res.expected_check.detail
+    return ""
+
+
+def _artifact_links(res: RunResult) -> dict[str, str]:
+    links = {}
+    base = Path(res.artifacts_dir)
+    for name in ["plan.json", "answer.txt", "raw_synth.txt", "status.json"]:
+        path = base / name
+        if path.exists():
+            links[name] = str(path)
+    return links
+
+
+def compare_runs(base_path: Path, new_path: Path) -> dict[str, object]:
+    base = load_results(base_path)
+    new = load_results(new_path)
+    bad = _bad_statuses()
+
+    new_fail: list[dict] = []
+    fixed: list[dict] = []
+    still_fail: list[dict] = []
+
+    for case_id, new_res in new.items():
+        old_res = base.get(case_id)
+        if old_res is None:
+            continue
+        old_bad = old_res.status in bad
+        new_bad = new_res.status in bad
+        if not old_bad and new_bad:
+            new_fail.append(
+                {
+                    "id": case_id,
+                    "from": old_res.status,
+                    "to": new_res.status,
+                    "reason": _reason(new_res),
+                    "artifacts": _artifact_links(new_res),
+                }
+            )
+        elif old_bad and not new_bad:
+            fixed.append(
+                {
+                    "id": case_id,
+                    "from": old_res.status,
+                    "to": new_res.status,
+                    "reason": _reason(new_res),
+                    "artifacts": _artifact_links(new_res),
+                }
+            )
+        elif old_bad and new_bad:
+            still_fail.append(
+                {
+                    "id": case_id,
+                    "from": old_res.status,
+                    "to": new_res.status,
+                    "reason": _reason(new_res),
+                    "artifacts": _artifact_links(new_res),
+                }
+            )
+
+    base_counts = summarize(base.values())
+    new_counts = summarize(new.values())
+    base_med = _median_duration(base)
+    new_med = _median_duration(new)
+    base_avg = base_counts.get("avg_total_s")
+    new_avg = new_counts.get("avg_total_s")
+    return {
+        "new_fail": new_fail,
+        "fixed": fixed,
+        "still_fail": still_fail,
+        "base_counts": base_counts,
+        "new_counts": new_counts,
+        "base_median": base_med,
+        "new_median": new_med,
+        "base_avg": base_avg,
+        "new_avg": new_avg,
+    }
+
+
+def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str:
+    lines: list[str] = []
+    base_counts = compare["base_counts"]  # type: ignore[index]
+    new_counts = compare["new_counts"]  # type: ignore[index]
+    lines.append("# Batch comparison report")
+    lines.append("")
+    lines.append("## Summary")
+    lines.append(
+        f"- Base OK: {base_counts.get('ok',0)}, Bad: {base_counts.get('mismatch',0)+base_counts.get('error',0)+base_counts.get('failed',0)}"
+    )
+    lines.append(
+        f"- New  OK: {new_counts.get('ok',0)}, Bad: {new_counts.get('mismatch',0)+new_counts.get('error',0)+new_counts.get('failed',0)}"
+    )
+    base_med = compare.get("base_median")
+    new_med = compare.get("new_median")
+    if base_med is not None and new_med is not None:
+        lines.append(f"- Median total time: base {base_med:.2f}s → new {new_med:.2f}s (Δ {new_med - base_med:+.2f}s)")
+    lines.append("")
+
+    def table(title: str, rows: list[dict]) -> None:
+        lines.append(f"## {title}")
+        if not rows:
+            lines.append("None")
+            lines.append("")
+            return
+        lines.append("| id | status | reason | artifacts |")
+        lines.append("|---|---|---|---|")
+        for row in rows:
+            artifacts = row.get("artifacts", {})
+            links = ", ".join(f"[{k}]({v})" for k, v in artifacts.items())
+            lines.append(
+                f"| {row['id']} | {row['from']} → {row['to']} | {row.get('reason','')} | {links or ''} |"
+            )
+        lines.append("")
+
+    table("New regressions", compare["new_fail"])  # type: ignore[arg-type]
+    table("Fixed", compare["fixed"])  # type: ignore[arg-type]
+    table("Still failing", compare["still_fail"])  # type: ignore[arg-type]
+
+    content = "\n".join(lines)
+    if out_path:
+        out_path.write_text(content, encoding="utf-8")
+    return content
+
+
+def write_junit(compare: dict[str, object], out_path: Path) -> None:
+    import xml.etree.ElementTree as ET
+
+    suite = ET.Element("testsuite", name="demo_qa_compare")
+    bad = compare["new_fail"] + compare["still_fail"]  # type: ignore[operator]
+    fixed = compare["fixed"]  # type: ignore[assignment]
+    cases = compare["new_counts"].get("total", 0) if isinstance(compare.get("new_counts"), dict) else 0
+    suite.set("tests", str(cases))
+    suite.set("failures", str(len(bad)))
+    suite.set("errors", "0")
+
+    for row in bad:
+        tc = ET.SubElement(suite, "testcase", name=row["id"])
+        msg = row.get("reason", "") or f"{row.get('from')} → {row.get('to')}"
+        failure = ET.SubElement(tc, "failure", message=msg)
+        artifacts = row.get("artifacts", {})
+        if artifacts:
+            failure.text = "\n".join(f"{k}: {v}" for k, v in artifacts.items())
+
+    for row in fixed:
+        ET.SubElement(suite, "testcase", name=row["id"])
+
+    tree = ET.ElementTree(suite)
+    out_path.write_text(ET.tostring(suite, encoding="unicode"), encoding="utf-8")
 
 
 def _select_cases_for_rerun(
@@ -592,6 +763,19 @@ def handle_stats(args) -> int:
             _print_stats(vals[-args.last :])
     else:
         _print_stats(entries[-args.last :])
+    return 0
+
+
+def handle_compare(args) -> int:
+    if not args.base.exists() or not args.new.exists():
+        print("Base or new results file not found.", file=sys.stderr)
+        return 2
+    comparison = compare_runs(args.base, args.new)
+    report = render_markdown(comparison, args.out)
+    print(report)
+    if args.junit:
+        write_junit(comparison, args.junit)
+        print(f"JUnit written to {args.junit}")
     return 0
 
 

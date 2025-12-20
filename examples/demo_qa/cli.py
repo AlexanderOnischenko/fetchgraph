@@ -16,7 +16,14 @@ def ensure_repo_imports() -> None:
 
 ensure_repo_imports()
 
-from .batch import handle_batch, handle_case_open, handle_case_run, handle_chat, handle_stats  # noqa: E402
+from .batch import (
+    handle_batch,
+    handle_case_open,
+    handle_case_run,
+    handle_chat,
+    handle_compare,
+    handle_stats,
+)  # noqa: E402
 from .data_gen import generate_and_save  # noqa: E402
 
 
@@ -102,6 +109,12 @@ def build_parser() -> argparse.ArgumentParser:
     stats_p.add_argument("--last", type=int, default=10, help="How many recent runs to show")
     stats_p.add_argument("--group-by", choices=["config_hash"], default=None, help="Group stats by config hash")
 
+    compare_p = sub.add_parser("compare", help="Compare two batch result files")
+    compare_p.add_argument("--base", type=Path, required=True, help="Path to baseline results.jsonl")
+    compare_p.add_argument("--new", type=Path, required=True, help="Path to new results.jsonl")
+    compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
+    compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
+
     return parser
 
 
@@ -127,6 +140,8 @@ def main() -> None:
             code = 1
     elif args.command == "stats":
         code = handle_stats(args)
+    elif args.command == "compare":
+        code = handle_compare(args)
     else:
         code = 0
     raise SystemExit(code)

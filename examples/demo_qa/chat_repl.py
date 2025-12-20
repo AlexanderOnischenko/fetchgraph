@@ -8,16 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional, Sequence
 
+import readline
+
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.models import TaskProfile
 from fetchgraph.utils import set_run_id
 
 from .provider_factory import build_provider
-
-try:  # pragma: no cover - platform specific
-    import readline
-except ImportError:  # pragma: no cover - Windows fallback
-    readline = None
 
 
 @dataclass
@@ -94,7 +91,7 @@ def _save_artifacts(artifacts: RunArtifacts) -> None:
 
 def _maybe_add_history(entry: str) -> None:
     """Record the entry so it can be recalled with ↑ like a shell."""
-    if not entry or readline is None:  # pragma: no cover - simple guard
+    if not entry:  # pragma: no cover - simple guard
         return
     hist_len = readline.get_current_history_length()
     if hist_len == 0 or readline.get_history_item(hist_len) != entry:

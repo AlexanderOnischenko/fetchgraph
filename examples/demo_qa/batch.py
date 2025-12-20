@@ -46,7 +46,7 @@ def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
     if fail_on == "error":
         bad = {"error"}
     elif fail_on == "mismatch":
-        bad = {"mismatch"}
+        bad = {"error", "failed", "mismatch"}
     elif fail_on == "unchecked":
         bad |= unchecked
     elif fail_on == "bad":

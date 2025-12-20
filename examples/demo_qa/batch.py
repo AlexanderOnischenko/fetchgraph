@@ -563,6 +563,7 @@ def handle_batch(args) -> int:
         "ended_at": ended_at.isoformat() + "Z",
         "duration_ms": duration_ms,
         "counts": counts,
+        "summary_by_tag": counts.get("summary_by_tag"),
         "exit_code": exit_code,
         "config_fingerprint": build_config_fingerprint(settings, args.cases),
         "results_path": str(results_path),

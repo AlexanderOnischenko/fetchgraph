@@ -454,8 +454,9 @@ def handle_batch(args) -> int:
             diff["baseline_path"] = str(baseline_path)
         diff_block = diff
 
-    failure_count = sum(1 for res in results if is_failure(res.status, args.fail_on, args.require_assert))
-    exit_code = 1 if failure_count else 0
+    policy_bad = bad_statuses(args.fail_on, args.require_assert)
+    bad_count = sum(int(counts.get(status, 0) or 0) for status in policy_bad)
+    exit_code = 1 if bad_count else 0
 
     ended_at = datetime.datetime.utcnow()
     duration_ms = int((ended_at - started_at).total_seconds() * 1000)
@@ -547,20 +548,23 @@ def handle_batch(args) -> int:
         "median_total_s": counts.get("median_total_s"),
         "run_dir": str(run_folder),
         "results_path": str(results_path),
+        "failed": counts.get("failed", 0),
+        "unchecked": counts.get("unchecked", 0),
+        "plan_only": counts.get("plan_only", 0),
+        "fail_on": args.fail_on,
+        "require_assert": args.require_assert,
+        "fail_count": bad_count,
     }
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(history_entry, ensure_ascii=False, sort_keys=True) + "\n")
 
-    bad_count = counts.get("mismatch", 0) + counts.get("failed", 0) + counts.get("error", 0)
     unchecked = counts.get("unchecked", 0)
     plan_only = counts.get("plan_only", 0)
-    if args.require_assert or args.fail_on in {"unchecked", "any"}:
-        bad_count += unchecked + plan_only
     summary_line = (
         f"Batch: {counts.get('total', 0)} cases | Checked: {counts.get('checked_total', 0)} | "
         f"Checked OK: {counts.get('checked_ok', 0)} | Unchecked(no-assert): {unchecked} | "
-        f"Plan-only: {plan_only} | BAD: {bad_count} | Skipped: {counts.get('skipped', 0)}"
+        f"Plan-only: {plan_only} | FAIL(policy): {bad_count} | Skipped: {counts.get('skipped', 0)}"
     )
 
     if args.quiet:
@@ -697,7 +701,10 @@ def _print_stats(entries: list[dict]) -> None:
     if not entries:
         print("No history entries found.")
         return
-    header = f"{'run_id':<10} {'ok':>4} {'mis':>4} {'err':>4} {'skip':>5} {'pass%':>7} {'median_s':>10} {'Δpass':>8} {'Δmedian':>9}"
+    header = (
+        f"{'run_id':<10} {'ok':>4} {'mis':>4} {'fail':>4} {'err':>4} {'skip':>5} "
+        f"{'pass%':>7} {'median_s':>10} {'Δpass':>8} {'Δmedian':>9} {'policy':>8} {'reqA':>5}"
+    )
     print(header)
     prev = None
     for entry in entries:
@@ -716,8 +723,10 @@ def _print_stats(entries: list[dict]) -> None:
         dm = f"{delta_median:+.2f}" if delta_median is not None else "n/a"
         print(
             f"{entry.get('run_id',''):<10} "
-            f"{entry.get('ok',0):>4} {entry.get('mismatch',0):>4} {entry.get('error',0):>4} {entry.get('skipped',0):>5} "
-            f"{pr_display:>7} {median_display:>10} {dp:>8} {dm:>9}"
+            f"{entry.get('ok',0):>4} {entry.get('mismatch',0):>4} {entry.get('failed',0):>4} "
+            f"{entry.get('error',0):>4} {entry.get('skipped',0):>5} "
+            f"{pr_display:>7} {median_display:>10} {dp:>8} {dm:>9} "
+            f"{entry.get('fail_on',''):>8} {str(entry.get('require_assert', False)):>5}"
         )
         prev = entry
 

@@ -809,7 +809,7 @@ def _print_stats(entries: list[dict]) -> None:
                 delta_median = median - prev.get("median_total_s")
         pr_display = f"{pass_rate*100:.1f}%" if pass_rate is not None else "n/a"
         median_display = f"{median:.2f}" if median is not None else "n/a"
-        dp = f"{delta_pass:+.1f}%" if delta_pass is not None else "n/a"
+        dp = f"{delta_pass*100:+.1f}pp" if delta_pass is not None else "n/a"
         dm = f"{delta_median:+.2f}" if delta_median is not None else "n/a"
         print(
             f"{entry.get('run_id',''):<10} "

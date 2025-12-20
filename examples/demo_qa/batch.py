@@ -61,18 +61,12 @@ def _pass_rate(counts: Mapping[str, object]) -> Optional[float]:
     return (counts.get("ok", 0) or 0) / denom
 
 
-def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
+def bad_statuses(fail_on: str, require_assert: bool) -> set[str]:
     unchecked = {"unchecked", "plan_only"}
     bad = {"error", "failed", "mismatch"}
     if fail_on == "error":
         bad = {"error"}
-    elif fail_on == "mismatch":
-        bad = {"error", "failed", "mismatch"}
-    elif fail_on == "unchecked":
-        bad |= unchecked
-    elif fail_on == "bad":
-        bad = {"error", "failed", "mismatch"}
-    elif fail_on == "any":
+    elif fail_on in {"unchecked", "any"}:
         bad |= unchecked
     elif fail_on == "skipped":
         bad |= {"skipped"}
@@ -80,7 +74,11 @@ def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
     if require_assert:
         bad |= unchecked
 
-    return status in bad
+    return bad
+
+
+def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
+    return status in bad_statuses(fail_on, require_assert)
 
 
 def _hash_file(path: Path) -> str:
@@ -234,7 +232,7 @@ def handle_chat(args) -> int:
 
 
 def _bad_statuses() -> set[str]:
-    return {"mismatch", "error", "failed"}
+    return bad_statuses("bad", False)
 
 
 def _reason(res: RunResult) -> str:
@@ -424,23 +422,9 @@ def _select_cases_for_rerun(
         filtered.append(case)
     if not baseline_for_filter:
         return filtered
-    bad_statuses = {"mismatch", "failed", "error"}
-    if fail_on == "error":
-        bad_statuses = {"error"}
-    elif fail_on == "mismatch":
-        bad_statuses = {"mismatch", "failed", "error"}
-    elif fail_on == "unchecked":
-        bad_statuses |= {"unchecked", "plan_only"}
-    elif fail_on == "bad":
-        bad_statuses = {"mismatch", "failed", "error"}
-    elif fail_on == "any":
-        bad_statuses |= {"unchecked", "plan_only"}
-    elif fail_on == "skipped":
-        bad_statuses |= {"skipped"}
-
-    if require_assert:
-        bad_statuses |= {"unchecked", "plan_only"}
-    target_ids = {case_id for case_id, res in baseline_for_filter.items() if res.status in bad_statuses}
+    target_ids = {
+        case_id for case_id, res in baseline_for_filter.items() if res.status in bad_statuses(fail_on, require_assert)
+    }
     return [case for case in filtered if case.id in target_ids]
 
 
@@ -858,6 +842,7 @@ __all__ = [
     "handle_case_open",
     "handle_case_run",
     "handle_chat",
+    "bad_statuses",
     "is_failure",
     "write_results",
     "write_summary",

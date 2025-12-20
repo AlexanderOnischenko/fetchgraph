@@ -8,7 +8,7 @@
 python -m examples.demo_qa.cli gen --out demo_data --rows 1000 --seed 42
 ```
 
-Команда создаст четыре CSV, `schema.yaml`, `meta.json` и `stats.json`.
+Команда создаст четыре CSV, `schema.json`, `meta.json` и `stats.json`.
 
 ## Конфигурация LLM (pydantic-settings)
 
@@ -47,7 +47,7 @@ pip install -r examples/demo_qa/requirements.txt
    `base_url` (формат `http://host:port/v1`), модели и температуры.
 2. Запустите чат с указанием конфига:
 ```bash
-python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml --config path/to/demo_qa.toml
+python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.json --config path/to/demo_qa.toml
 ```
 
 Флаг `--enable-semantic` строит семантический индекс, если передана модель эмбеддингов.
@@ -59,7 +59,7 @@ python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.y
 ```bash
 python -m examples.demo_qa.cli batch \
   --data demo_data \
-  --schema demo_data/schema.yaml \
+  --schema demo_data/schema.json \
   --cases cases.jsonl \
   --out results.jsonl
 ```
@@ -76,7 +76,7 @@ python -m examples.demo_qa.cli batch \
 любым ключом доступа, если прокси не проверяет его. Запуск:
 
 ```bash
-python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.yaml --config path/to/demo_qa.toml
+python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.json --config path/to/demo_qa.toml
 ```
 
 Большинство OpenAI-совместимых сервисов ожидают конечную точку `/v1` в `base_url`.

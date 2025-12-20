@@ -256,15 +256,9 @@ def save_dataset(dataset: GeneratedDataset, out_dir: Path) -> None:
 
 
 def save_schema(schema: SchemaConfig, path: Path) -> None:
-    def _to_dict(obj):
-        if isinstance(obj, list):
-            return [_to_dict(o) for o in obj]
-        if hasattr(obj, "__dict__"):
-            return {k: _to_dict(v) for k, v in obj.__dict__.items()}
-        return obj
-
+    schema_dict = asdict(schema)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(_to_dict(schema), f, ensure_ascii=False, indent=2)
+        json.dump(schema_dict, f, ensure_ascii=False, indent=2)
 
 
 @dataclass
@@ -299,7 +293,7 @@ def generate_and_save(out_dir: Path, *, rows: int = 1000, seed: int | None = Non
     validate_dataset(dataset, rows)
     save_dataset(dataset, out_dir)
     schema = default_schema(enable_semantic=enable_semantic)
-    save_schema(schema, out_dir / "schema.yaml")
+    save_schema(schema, out_dir / "schema.json")
     meta = MetaInfo(seed=seed, rows=rows, created_at=datetime.utcnow().isoformat())
     write_meta(out_dir / "meta.json", meta)
 

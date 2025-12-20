@@ -122,7 +122,7 @@ def load_settings(
     DemoQASettings._toml_path = resolved
     try:
         settings = DemoQASettings(**(overrides or {}))
-    except ValidationError as exc:
+    except ValidationError:
         DemoQASettings._toml_path = None
         raise
     DemoQASettings._toml_path = None

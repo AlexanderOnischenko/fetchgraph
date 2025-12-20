@@ -27,11 +27,7 @@ from .runner import (
     summarize,
 )
 from .settings import load_settings
-
-
-def _dump_json(path: Path, obj: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+from .utils import dump_json
 
 
 def write_results(out_path: Path, results: Iterable[RunResult]) -> None:
@@ -43,7 +39,7 @@ def write_results(out_path: Path, results: Iterable[RunResult]) -> None:
 
 def write_summary(out_path: Path, summary: dict) -> Path:
     summary_path = out_path.with_name("summary.json")
-    _dump_json(summary_path, summary)
+    dump_json(summary_path, summary)
     return summary_path
 
 
@@ -257,7 +253,7 @@ def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str
         lines.append("|---|---|---|---|")
         for row in sorted(rows, key=lambda r: r.get("id", "")):
             artifacts = row.get("artifacts", {})
-            links = ", ".join(f"[{k}]({v})" for k, v in artifacts.items())
+            links = ", ".join(f"[{k}]({v})" for k, v in sorted(artifacts.items()))
             lines.append(
                 f"| {row['id']} | {row['from']} → {row['to']} | {row.get('reason','')} | {links or ''} |"
             )
@@ -292,7 +288,7 @@ def write_junit(compare: dict[str, object], out_path: Path) -> None:
         failure = ET.SubElement(tc, "failure", message=msg)
         artifacts = row.get("artifacts", {})
         if artifacts:
-            failure.text = "\n".join(f"{k}: {v}" for k, v in artifacts.items())
+            failure.text = "\n".join(f"{k}: {v}" for k, v in sorted(artifacts.items()))
 
     for row in sorted(fixed, key=lambda r: r.get("id", "")):
         ET.SubElement(suite, "testcase", name=row["id"])
@@ -482,7 +478,7 @@ def handle_batch(args) -> int:
     summary_by_tag = summary.get("summary_by_tag")
     if summary_by_tag:
         summary_by_tag_path = summary_path.with_name("summary_by_tag.json")
-        _dump_json(summary_by_tag_path, summary_by_tag)
+        dump_json(summary_by_tag_path, summary_by_tag)
 
     latest_path = run_folder.parent / "latest.txt"
     latest_results_path = run_folder.parent / "latest_results.txt"
@@ -521,7 +517,7 @@ def handle_batch(args) -> int:
         "summary_path": str(summary_path),
         "run_dir": str(run_folder),
     }
-    _dump_json(run_folder / "run_meta.json", run_meta)
+    dump_json(run_folder / "run_meta.json", run_meta)
 
     prate = _pass_rate(counts)
     history_entry = {

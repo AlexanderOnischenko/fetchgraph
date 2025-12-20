@@ -16,7 +16,7 @@ def ensure_repo_imports() -> None:
 
 ensure_repo_imports()
 
-from .batch import (
+from .batch import (  # noqa: E402
     handle_batch,
     handle_case_open,
     handle_case_run,

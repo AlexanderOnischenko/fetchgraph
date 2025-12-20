@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping
+from typing import Dict, Iterable, List, Mapping, TypedDict
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.models import TaskProfile
@@ -376,18 +376,10 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
         summary["median_total_s"] = None
 
     for tag, bucket in per_tag.items():
-        times: List[float] = []
-        # no per-tag timing collected; reuse overall average for simplicity
-        if times:
-            bucket["avg_total_s"] = statistics.fmean(times)
-            bucket["median_total_s"] = statistics.median(times)
-        else:
-            bucket["avg_total_s"] = None
-            bucket["median_total_s"] = None
         total = bucket.get("total", 0)
         checked_total_tag = (bucket.get("ok", 0) or 0) + (bucket.get("mismatch", 0) or 0) + (
             bucket.get("failed", 0) or 0
-        )
+        ) + (bucket.get("error", 0) or 0)
         bucket["checked_total"] = checked_total_tag
         non_skipped = total - (bucket.get("skipped", 0) or 0)
         if non_skipped > 0:
@@ -527,6 +519,8 @@ def load_results(path: Path) -> Dict[str, RunResult]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Invalid result JSON on line {lineno}: {exc}") from exc
             result = _run_result_from_payload(payload)
+            if result.id in results:
+                raise ValueError(f"Duplicate result id {result.id!r} on line {lineno}")
             results[result.id] = result
     return results
 
@@ -599,7 +593,7 @@ def diff_runs(
     *,
     fail_on: str,
     require_assert: bool,
-) -> Dict[str, object]:
+) -> DiffReport:
     base_by_id = {res.id: res for res in base_results}
     new_by_id = {res.id: res for res in new_results}
     all_ids = sorted(new_by_id.keys())
@@ -733,6 +727,28 @@ class EventLogger:
         if path is None:
             return self
         return EventLogger(path, self.run_id)
+
+
+class DiffReport(TypedDict):
+    all_ids: list[str]
+    new_fail: list[dict[str, object]]
+    fixed: list[dict[str, object]]
+    still_fail: list[dict[str, object]]
+    changed_status: list[dict[str, str | None]]
+    new_cases: list[str]
+    base_counts: Dict[str, object]
+    new_counts: Dict[str, object]
+    counts_delta: Dict[str, int | float | None]
+    base_median: float | None
+    new_median: float | None
+    base_avg: float | None
+    new_avg: float | None
+    median_delta: float | None
+    avg_delta: float | None
+    base_bad_total: int
+    new_bad_total: int
+    fail_on: str
+    require_assert: bool
 
 
 __all__ = [

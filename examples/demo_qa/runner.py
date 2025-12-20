@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Dict, Iterable, List, Mapping
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.models import TaskProfile

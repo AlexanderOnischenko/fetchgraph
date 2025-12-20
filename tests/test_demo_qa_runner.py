@@ -108,14 +108,25 @@ def test_diff_runs_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
+        RunResult(
+            id="new_bad",
+            question="",
+            status="failed",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/newbad",
+            duration_ms=10,
+            tags=[],
+        ),
     ]
 
     diff = diff_runs(baseline, current, fail_on="bad", require_assert=True)
 
-    assert {row["id"] for row in diff["new_fail"]} == {"ok_to_bad"}
+    assert {row["id"] for row in diff["new_fail"]} == {"ok_to_bad", "new_bad"}
     assert {row["id"] for row in diff["fixed"]} == {"err_to_ok"}
     assert {row["id"] for row in diff["still_fail"]} == {"still_bad"}
-    assert diff["new_cases"] == ["new_ok"]
+    assert diff["new_cases"] == ["new_bad", "new_ok"]
 
 
 def test_summarize_counts_checked_and_unchecked() -> None:

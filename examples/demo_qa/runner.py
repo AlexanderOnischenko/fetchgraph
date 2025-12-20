@@ -632,6 +632,8 @@ def diff_runs(
 
         if base_res is None:
             new_cases.append(case_id)
+            if new_bad:
+                new_fail.append(_entry(case_id, base_res, new_res))
         else:
             if base_res.status != new_res.status:
                 changed_status.append({"id": case_id, "from": base_res.status, "to": new_res.status})

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import datetime
+import json
+import readline
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional, Sequence
-
-import readline
-import json
 
 from .provider_factory import build_provider
 from .runner import Case, EventLogger, RunArtifacts, build_agent, run_one, save_artifacts
@@ -101,16 +99,12 @@ def start_repl(
             continue
 
         run_id = uuid.uuid4().hex[:8]
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_dir = runs_root / f"{timestamp}_{run_id}"
-        events_path = run_dir / "events.jsonl"
-        event_logger = EventLogger(events_path, run_id)
-        print(f"Events: {events_path}")
+        event_logger = EventLogger(path=None, run_id=run_id)
 
         artifacts: RunArtifacts | None = None
         try:
             case = Case(id=run_id, question=line, tags=[])
-            result = run_one(case, runner, run_dir, plan_only=False, event_logger=event_logger)
+            result = run_one(case, runner, runs_root, plan_only=False, event_logger=event_logger)
             plan_obj = _load_json(Path(result.artifacts_dir) / "plan.json")
             ctx_obj = _load_json(Path(result.artifacts_dir) / "context.json") or {}
             artifacts = RunArtifacts(
@@ -128,8 +122,9 @@ def start_repl(
                 print("--- PLAN ---")
                 print(json.dumps(artifacts.plan, ensure_ascii=False, indent=2))
             print(result.answer or "")
+            print(f"Events: {Path(result.artifacts_dir) / 'events.jsonl'}")
         except Exception as exc:  # pragma: no cover - REPL resilience
-            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=run_dir, question=line)
+            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=runs_root, question=line)
             error_artifacts.error = error_artifacts.error or str(exc)
             last_artifacts = error_artifacts
             save_artifacts(error_artifacts)

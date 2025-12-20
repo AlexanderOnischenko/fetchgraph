@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import os
+import sys
+from typing import Any, Callable, ClassVar, Dict, Iterable, Mapping, TypeAlias
+
+if sys.version_info < (3, 11):  # pragma: no cover - demo dependency guard
+    raise ImportError("pydantic_settings requires Python 3.11+ (standard tomllib).")
+
 import tomllib
-from typing import Any, Callable, ClassVar, Dict, Iterable, Mapping
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
-def SettingsConfigDict(**kwargs: Any) -> Dict[str, Any]:
-    return dict(**kwargs)
+SettingsConfigDict: TypeAlias = ConfigDict
 
 
 def _deep_update(base: Dict[str, Any], updates: Mapping[str, Any]) -> Dict[str, Any]:
@@ -35,7 +39,7 @@ class TomlConfigSettingsSource:
 
 
 class BaseSettings(BaseModel):
-    model_config: ClassVar[SettingsConfigDict] = {}
+    model_config: ClassVar[SettingsConfigDict] = ConfigDict()
 
     def __init__(self, **values: Any) -> None:
         sources = self.settings_customise_sources(

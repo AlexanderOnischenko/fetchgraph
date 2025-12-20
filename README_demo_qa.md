@@ -32,6 +32,7 @@ export DEMO_QA_LLM__BASE_URL=http://localhost:8000/v1
 ```
 
 ### Зависимости демо
+* Требуется Python 3.11+ (используется стандартный `tomllib`).
 ```
 pip install -e .[demo]
 # или

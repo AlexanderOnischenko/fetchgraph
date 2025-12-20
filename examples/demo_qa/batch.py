@@ -480,6 +480,18 @@ def handle_batch(args) -> int:
         summary_by_tag_path = summary_path.with_name("summary_by_tag.json")
         dump_json(summary_by_tag_path, summary_by_tag)
 
+    if event_logger:
+        event_logger.emit(
+            {
+                "type": "run_finished",
+                "counts": counts,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+                "run_dir": str(run_folder),
+                "results_path": str(results_path),
+            }
+        )
+
     latest_path = run_folder.parent / "latest.txt"
     latest_results_path = run_folder.parent / "latest_results.txt"
     latest_path.parent.mkdir(parents=True, exist_ok=True)

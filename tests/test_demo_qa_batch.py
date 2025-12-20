@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import itertools
+import json
 import os
 import time
 from pathlib import Path
 
 import pytest
 
-from examples.demo_qa.batch import _fingerprint_dir, bad_statuses, is_failure, render_markdown
+from examples.demo_qa.batch import _fingerprint_dir, bad_statuses, is_failure, render_markdown, write_results
+from examples.demo_qa.runner import RunResult, diff_runs
 
 
 @pytest.mark.parametrize(
@@ -54,3 +56,39 @@ def test_fingerprint_sensitive_to_file_changes(tmp_path: Path) -> None:
 
     assert first["hash"] != second["hash"]
     assert first["files_count"] == second["files_count"] == 1
+    assert "files" not in first
+
+
+def _mk_result(case_id: str, status: str) -> RunResult:
+    return RunResult(
+        id=case_id,
+        question="q",
+        status=status,
+        checked=True,
+        reason=None,
+        details=None,
+        artifacts_dir=f"/tmp/{case_id}",
+        duration_ms=1000,
+        tags=[],
+    )
+
+
+def test_compare_is_deterministic() -> None:
+    base_results = [_mk_result("b", "ok"), _mk_result("a", "ok")]
+    new_results = [_mk_result("a", "failed"), _mk_result("b", "ok")]
+
+    first = diff_runs(base_results, new_results, fail_on="bad", require_assert=False)
+    second = diff_runs(list(reversed(base_results)), list(reversed(new_results)), fail_on="bad", require_assert=False)
+
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_write_results_is_deterministic(tmp_path: Path) -> None:
+    out = tmp_path / "results.jsonl"
+    res = _mk_result("a", "ok")
+
+    write_results(out, [res])
+
+    line = out.read_text(encoding="utf-8").strip()
+    expected = json.dumps(res.to_json(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert line == expected

@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
-import platform
 import subprocess
 import sys
 import uuid
@@ -30,16 +29,21 @@ from .runner import (
 from .settings import load_settings
 
 
+def _dump_json(path: Path, obj: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def write_results(out_path: Path, results: Iterable[RunResult]) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:
         for res in results:
-            f.write(json.dumps(res.to_json(), ensure_ascii=False) + "\n")
+            f.write(json.dumps(res.to_json(), ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
 
 
 def write_summary(out_path: Path, summary: dict) -> Path:
     summary_path = out_path.with_name("summary.json")
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    _dump_json(summary_path, summary)
     return summary_path
 
 
@@ -73,16 +77,6 @@ def _load_ids(path: Optional[Path]) -> set[str] | None:
             if line:
                 ids.add(line)
     return ids
-
-
-def build_config_fingerprint(settings, cases_path: Path) -> Mapping[str, object]:
-    llm_settings = settings.llm
-    return {
-        "base_url": llm_settings.base_url or "https://api.openai.com/v1",
-        "plan_model": llm_settings.plan_model,
-        "synth_model": llm_settings.synth_model,
-        "cases_hash": _hash_file(cases_path),
-    }
 
 
 def _fingerprint_dir(data_dir: Path, *, verbose: bool = False) -> Mapping[str, object]:
@@ -477,7 +471,6 @@ def handle_batch(args) -> int:
         "counts": counts,
         "summary_by_tag": counts.get("summary_by_tag"),
         "exit_code": exit_code,
-        "config_fingerprint": build_config_fingerprint(settings, args.cases),
         "results_path": str(results_path),
         "require_assert": args.require_assert,
         "fail_on": args.fail_on,
@@ -489,9 +482,7 @@ def handle_batch(args) -> int:
     summary_by_tag = summary.get("summary_by_tag")
     if summary_by_tag:
         summary_by_tag_path = summary_path.with_name("summary_by_tag.json")
-        summary_by_tag_path.write_text(
-            json.dumps(summary_by_tag, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
-        )
+        _dump_json(summary_by_tag_path, summary_by_tag)
 
     latest_path = run_folder.parent / "latest.txt"
     latest_results_path = run_folder.parent / "latest_results.txt"
@@ -507,13 +498,15 @@ def handle_batch(args) -> int:
     run_meta = {
         "run_id": run_id,
         "timestamp": started_at.isoformat() + "Z",
-        "cases_path": str(args.cases),
-        "cases_hash": cases_hash,
-        "config_path": str(args.config) if args.config else None,
-        "config_hash": config_hash,
-        "schema_path": str(args.schema),
-        "schema_hash": schema_hash,
-        "data_dir": str(args.data),
+        "inputs": {
+            "cases_path": str(args.cases),
+            "cases_hash": cases_hash,
+            "config_path": str(args.config) if args.config else None,
+            "config_hash": config_hash,
+            "schema_path": str(args.schema),
+            "schema_hash": schema_hash,
+            "data_dir": str(args.data),
+        },
         "data_fingerprint": data_fingerprint,
         "llm": {
             "plan_model": llm_settings.plan_model,
@@ -523,17 +516,12 @@ def handle_batch(args) -> int:
             "base_url": llm_settings.base_url or "https://api.openai.com/v1",
         },
         "enable_semantic": args.enable_semantic,
-        "embedding_model": None,
         "git_sha": _git_sha(),
-        "python_version": sys.version,
-        "platform": platform.platform(),
         "results_path": str(results_path),
         "summary_path": str(summary_path),
         "run_dir": str(run_folder),
     }
-    (run_folder / "run_meta.json").write_text(
-        json.dumps(run_meta, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
-    )
+    _dump_json(run_folder / "run_meta.json", run_meta)
 
     prate = _pass_rate(counts)
     history_entry = {
@@ -771,5 +759,4 @@ __all__ = [
     "write_summary",
     "_load_latest_run",
     "_find_case_artifact",
-    "build_config_fingerprint",
 ]

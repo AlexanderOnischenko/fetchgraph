@@ -648,6 +648,12 @@ def diff_runs(
         elif base_bad and new_bad:
             still_fail.append(_entry(case_id, base_res, new_res))
 
+    new_fail = sorted(new_fail, key=lambda r: r.get("id", ""))
+    fixed = sorted(fixed, key=lambda r: r.get("id", ""))
+    still_fail = sorted(still_fail, key=lambda r: r.get("id", ""))
+    changed_status = sorted(changed_status, key=lambda r: r.get("id", ""))
+    new_cases = sorted(new_cases)
+
     base_counts = summarize(base_by_id.values())
     new_counts = summarize(new_by_id.values())
     base_med = _median_duration(base_by_id)
@@ -662,7 +668,16 @@ def diff_runs(
             return new_val - base_val
         return None
 
-    delta_keys = ["total", "ok", "mismatch", "failed", "error", "unchecked", "plan_only", "skipped"]
+    delta_keys = (
+        "total",
+        "ok",
+        "mismatch",
+        "failed",
+        "error",
+        "skipped",
+        "unchecked",
+        "plan_only",
+    )
     count_deltas = {k: _count_delta(k) for k in delta_keys}
 
     return {

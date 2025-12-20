@@ -65,8 +65,9 @@ python -m examples.demo_qa.cli batch \
 ```
 
 * Артефакты по умолчанию пишутся в `<data>/.runs/batch_<timestamp>/id_runid/` (`plan.json`, `context.json`, `answer.txt`, `raw_synth.txt`, `error.txt`).
-* `results.jsonl` содержит по строке на кейс, рядом сохраняется `summary.json` с агрегацией статусов.
-* Флаги `--fail-on (error|mismatch|any)`, `--max-fails` и `--fail-fast` управляют остановкой и кодом выхода (0/1/2).
+* `results.jsonl` содержит по строке на кейс, рядом сохраняется `summary.json` с агрегацией статусов и, при наличии `--compare-to`, diff по прогрессу.
+* Флаги `--fail-on (error|mismatch|any)`, `--max-fails`, `--fail-fast`, `--require-assert`, `--compare-to` и `--only-failed-from` управляют выбором кейсов, остановкой и кодом выхода (0/1/2).
+* Без `--out` результаты складываются в `<artifacts_dir>/runs/<timestamp>_<cases_stem>/results.jsonl`, а `runs/latest.txt` указывает на последнюю папку запуска.
 ## Local proxy
 
 Для OpenAI-совместимых серверов (например, LM Studio) укажите `base_url` с `.../v1` и

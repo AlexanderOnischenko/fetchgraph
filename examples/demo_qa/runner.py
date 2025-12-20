@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Mapping, Optional
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.models import TaskProfile
@@ -48,11 +48,15 @@ class RunResult:
     id: str
     question: str
     status: str
-    answer: str | None
-    error: str | None
-    plan_path: str | None
+    checked: bool
+    reason: str | None
+    details: Dict[str, object] | None
     artifacts_dir: str
-    timings: RunTimings
+    duration_ms: int
+    answer: str | None = None
+    error: str | None = None
+    plan_path: str | None = None
+    timings: RunTimings | None = None
     expected_check: ExpectedCheck | None = None
 
     def to_json(self) -> Dict[str, object]:
@@ -60,11 +64,15 @@ class RunResult:
             "id": self.id,
             "question": self.question,
             "status": self.status,
+            "checked": self.checked,
+            "reason": self.reason,
+            "details": self.details,
+            "artifacts_dir": self.artifacts_dir,
+            "duration_ms": self.duration_ms,
             "answer": self.answer,
             "error": self.error,
             "plan_path": self.plan_path,
-            "artifacts_dir": self.artifacts_dir,
-            "timings": self.timings.__dict__,
+            "timings": self.timings.__dict__ if self.timings else None,
         }
         if self.expected_check:
             payload["expected_check"] = self.expected_check.__dict__
@@ -80,6 +88,10 @@ class Case:
     expected_contains: str | None = None
     tags: List[str] = field(default_factory=list)
     skip: bool = False
+
+    @property
+    def has_asserts(self) -> bool:
+        return any([self.expected, self.expected_regex, self.expected_contains])
 
 
 class AgentRunner:
@@ -161,9 +173,18 @@ def save_artifacts(artifacts: RunArtifacts) -> None:
         _save_text(artifacts.run_dir / "error.txt", artifacts.error)
 
 
+def save_status(result: RunResult) -> None:
+    status_path = Path(result.artifacts_dir) / "status.json"
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    _save_json(status_path, result.to_json())
+
+
 def _match_expected(case: Case, answer: str | None) -> ExpectedCheck | None:
+    if not case.has_asserts:
+        return None
+    expected_value = case.expected or case.expected_regex or case.expected_contains or ""
     if answer is None:
-        return ExpectedCheck(mode="none", expected="", passed=False, detail="no answer")
+        return ExpectedCheck(mode="none", expected=expected_value, passed=False, detail="no answer")
     if case.expected is not None:
         passed = answer.strip() == case.expected.strip()
         detail = None if passed else f"expected={case.expected!r}, got={answer!r}"
@@ -180,58 +201,91 @@ def _match_expected(case: Case, answer: str | None) -> ExpectedCheck | None:
     return None
 
 
+def _build_result(
+    case: Case, artifacts: RunArtifacts, run_dir: Path, expected_check: ExpectedCheck | None
+) -> RunResult:
+    status = "unchecked"
+    reason: str | None = None
+    details: Dict[str, object] | None = None
+
+    if artifacts.error:
+        status = "error"
+        reason = artifacts.error
+        details = {"error": artifacts.error}
+    elif expected_check:
+        status = "ok" if expected_check.passed else "mismatch"
+        reason = expected_check.detail
+        details = {"expected_check": expected_check.__dict__}
+    else:
+        reason = "no expectations provided"
+        details = {"note": "no expectations provided"}
+
+    plan_path = str(run_dir / "plan.json") if artifacts.plan is not None else None
+    duration_ms = int((artifacts.timings.total_s or 0.0) * 1000)
+    return RunResult(
+        id=case.id,
+        question=case.question,
+        status=status,
+        checked=case.has_asserts,
+        reason=reason,
+        details=details,
+        artifacts_dir=str(run_dir),
+        duration_ms=duration_ms,
+        answer=artifacts.answer,
+        error=artifacts.error,
+        plan_path=plan_path,
+        timings=artifacts.timings,
+        expected_check=expected_check,
+    )
+
+
 def run_one(case: Case, runner: AgentRunner, artifacts_root: Path) -> RunResult:
     run_id = uuid.uuid4().hex[:8]
     run_dir = artifacts_root / f"{case.id}_{run_id}"
     if case.skip:
         run_dir.mkdir(parents=True, exist_ok=True)
         _save_text(run_dir / "skipped.txt", "Skipped by request")
-        return RunResult(
+        result = RunResult(
             id=case.id,
             question=case.question,
             status="skipped",
+            checked=False,
+            reason="skipped",
+            details=None,
+            artifacts_dir=str(run_dir),
+            duration_ms=0,
             answer=None,
             error=None,
             plan_path=None,
-            artifacts_dir=str(run_dir),
             timings=RunTimings(),
             expected_check=None,
         )
+        save_status(result)
+        return result
+
     artifacts = runner.run_question(case.question, run_id, run_dir)
     save_artifacts(artifacts)
 
     expected_check = _match_expected(case, artifacts.answer)
-    status = "ok"
-    if artifacts.error:
-        status = "error"
-    elif expected_check and not expected_check.passed:
-        status = "mismatch"
-
-    plan_path = str(run_dir / "plan.json") if artifacts.plan is not None else None
-    result = RunResult(
-        id=case.id,
-        question=case.question,
-        status=status,
-        answer=artifacts.answer,
-        error=artifacts.error,
-        plan_path=plan_path,
-        artifacts_dir=str(run_dir),
-        timings=artifacts.timings,
-        expected_check=expected_check,
-    )
+    result = _build_result(case, artifacts, run_dir, expected_check)
+    save_status(result)
     return result
 
 
 def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
-    totals = {"ok": 0, "error": 0, "mismatch": 0, "skipped": 0}
+    totals = {"ok": 0, "mismatch": 0, "failed": 0, "error": 0, "skipped": 0, "unchecked": 0}
     total_times: List[float] = []
+    checked_total = 0
     for res in results:
         totals[res.status] = totals.get(res.status, 0) + 1
-        if res.timings.total_s is not None:
-            total_times.append(res.timings.total_s)
+        if res.duration_ms is not None:
+            total_times.append(res.duration_ms / 1000)
+        if res.checked and res.status in {"ok", "mismatch", "failed", "error"}:
+            checked_total += 1
 
     summary: Dict[str, object] = {
         "total": sum(totals.values()),
+        "checked_total": checked_total,
         **totals,
     }
     if total_times:
@@ -271,13 +325,162 @@ def load_cases(path: Path) -> List[Case]:
     return cases
 
 
+def _build_timings(payload: Mapping[str, object] | None) -> RunTimings | None:
+    if not payload:
+        return None
+    return RunTimings(
+        plan_s=payload.get("plan_s"),  # type: ignore[arg-type]
+        fetch_s=payload.get("fetch_s"),  # type: ignore[arg-type]
+        synth_s=payload.get("synth_s"),  # type: ignore[arg-type]
+        total_s=payload.get("total_s"),  # type: ignore[arg-type]
+    )
+
+
+def _build_expected_check(payload: Mapping[str, object] | None) -> ExpectedCheck | None:
+    if not payload:
+        return None
+    return ExpectedCheck(
+        mode=str(payload.get("mode", "")),
+        expected=str(payload.get("expected", "")),
+        passed=bool(payload.get("passed", False)),
+        detail=payload.get("detail"),  # type: ignore[arg-type]
+    )
+
+
+def _duration_from_payload(payload: Mapping[str, object]) -> int:
+    if "duration_ms" in payload and payload["duration_ms"] is not None:
+        try:
+            return int(payload["duration_ms"])  # type: ignore[arg-type]
+        except Exception:
+            pass
+    timings = payload.get("timings")
+    if isinstance(timings, Mapping) and timings.get("total_s") is not None:
+        try:
+            return int(float(timings["total_s"]) * 1000)  # type: ignore[arg-type]
+        except Exception:
+            return 0
+    return 0
+
+
+def _run_result_from_payload(payload: Mapping[str, object]) -> RunResult:
+    expected_check = _build_expected_check(payload.get("expected_check") if isinstance(payload, Mapping) else None)
+    timings = _build_timings(payload.get("timings") if isinstance(payload, Mapping) else None)
+    checked = bool(payload.get("checked", False))
+    if expected_check and not checked:
+        checked = True
+    status = str(payload.get("status", "error"))
+    duration_ms = _duration_from_payload(payload)
+    reason = payload.get("reason")  # type: ignore[arg-type]
+    details = payload.get("details") if isinstance(payload.get("details"), dict) else None
+    artifacts_dir = str(payload.get("artifacts_dir", ""))
+    if not artifacts_dir:
+        raise ValueError("artifacts_dir missing in result payload")
+    return RunResult(
+        id=str(payload.get("id", "")),
+        question=str(payload.get("question", "")),
+        status=status,
+        checked=checked,
+        reason=reason,
+        details=details,
+        artifacts_dir=artifacts_dir,
+        duration_ms=duration_ms,
+        answer=payload.get("answer"),  # type: ignore[arg-type]
+        error=payload.get("error"),  # type: ignore[arg-type]
+        plan_path=payload.get("plan_path"),  # type: ignore[arg-type]
+        timings=timings,
+        expected_check=expected_check,
+    )
+
+
+def load_results(path: Path) -> Dict[str, RunResult]:
+    results: Dict[str, RunResult] = {}
+    if not path.exists():
+        raise FileNotFoundError(f"Results file not found: {path}")
+    with path.open("r", encoding="utf-8") as f:
+        for lineno, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid result JSON on line {lineno}: {exc}") from exc
+            result = _run_result_from_payload(payload)
+            results[result.id] = result
+    return results
+
+
+def _bucket(status: str, checked: bool, require_assert: bool) -> str:
+    if status == "ok":
+        return "OK"
+    if status in {"mismatch", "failed", "error"}:
+        return "BAD"
+    if status == "unchecked":
+        return "BAD" if require_assert else "UNCHECKED"
+    return "NEUTRAL"
+
+
+def compare_results(
+    baseline: Mapping[str, RunResult],
+    current: Mapping[str, RunResult],
+    *,
+    require_assert: bool,
+) -> Dict[str, object]:
+    new_ok: List[str] = []
+    regressed: List[str] = []
+    still_ok: List[str] = []
+    still_bad: List[str] = []
+    new_unchecked: List[str] = []
+    status_changes: Dict[str, Dict[str, str]] = {}
+    new_cases: List[str] = []
+
+    for case_id, res in current.items():
+        base_res = baseline.get(case_id)
+        new_bucket = _bucket(res.status, res.checked, require_assert)
+        if base_res is None:
+            new_cases.append(case_id)
+            if new_bucket == "OK":
+                new_ok.append(case_id)
+            elif new_bucket == "BAD":
+                still_bad.append(case_id)
+            status_changes[case_id] = {"from": "new", "to": res.status}
+            continue
+
+        base_bucket = _bucket(base_res.status, base_res.checked, require_assert)
+        if base_res.checked and res.status == "unchecked":
+            new_unchecked.append(case_id)
+        if base_bucket == "OK" and new_bucket in {"BAD", "UNCHECKED"}:
+            regressed.append(case_id)
+        elif base_bucket in {"BAD", "UNCHECKED"} and new_bucket == "OK":
+            new_ok.append(case_id)
+        elif base_bucket == "OK" and new_bucket == "OK":
+            still_ok.append(case_id)
+        elif base_bucket in {"BAD", "UNCHECKED"} and new_bucket in {"BAD", "UNCHECKED"}:
+            still_bad.append(case_id)
+
+        if base_res.status != res.status:
+            status_changes[case_id] = {"from": base_res.status, "to": res.status}
+
+    return {
+        "new_ok": new_ok,
+        "regressed": regressed,
+        "still_ok": still_ok,
+        "still_bad": still_bad,
+        "new_unchecked": new_unchecked,
+        "status_changes": status_changes,
+        "new_cases": new_cases,
+    }
+
+
 def format_status_line(result: RunResult) -> str:
-    timing = f"{result.timings.total_s:.2f}s" if result.timings.total_s is not None else "n/a"
+    timing = f"{result.duration_ms / 1000:.2f}s"
     if result.status == "ok":
         return f"OK {result.id} {timing}"
     if result.status == "skipped":
         return f"SKIP {result.id}"
-    reason = result.error or (result.expected_check.detail if result.expected_check else "")
+    if result.status == "unchecked":
+        return f"UNCHECKED {result.id} {timing}"
+    reason = result.reason or ""
     return f"FAIL {result.id} {result.status} ({reason or 'unknown'}) {timing}"
 
 
@@ -288,9 +491,13 @@ __all__ = [
     "RunArtifacts",
     "RunResult",
     "build_agent",
+    "compare_results",
     "format_status_line",
+    "load_results",
     "load_cases",
     "run_one",
     "save_artifacts",
+    "save_status",
     "summarize",
+    "_match_expected",
 ]

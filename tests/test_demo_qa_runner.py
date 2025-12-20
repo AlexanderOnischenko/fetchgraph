@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+from examples.demo_qa.runner import Case, RunResult, _match_expected, compare_results
+
+
+def test_match_expected_unchecked_when_no_expectations() -> None:
+    case = Case(id="c1", question="What is foo?")
+    assert _match_expected(case, "anything") is None
+
+
+def test_match_expected_contains_pass_and_fail() -> None:
+    case = Case(id="c2", question="Q", expected_contains="bar")
+
+    match = _match_expected(case, "value bar baz")
+    assert match is not None
+    assert match.passed is True
+
+    mismatch = _match_expected(case, "value baz")
+    assert mismatch is not None
+    assert mismatch.passed is False
+    assert "bar" in (mismatch.detail or "")
+
+    missing_answer = _match_expected(case, None)
+    assert missing_answer is not None
+    assert missing_answer.passed is False
+    assert missing_answer.detail == "no answer"
+
+
+def test_compare_results_tracks_regressions_and_improvements() -> None:
+    baseline = {
+        "ok_to_bad": RunResult(
+            id="ok_to_bad",
+            question="",
+            status="ok",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/ok",
+            duration_ms=10,
+        ),
+        "err_to_ok": RunResult(
+            id="err_to_ok",
+            question="",
+            status="error",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/err",
+            duration_ms=10,
+        ),
+        "checked_to_unchecked": RunResult(
+            id="checked_to_unchecked",
+            question="",
+            status="ok",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/ok2",
+            duration_ms=10,
+        ),
+    }
+
+    current = {
+        "ok_to_bad": RunResult(
+            id="ok_to_bad",
+            question="",
+            status="mismatch",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/ok",
+            duration_ms=10,
+        ),
+        "err_to_ok": RunResult(
+            id="err_to_ok",
+            question="",
+            status="ok",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/err",
+            duration_ms=10,
+        ),
+        "checked_to_unchecked": RunResult(
+            id="checked_to_unchecked",
+            question="",
+            status="unchecked",
+            checked=False,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/ok2",
+            duration_ms=10,
+        ),
+        "new_ok": RunResult(
+            id="new_ok",
+            question="",
+            status="ok",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/new",
+            duration_ms=10,
+        ),
+    }
+
+    diff = compare_results(baseline, current, require_assert=True)
+
+    assert "ok_to_bad" in diff["regressed"]
+    assert "err_to_ok" in diff["new_ok"]
+    assert "checked_to_unchecked" in diff["new_unchecked"]
+    assert "new_ok" in diff["new_ok"]

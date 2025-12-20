@@ -39,10 +39,8 @@ def write_summary(out_path: Path, summary: dict) -> Path:
 
 
 def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
-    bad = {"error", "failed", "mismatch"}
     unchecked = {"unchecked", "plan_only"}
-    if require_assert:
-        bad |= unchecked
+    bad = {"error", "failed", "mismatch"}
     if fail_on == "error":
         bad = {"error"}
     elif fail_on == "mismatch":
@@ -51,12 +49,14 @@ def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
         bad |= unchecked
     elif fail_on == "bad":
         bad = {"error", "failed", "mismatch"}
-        if require_assert:
-            bad |= unchecked
     elif fail_on == "any":
         bad |= unchecked
     elif fail_on == "skipped":
         bad |= {"skipped"}
+
+    if require_assert:
+        bad |= unchecked
+
     return status in bad
 
 

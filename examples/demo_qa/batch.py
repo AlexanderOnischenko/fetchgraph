@@ -733,12 +733,24 @@ def handle_case_run(args) -> int:
 
     result = run_one(cases[args.case_id], runner, artifacts_root, plan_only=args.plan_only)
     write_results(results_path, [result])
-    save_path = run_folder.parent / "latest.txt"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_path.write_text(str(run_folder), encoding="utf-8")
+    counts = summarize([result])
+    summary = {
+        "run_id": run_folder.name,
+        "timestamp": timestamp + "Z",
+        "counts": counts,
+        "results_path": str(results_path),
+        "fail_on": "bad",
+        "require_assert": False,
+    }
+    summary_path = write_summary(results_path, summary)
+    save_dir = run_folder.parent
+    save_dir.mkdir(parents=True, exist_ok=True)
+    (save_dir / "latest.txt").write_text(str(run_folder), encoding="utf-8")
+    (save_dir / "latest_results.txt").write_text(str(results_path), encoding="utf-8")
 
     print(format_status_line(result))
     print(f"Artifacts: {result.artifacts_dir}")
+    print(f"Summary: {summary_path}")
     return 0
 
 

@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--fail-fast", action="store_true", help="Stop on first failing case")
     batch_p.add_argument(
         "--fail-on",
-        choices=["error", "mismatch", "bad", "unchecked", "any", "skipped"],
+        choices=["error", "bad", "unchecked", "any", "skipped"],
         default="bad",
         help="Which statuses should cause a failing exit code",
     )
@@ -87,6 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--exclude-ids", type=Path, default=None, help="Path to file with ids to exclude (one per line)")
     batch_p.add_argument("--events", choices=["on", "off"], default="on", help="Enable events.jsonl emission")
     batch_p.add_argument("--events-file", type=Path, default=None, help="Override events file path")
+    batch_p.add_argument(
+        "--fingerprint-verbose",
+        action="store_true",
+        help="Include per-file entries in data fingerprint (defaults to counts only)",
+    )
 
     case_root = sub.add_parser("case", help="Single-case utilities")
     case_sub = case_root.add_subparsers(dest="case_command", required=True)
@@ -120,6 +125,13 @@ def build_parser() -> argparse.ArgumentParser:
     compare_p.add_argument("--new", type=Path, required=True, help="Path to new results.jsonl")
     compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
     compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
+    compare_p.add_argument(
+        "--fail-on",
+        choices=["error", "bad", "unchecked", "any", "skipped"],
+        default="bad",
+        help="Which statuses should be treated as failures when diffing",
+    )
+    compare_p.add_argument("--require-assert", action="store_true", help="Treat unchecked cases as failures when diffing")
 
     return parser
 

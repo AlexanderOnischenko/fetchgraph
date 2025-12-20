@@ -17,9 +17,11 @@ from .runner import (
     Case,
     EventLogger,
     RunResult,
+    bad_statuses,
     build_agent,
-    compare_results,
+    diff_runs,
     format_status_line,
+    is_failure,
     load_cases,
     load_results,
     run_one,
@@ -37,19 +39,8 @@ def write_results(out_path: Path, results: Iterable[RunResult]) -> None:
 
 def write_summary(out_path: Path, summary: dict) -> Path:
     summary_path = out_path.with_name("summary.json")
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return summary_path
-
-
-def _median_duration(results: Mapping[str, RunResult]) -> Optional[float]:
-    durations = [res.duration_ms for res in results.values() if res.duration_ms is not None]
-    if not durations:
-        return None
-    durations.sort()
-    mid = len(durations) // 2
-    if len(durations) % 2 == 1:
-        return durations[mid] / 1000
-    return (durations[mid - 1] + durations[mid]) / 2000
 
 
 def _pass_rate(counts: Mapping[str, object]) -> Optional[float]:
@@ -59,26 +50,6 @@ def _pass_rate(counts: Mapping[str, object]) -> Optional[float]:
     if denom <= 0:
         return None
     return (counts.get("ok", 0) or 0) / denom
-
-
-def bad_statuses(fail_on: str, require_assert: bool) -> set[str]:
-    unchecked = {"unchecked", "plan_only"}
-    bad = {"error", "failed", "mismatch"}
-    if fail_on == "error":
-        bad = {"error"}
-    elif fail_on in {"unchecked", "any"}:
-        bad |= unchecked
-    elif fail_on == "skipped":
-        bad |= {"skipped"}
-
-    if require_assert:
-        bad |= unchecked
-
-    return bad
-
-
-def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
-    return status in bad_statuses(fail_on, require_assert)
 
 
 def _hash_file(path: Path) -> str:
@@ -114,23 +85,35 @@ def build_config_fingerprint(settings, cases_path: Path) -> Mapping[str, object]
     }
 
 
-def _fingerprint_dir(data_dir: Path) -> Mapping[str, object]:
-    files: list[dict] = []
+def _fingerprint_dir(data_dir: Path, *, verbose: bool = False) -> Mapping[str, object]:
+    entries: list[dict] = []
+    total_bytes = 0
+    files_count = 0
+    digest = hashlib.sha256()
     for path in sorted(data_dir.rglob("*")):
         if path.is_file():
             rel = path.relative_to(data_dir)
             if rel.parts and rel.parts[0] in {".runs", ".cache"}:
                 continue
             stat = path.stat()
-            files.append(
-                {
-                    "path": str(rel),
-                    "size": stat.st_size,
-                    "mtime": stat.st_mtime,
-                }
-            )
-    digest = hashlib.sha256(json.dumps(files, sort_keys=True).encode("utf-8")).hexdigest()
-    return {"hash": digest, "files": files}
+            record = {
+                "path": str(rel),
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+            }
+            digest.update(json.dumps(record, sort_keys=True).encode("utf-8"))
+            files_count += 1
+            total_bytes += stat.st_size
+            if verbose:
+                entries.append(record)
+    fingerprint: dict[str, object] = {
+        "hash": digest.hexdigest(),
+        "files_count": files_count,
+        "bytes_total": total_bytes,
+    }
+    if verbose:
+        fingerprint["files"] = entries
+    return fingerprint
 
 
 def _git_sha() -> Optional[str]:
@@ -231,109 +214,39 @@ def handle_chat(args) -> int:
     return 0
 
 
-def _bad_statuses() -> set[str]:
-    return bad_statuses("bad", False)
-
-
-def _reason(res: RunResult) -> str:
-    if res.reason:
-        return res.reason
-    if res.error:
-        return res.error
-    if res.expected_check and res.expected_check.detail:
-        return res.expected_check.detail
-    return ""
-
-
-def _artifact_links(res: RunResult) -> dict[str, str]:
-    links = {}
-    base = Path(res.artifacts_dir)
-    for name in ["plan.json", "answer.txt", "raw_synth.txt", "status.json"]:
-        path = base / name
-        if path.exists():
-            links[name] = str(path)
-    return links
-
-
-def compare_runs(base_path: Path, new_path: Path) -> dict[str, object]:
+def compare_runs(base_path: Path, new_path: Path, *, fail_on: str, require_assert: bool) -> dict[str, object]:
     base = load_results(base_path)
     new = load_results(new_path)
-    bad = _bad_statuses()
-
-    new_fail: list[dict] = []
-    fixed: list[dict] = []
-    still_fail: list[dict] = []
-
-    for case_id, new_res in new.items():
-        old_res = base.get(case_id)
-        if old_res is None:
-            continue
-        old_bad = old_res.status in bad
-        new_bad = new_res.status in bad
-        if not old_bad and new_bad:
-            new_fail.append(
-                {
-                    "id": case_id,
-                    "from": old_res.status,
-                    "to": new_res.status,
-                    "reason": _reason(new_res),
-                    "artifacts": _artifact_links(new_res),
-                }
-            )
-        elif old_bad and not new_bad:
-            fixed.append(
-                {
-                    "id": case_id,
-                    "from": old_res.status,
-                    "to": new_res.status,
-                    "reason": _reason(new_res),
-                    "artifacts": _artifact_links(new_res),
-                }
-            )
-        elif old_bad and new_bad:
-            still_fail.append(
-                {
-                    "id": case_id,
-                    "from": old_res.status,
-                    "to": new_res.status,
-                    "reason": _reason(new_res),
-                    "artifacts": _artifact_links(new_res),
-                }
-            )
-
-    base_counts = summarize(base.values())
-    new_counts = summarize(new.values())
-    base_med = _median_duration(base)
-    new_med = _median_duration(new)
-    base_avg = base_counts.get("avg_total_s")
-    new_avg = new_counts.get("avg_total_s")
-    return {
-        "new_fail": new_fail,
-        "fixed": fixed,
-        "still_fail": still_fail,
-        "all_ids": list(new.keys()),
-        "base_counts": base_counts,
-        "new_counts": new_counts,
-        "base_median": base_med,
-        "new_median": new_med,
-        "base_avg": base_avg,
-        "new_avg": new_avg,
-    }
+    return diff_runs(base.values(), new.values(), fail_on=fail_on, require_assert=require_assert)
 
 
 def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str:
     lines: list[str] = []
     base_counts = compare["base_counts"]  # type: ignore[index]
     new_counts = compare["new_counts"]  # type: ignore[index]
+    fail_on = compare.get("fail_on", "bad")  # type: ignore[assignment]
+    require_assert = bool(compare.get("require_assert", False))
+
+    def _bad_total(counts: dict) -> int:
+        bad_from_compare = compare.get("base_bad_total") if counts is base_counts else compare.get("new_bad_total")
+        if isinstance(bad_from_compare, int):
+            return bad_from_compare
+        bad_set = bad_statuses(str(fail_on), require_assert)
+        total = 0
+        for status in bad_set:
+            try:
+                total += int(counts.get(status, 0) or 0)
+            except Exception:
+                continue
+        return total
+
+    base_bad = _bad_total(base_counts)  # type: ignore[arg-type]
+    new_bad = _bad_total(new_counts)  # type: ignore[arg-type]
     lines.append("# Batch comparison report")
     lines.append("")
     lines.append("## Summary")
-    lines.append(
-        f"- Base OK: {base_counts.get('ok',0)}, Bad: {base_counts.get('mismatch',0)+base_counts.get('error',0)+base_counts.get('failed',0)}"
-    )
-    lines.append(
-        f"- New  OK: {new_counts.get('ok',0)}, Bad: {new_counts.get('mismatch',0)+new_counts.get('error',0)+new_counts.get('failed',0)}"
-    )
+    lines.append(f"- Base OK: {base_counts.get('ok',0)}, Bad: {base_bad}")
+    lines.append(f"- New  OK: {new_counts.get('ok',0)}, Bad: {new_bad}")
     base_med = compare.get("base_median")
     new_med = compare.get("new_median")
     if base_med is not None and new_med is not None:
@@ -348,7 +261,7 @@ def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str
             return
         lines.append("| id | status | reason | artifacts |")
         lines.append("|---|---|---|---|")
-        for row in rows:
+        for row in sorted(rows, key=lambda r: r.get("id", "")):
             artifacts = row.get("artifacts", {})
             links = ", ".join(f"[{k}]({v})" for k, v in artifacts.items())
             lines.append(
@@ -372,13 +285,14 @@ def write_junit(compare: dict[str, object], out_path: Path) -> None:
     suite = ET.Element("testsuite", name="demo_qa_compare")
     bad = compare["new_fail"] + compare["still_fail"]  # type: ignore[operator]
     fixed = compare["fixed"]  # type: ignore[assignment]
-    all_ids = set(compare.get("all_ids", []) or [])  # type: ignore[arg-type]
+    all_ids_list = list(compare.get("all_ids", []) or [])  # type: ignore[arg-type]
+    all_ids = sorted(all_ids_list)
     cases_total = len(all_ids)
     suite.set("tests", str(cases_total))
     suite.set("failures", str(len(bad)))
     suite.set("errors", "0")
 
-    for row in bad:
+    for row in sorted(bad, key=lambda r: r.get("id", "")):
         tc = ET.SubElement(suite, "testcase", name=row["id"])
         msg = row.get("reason", "") or f"{row.get('from')} → {row.get('to')}"
         failure = ET.SubElement(tc, "failure", message=msg)
@@ -386,14 +300,15 @@ def write_junit(compare: dict[str, object], out_path: Path) -> None:
         if artifacts:
             failure.text = "\n".join(f"{k}: {v}" for k, v in artifacts.items())
 
-    for row in fixed:
+    for row in sorted(fixed, key=lambda r: r.get("id", "")):
         ET.SubElement(suite, "testcase", name=row["id"])
 
-    ok_ids = all_ids - {row["id"] for row in bad} - {row["id"] for row in fixed}
+    bad_ids = {row["id"] for row in bad}
+    fixed_ids = {row["id"] for row in fixed}
+    ok_ids = [cid for cid in all_ids if cid not in bad_ids and cid not in fixed_ids]
     for cid in ok_ids:
         ET.SubElement(suite, "testcase", name=cid)
 
-    tree = ET.ElementTree(suite)
     out_path.write_text(ET.tostring(suite, encoding="unicode"), encoding="utf-8")
 
 
@@ -535,12 +450,16 @@ def handle_batch(args) -> int:
     write_results(results_path, results)
     counts = summarize(results)
 
-    results_by_id = {r.id: r for r in results}
     diff_block: dict | None = None
     baseline_path: Path | None = None
     if baseline_for_compare:
         baseline_path = args.compare_to or baseline_filter_path
-        diff = compare_results(baseline_for_compare, results_by_id, require_assert=args.require_assert)
+        diff = diff_runs(
+            baseline_for_compare.values(),
+            results,
+            fail_on=args.fail_on,
+            require_assert=args.require_assert,
+        )
         if baseline_path:
             diff["baseline_path"] = str(baseline_path)
         diff_block = diff
@@ -570,7 +489,9 @@ def handle_batch(args) -> int:
     summary_by_tag = summary.get("summary_by_tag")
     if summary_by_tag:
         summary_by_tag_path = summary_path.with_name("summary_by_tag.json")
-        summary_by_tag_path.write_text(json.dumps(summary_by_tag, ensure_ascii=False, indent=2), encoding="utf-8")
+        summary_by_tag_path.write_text(
+            json.dumps(summary_by_tag, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
     latest_path = run_folder.parent / "latest.txt"
     latest_results_path = run_folder.parent / "latest_results.txt"
@@ -581,7 +502,7 @@ def handle_batch(args) -> int:
     config_hash = _hash_file(args.config) if args.config else None
     schema_hash = _hash_file(args.schema)
     cases_hash = _hash_file(args.cases)
-    data_fingerprint = _fingerprint_dir(args.data)
+    data_fingerprint = _fingerprint_dir(args.data, verbose=args.fingerprint_verbose)
     llm_settings = settings.llm
     run_meta = {
         "run_id": run_id,
@@ -610,7 +531,9 @@ def handle_batch(args) -> int:
         "summary_path": str(summary_path),
         "run_dir": str(run_folder),
     }
-    (run_folder / "run_meta.json").write_text(json.dumps(run_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    (run_folder / "run_meta.json").write_text(
+        json.dumps(run_meta, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     prate = _pass_rate(counts)
     history_entry = {
@@ -631,7 +554,7 @@ def handle_batch(args) -> int:
     }
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(history_entry, ensure_ascii=False) + "\n")
+        f.write(json.dumps(history_entry, ensure_ascii=False, sort_keys=True) + "\n")
 
     bad_count = counts.get("mismatch", 0) + counts.get("failed", 0) + counts.get("error", 0)
     unchecked = counts.get("unchecked", 0)
@@ -648,20 +571,20 @@ def handle_batch(args) -> int:
         print(summary_line)
         if diff_block:
             print(
-                f"Δ vs baseline: +{len(diff_block.get('new_ok', []))} green, "
-                f"-{len(diff_block.get('regressed', []))} regressions, "
-                f"{len(diff_block.get('still_bad', []))} still failing, "
-                f"{len(diff_block.get('new_unchecked', []))} new unchecked"
+                f"Δ vs baseline: +{len(diff_block.get('fixed', []))} fixed, "
+                f"-{len(diff_block.get('new_fail', []))} regressions, "
+                f"{len(diff_block.get('still_fail', []))} still failing, "
+                f"{len(diff_block.get('new_cases', []))} new cases"
             )
         return exit_code
 
     print(summary_line)
     if diff_block:
         print(
-            f"Δ vs baseline: +{len(diff_block.get('new_ok', []))} green, "
-            f"-{len(diff_block.get('regressed', []))} regressions, "
-            f"{len(diff_block.get('still_bad', []))} still failing, "
-            f"{len(diff_block.get('new_unchecked', []))} new unchecked"
+            f"Δ vs baseline: +{len(diff_block.get('fixed', []))} fixed, "
+            f"-{len(diff_block.get('new_fail', []))} regressions, "
+            f"{len(diff_block.get('still_fail', []))} still failing, "
+            f"{len(diff_block.get('new_cases', []))} new cases"
         )
 
     failures_list: dict[str, RunResult] = {}
@@ -828,7 +751,7 @@ def handle_compare(args) -> int:
     if not args.base.exists() or not args.new.exists():
         print("Base or new results file not found.", file=sys.stderr)
         return 2
-    comparison = compare_runs(args.base, args.new)
+    comparison = compare_runs(args.base, args.new, fail_on=args.fail_on, require_assert=args.require_assert)
     report = render_markdown(comparison, args.out)
     print(report)
     if args.junit:

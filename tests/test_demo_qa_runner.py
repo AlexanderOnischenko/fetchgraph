@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from examples.demo_qa.runner import Case, RunResult, _match_expected, compare_results, summarize
+from examples.demo_qa.runner import Case, RunResult, _match_expected, diff_runs, summarize
 
 
 def test_match_expected_unchecked_when_no_expectations() -> None:
@@ -26,9 +26,9 @@ def test_match_expected_contains_pass_and_fail() -> None:
     assert missing_answer.detail == "no answer"
 
 
-def test_compare_results_tracks_regressions_and_improvements() -> None:
-    baseline = {
-        "ok_to_bad": RunResult(
+def test_diff_runs_tracks_regressions_and_improvements() -> None:
+    baseline = [
+        RunResult(
             id="ok_to_bad",
             question="",
             status="ok",
@@ -39,7 +39,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
-        "err_to_ok": RunResult(
+        RunResult(
             id="err_to_ok",
             question="",
             status="error",
@@ -50,10 +50,10 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
-        "checked_to_unchecked": RunResult(
-            id="checked_to_unchecked",
+        RunResult(
+            id="still_bad",
             question="",
-            status="ok",
+            status="mismatch",
             checked=True,
             reason=None,
             details=None,
@@ -61,10 +61,10 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
-    }
+    ]
 
-    current = {
-        "ok_to_bad": RunResult(
+    current = [
+        RunResult(
             id="ok_to_bad",
             question="",
             status="mismatch",
@@ -75,7 +75,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
-        "err_to_ok": RunResult(
+        RunResult(
             id="err_to_ok",
             question="",
             status="ok",
@@ -86,18 +86,18 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
-        "checked_to_unchecked": RunResult(
-            id="checked_to_unchecked",
+        RunResult(
+            id="still_bad",
             question="",
-            status="unchecked",
-            checked=False,
+            status="failed",
+            checked=True,
             reason=None,
             details=None,
             artifacts_dir="/tmp/ok2",
             duration_ms=10,
             tags=[],
         ),
-        "new_ok": RunResult(
+        RunResult(
             id="new_ok",
             question="",
             status="ok",
@@ -108,14 +108,25 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
-    }
+        RunResult(
+            id="new_bad",
+            question="",
+            status="failed",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/newbad",
+            duration_ms=10,
+            tags=[],
+        ),
+    ]
 
-    diff = compare_results(baseline, current, require_assert=True)
+    diff = diff_runs(baseline, current, fail_on="bad", require_assert=True)
 
-    assert "ok_to_bad" in diff["regressed"]
-    assert "err_to_ok" in diff["new_ok"]
-    assert "checked_to_unchecked" in diff["new_unchecked"]
-    assert "new_ok" in diff["new_ok"]
+    assert {row["id"] for row in diff["new_fail"]} == {"ok_to_bad", "new_bad"}
+    assert {row["id"] for row in diff["fixed"]} == {"err_to_ok"}
+    assert {row["id"] for row in diff["still_fail"]} == {"still_bad"}
+    assert diff["new_cases"] == ["new_bad", "new_ok"]
 
 
 def test_summarize_counts_checked_and_unchecked() -> None:

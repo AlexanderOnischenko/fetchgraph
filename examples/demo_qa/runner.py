@@ -365,7 +365,7 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
         "checked_ok": checked_ok,
         "unchecked_no_assert": unchecked_no_assert,
         "plan_only": plan_only,
-        "summary_by_tag": per_tag,
+        "summary_by_tag": {tag: per_tag[tag] for tag in sorted(per_tag)},
         **totals,
     }
     if total_times:
@@ -531,65 +531,160 @@ def load_results(path: Path) -> Dict[str, RunResult]:
     return results
 
 
-def _bucket(status: str, checked: bool, require_assert: bool) -> str:
-    if status == "ok":
-        return "OK" if checked else "UNCHECKED"
-    if status in {"mismatch", "failed", "error"}:
-        return "BAD"
-    if status in {"unchecked", "plan_only"}:
-        return "BAD" if require_assert else "UNCHECKED"
-    return "NEUTRAL"
+def bad_statuses(fail_on: str, require_assert: bool) -> set[str]:
+    unchecked = {"unchecked", "plan_only"}
+    bad = {"error", "failed", "mismatch"}
+    if fail_on == "error":
+        bad = {"error"}
+    elif fail_on in {"unchecked", "any"}:
+        bad |= unchecked
+    elif fail_on == "skipped":
+        bad |= {"skipped"}
+
+    if require_assert:
+        bad |= unchecked
+
+    return bad
 
 
-def compare_results(
-    baseline: Mapping[str, RunResult],
-    current: Mapping[str, RunResult],
+def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
+    return status in bad_statuses(fail_on, require_assert)
+
+
+def _artifact_links(res: RunResult) -> dict[str, str]:
+    links: dict[str, str] = {}
+    base = Path(res.artifacts_dir)
+    for name in ["plan.json", "answer.txt", "raw_synth.txt", "status.json"]:
+        path = base / name
+        if path.exists():
+            links[name] = str(path)
+    return links
+
+
+def _reason(res: RunResult) -> str:
+    if res.reason:
+        return res.reason
+    if res.error:
+        return res.error
+    if res.expected_check and res.expected_check.detail:
+        return res.expected_check.detail
+    return ""
+
+
+def _median_duration(results: Mapping[str, RunResult]) -> float | None:
+    durations = [res.duration_ms for res in results.values() if res.duration_ms is not None]
+    if not durations:
+        return None
+    durations.sort()
+    mid = len(durations) // 2
+    if len(durations) % 2 == 1:
+        return durations[mid] / 1000
+    return (durations[mid - 1] + durations[mid]) / 2000
+
+
+def _count_bad_from_summary(counts: Mapping[str, object], fail_on: str, require_assert: bool) -> int:
+    bad = bad_statuses(fail_on, require_assert)
+    total = 0
+    for status in bad:
+        try:
+            total += int(counts.get(status, 0) or 0)
+        except Exception:
+            continue
+    return total
+
+
+def diff_runs(
+    base_results: Iterable[RunResult],
+    new_results: Iterable[RunResult],
     *,
+    fail_on: str,
     require_assert: bool,
 ) -> Dict[str, object]:
-    new_ok: List[str] = []
-    regressed: List[str] = []
-    still_ok: List[str] = []
-    still_bad: List[str] = []
-    new_unchecked: List[str] = []
-    status_changes: Dict[str, Dict[str, str]] = {}
-    new_cases: List[str] = []
+    base_by_id = {res.id: res for res in base_results}
+    new_by_id = {res.id: res for res in new_results}
+    all_ids = sorted(new_by_id.keys())
 
-    for case_id, res in current.items():
-        base_res = baseline.get(case_id)
-        new_bucket = _bucket(res.status, res.checked, require_assert)
+    bad = bad_statuses(fail_on, require_assert)
+
+    def _is_bad(res: RunResult | None) -> bool:
+        return bool(res and res.status in bad)
+
+    def _entry(case_id: str, base_res: RunResult | None, new_res: RunResult) -> dict[str, object]:
+        return {
+            "id": case_id,
+            "from": base_res.status if base_res else None,
+            "to": new_res.status,
+            "reason": _reason(new_res),
+            "artifacts": _artifact_links(new_res),
+        }
+
+    new_fail: list[dict[str, object]] = []
+    fixed: list[dict[str, object]] = []
+    still_fail: list[dict[str, object]] = []
+    changed_status: list[dict[str, str | None]] = []
+    new_cases: list[str] = []
+
+    for case_id in all_ids:
+        new_res = new_by_id[case_id]
+        base_res = base_by_id.get(case_id)
+        base_bad = _is_bad(base_res)
+        new_bad = _is_bad(new_res)
+
         if base_res is None:
             new_cases.append(case_id)
-            if new_bucket == "OK":
-                new_ok.append(case_id)
-            elif new_bucket == "BAD":
-                still_bad.append(case_id)
-            status_changes[case_id] = {"from": "new", "to": res.status}
+            if new_bad:
+                new_fail.append(_entry(case_id, base_res, new_res))
+        else:
+            if base_res.status != new_res.status:
+                changed_status.append({"id": case_id, "from": base_res.status, "to": new_res.status})
+
+        if base_res is None:
             continue
 
-        base_bucket = _bucket(base_res.status, base_res.checked, require_assert)
-        if base_res.checked and res.status == "unchecked":
-            new_unchecked.append(case_id)
-        if base_bucket == "OK" and new_bucket in {"BAD", "UNCHECKED"}:
-            regressed.append(case_id)
-        elif base_bucket in {"BAD", "UNCHECKED"} and new_bucket == "OK":
-            new_ok.append(case_id)
-        elif base_bucket == "OK" and new_bucket == "OK":
-            still_ok.append(case_id)
-        elif base_bucket in {"BAD", "UNCHECKED"} and new_bucket in {"BAD", "UNCHECKED"}:
-            still_bad.append(case_id)
+        if not base_bad and new_bad:
+            new_fail.append(_entry(case_id, base_res, new_res))
+        elif base_bad and not new_bad:
+            fixed.append(_entry(case_id, base_res, new_res))
+        elif base_bad and new_bad:
+            still_fail.append(_entry(case_id, base_res, new_res))
 
-        if base_res.status != res.status:
-            status_changes[case_id] = {"from": base_res.status, "to": res.status}
+    base_counts = summarize(base_by_id.values())
+    new_counts = summarize(new_by_id.values())
+    base_med = _median_duration(base_by_id)
+    new_med = _median_duration(new_by_id)
+    base_avg = base_counts.get("avg_total_s")
+    new_avg = new_counts.get("avg_total_s")
+
+    def _count_delta(key: str) -> int | float | None:
+        base_val = base_counts.get(key)
+        new_val = new_counts.get(key)
+        if isinstance(base_val, (int, float)) and isinstance(new_val, (int, float)):
+            return new_val - base_val
+        return None
+
+    delta_keys = ["total", "ok", "mismatch", "failed", "error", "unchecked", "plan_only", "skipped"]
+    count_deltas = {k: _count_delta(k) for k in delta_keys}
 
     return {
-        "new_ok": new_ok,
-        "regressed": regressed,
-        "still_ok": still_ok,
-        "still_bad": still_bad,
-        "new_unchecked": new_unchecked,
-        "status_changes": status_changes,
+        "all_ids": all_ids,
+        "new_fail": new_fail,
+        "fixed": fixed,
+        "still_fail": still_fail,
+        "changed_status": changed_status,
         "new_cases": new_cases,
+        "base_counts": base_counts,
+        "new_counts": new_counts,
+        "counts_delta": count_deltas,
+        "base_median": base_med,
+        "new_median": new_med,
+        "base_avg": base_avg,
+        "new_avg": new_avg,
+        "median_delta": (new_med - base_med) if (new_med is not None and base_med is not None) else None,
+        "avg_delta": (new_avg - base_avg) if (isinstance(new_avg, (int, float)) and isinstance(base_avg, (int, float))) else None,
+        "base_bad_total": _count_bad_from_summary(base_counts, fail_on, require_assert),
+        "new_bad_total": _count_bad_from_summary(new_counts, fail_on, require_assert),
+        "fail_on": fail_on,
+        "require_assert": require_assert,
     }
 
 
@@ -605,24 +700,6 @@ def format_status_line(result: RunResult) -> str:
     return f"FAIL {result.id} {result.status} ({reason or 'unknown'}) {timing}"
 
 
-__all__ = [
-    "AgentRunner",
-    "Case",
-    "ExpectedCheck",
-    "RunArtifacts",
-    "RunResult",
-    "EventLogger",
-    "build_agent",
-    "compare_results",
-    "format_status_line",
-    "load_results",
-    "load_cases",
-    "run_one",
-    "save_artifacts",
-    "save_status",
-    "summarize",
-    "_match_expected",
-]
 class EventLogger:
     def __init__(self, path: Path | None, run_id: str):
         self.path = path
@@ -641,3 +718,25 @@ class EventLogger:
         if path is None:
             return self
         return EventLogger(path, self.run_id)
+
+
+__all__ = [
+    "AgentRunner",
+    "Case",
+    "ExpectedCheck",
+    "RunArtifacts",
+    "RunResult",
+    "EventLogger",
+    "build_agent",
+    "bad_statuses",
+    "diff_runs",
+    "format_status_line",
+    "is_failure",
+    "load_results",
+    "load_cases",
+    "run_one",
+    "save_artifacts",
+    "save_status",
+    "summarize",
+    "_match_expected",
+]

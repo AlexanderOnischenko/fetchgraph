@@ -269,7 +269,7 @@ def run_one(case: Case, runner: AgentRunner, artifacts_root: Path, *, plan_only:
     artifacts = runner.run_question(case.question, run_id, run_dir, plan_only=plan_only)
     save_artifacts(artifacts)
 
-    expected_check = _match_expected(case, artifacts.answer)
+    expected_check = None if plan_only else _match_expected(case, artifacts.answer)
     result = _build_result(case, artifacts, run_dir, expected_check)
     save_status(result)
     return result

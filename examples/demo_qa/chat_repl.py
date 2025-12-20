@@ -6,7 +6,9 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Sequence
+
+import readline
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.models import TaskProfile
@@ -87,12 +89,22 @@ def _save_artifacts(artifacts: RunArtifacts) -> None:
         _save_text(artifacts.run_dir / "error.txt", artifacts.error)
 
 
+def _maybe_add_history(entry: str) -> None:
+    """Record the entry so it can be recalled with ↑ like a shell."""
+    if not entry:  # pragma: no cover - simple guard
+        return
+    hist_len = readline.get_current_history_length()
+    if hist_len == 0 or readline.get_history_item(hist_len) != entry:
+        readline.add_history(entry)
+
+
 def start_repl(
     data_dir: Path,
     schema_path: Path,
     llm,
     enable_semantic: bool = False,
     log_file: Optional[Path] = None,
+    diagnostics: Sequence[str] | None = None,
 ) -> None:
     provider, _ = build_provider(data_dir, schema_path, enable_semantic=enable_semantic)
     runner = build_agent(llm, provider)
@@ -103,7 +115,10 @@ def start_repl(
     plan_debug_mode = "off"
     last_artifacts: RunArtifacts | None = None
 
-    print("Type your question (or /help). Ctrl+D to exit.")
+    print("Type your question (or /help). Use /exit or Ctrl+D to exit. Press ↑ to edit the last input.")
+    if diagnostics:
+        for line in diagnostics:
+            print(line)
     print(f"Artifacts root: {runs_root}")
     if log_file:
         print(f"Log file: {log_file}")
@@ -115,6 +130,7 @@ def start_repl(
             break
         if not line:
             continue
+        _maybe_add_history(line)
         if line == "/exit":
             break
         if line == "/help":

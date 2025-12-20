@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from examples.demo_qa.settings import DemoQASettings, load_settings, resolve_config_path
+from examples.demo_qa.settings import load_settings, resolve_config_path
 
 
 def write_toml(path: Path, content: str) -> None:

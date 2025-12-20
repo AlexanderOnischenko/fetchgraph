@@ -5,32 +5,16 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict
 from urllib.parse import urlparse
 
-import tomllib
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic_settings.sources.providers.toml import TomlConfigSettingsSource
 
 try:
-    from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+    from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError as exc:  # pragma: no cover - make missing dependency explicit
     raise ImportError(
         "pydantic-settings is required for demo_qa configuration. "
         "Install demo extras via `pip install -e .[demo]` or `pip install -r examples/demo_qa/requirements.txt`."
     ) from exc
-
-
-class TomlConfigSettingsSource(PydanticBaseSettingsSource):
-    def __init__(self, settings_cls: type[BaseSettings], path: Path | None):
-        super().__init__(settings_cls)
-        self._path = path
-
-    def __call__(self) -> Dict[str, Any]:
-        if not self._path:
-            return {}
-        try:
-            with self._path.open("rb") as toml_file:
-                return tomllib.load(toml_file)
-        except FileNotFoundError:
-            return {}
-
 
 class LLMSettings(BaseModel):
     base_url: str | None = Field(default=None)
@@ -98,7 +82,7 @@ class DemoQASettings(BaseSettings):
     ):
         sources = [init_settings, env_settings, dotenv_settings]
         if cls._toml_path:
-            sources.append(TomlConfigSettingsSource(settings_cls, cls._toml_path))
+            sources.append(TomlConfigSettingsSource(settings_cls, toml_file=cls._toml_path))
         sources.append(file_secret_settings)
         return tuple(sources)
 

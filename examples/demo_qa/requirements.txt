@@ -1,4 +1,4 @@
 # Requires Python >=3.11 (relies on stdlib tomllib)
-pydantic-settings>=2.2
+pydantic-settings>=2.12
 python-dotenv>=1.0
 openai

@@ -205,8 +205,8 @@ def _bind_field(
         rel = relation_index.get(rel_alias)
         if rel is None:
             raise UnknownRelation(rel_alias)
-        target_entity = entity_index.get(rel.to_entity)
-        if target_entity and field in target_entity.field_names():
+        target_entity_desc = entity_index.get(rel.to_entity)
+        if target_entity_desc and field in target_entity_desc.field_names():
             candidates.append(
                 _Candidate(
                     source="declared",
@@ -220,8 +220,8 @@ def _bind_field(
         for rel in schema.relations:
             if rel.from_entity != root_entity:
                 continue
-            target_entity = entity_index.get(rel.to_entity)
-            if target_entity and field in target_entity.field_names():
+            target_entity_desc = entity_index.get(rel.to_entity)
+            if target_entity_desc and field in target_entity_desc.field_names():
                 candidates.append(
                     _Candidate(
                         source="auto_add",

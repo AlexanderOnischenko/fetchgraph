@@ -74,7 +74,6 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")
     batch_p.add_argument("--show-artifacts", action="store_true", help="Show artifact paths for failures")
 
-    case_p = sub.add_subparsers(dest="case_command")
     case_root = sub.add_parser("case", help="Single-case utilities")
     case_sub = case_root.add_subparsers(dest="case_command", required=True)
 

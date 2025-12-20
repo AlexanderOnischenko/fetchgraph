@@ -84,6 +84,15 @@ def _load_latest_run(artifacts_dir: Path) -> Optional[Path]:
     return None
 
 
+def _load_latest_results(artifacts_dir: Path) -> Optional[Path]:
+    latest_file = artifacts_dir / "runs" / "latest_results.txt"
+    if latest_file.exists():
+        content = latest_file.read_text(encoding="utf-8").strip()
+        if content:
+            return Path(content)
+    return None
+
+
 def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
     cases_dir = run_path / "cases"
     if not cases_dir.exists():
@@ -185,9 +194,15 @@ def handle_batch(args) -> int:
 
     baseline_filter_path = args.only_failed_from
     if args.only_failed and not baseline_filter_path:
-        latest = _load_latest_run(artifacts_dir)
-        if latest:
-            baseline_filter_path = latest / "results.jsonl"
+        latest_results = _load_latest_results(artifacts_dir)
+        if latest_results:
+            baseline_filter_path = latest_results
+        else:
+            latest_run = _load_latest_run(artifacts_dir)
+            if latest_run:
+                candidate = latest_run / "results.jsonl"
+                if candidate.exists():
+                    baseline_filter_path = candidate
     if baseline_filter_path:
         try:
             baseline_for_filter = load_results(baseline_filter_path)
@@ -281,8 +296,10 @@ def handle_batch(args) -> int:
     summary_path = write_summary(results_path, summary)
 
     latest_path = run_folder.parent / "latest.txt"
+    latest_results_path = run_folder.parent / "latest_results.txt"
     latest_path.parent.mkdir(parents=True, exist_ok=True)
     latest_path.write_text(str(run_folder), encoding="utf-8")
+    latest_results_path.write_text(str(results_path), encoding="utf-8")
 
     bad_count = counts.get("mismatch", 0) + counts.get("failed", 0) + counts.get("error", 0)
     unchecked = counts.get("unchecked", 0)

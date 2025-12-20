@@ -16,7 +16,7 @@ def ensure_repo_imports() -> None:
 
 ensure_repo_imports()
 
-from .batch import handle_batch, handle_case_open, handle_case_run, handle_chat  # noqa: E402
+from .batch import handle_batch, handle_case_open, handle_case_run, handle_chat, handle_stats  # noqa: E402
 from .data_gen import generate_and_save  # noqa: E402
 
 
@@ -73,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--quiet", action="store_true", help="Print only summary and exit code")
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")
     batch_p.add_argument("--show-artifacts", action="store_true", help="Show artifact paths for failures")
+    batch_p.add_argument("--history", type=Path, default=None, help="Path to history.jsonl (default: <data>/.runs/history.jsonl)")
 
     case_root = sub.add_parser("case", help="Single-case utilities")
     case_sub = case_root.add_subparsers(dest="case_command", required=True)
@@ -94,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
     case_open.add_argument(
         "--artifacts-dir", type=Path, default=None, help="Base artifacts dir for latest lookup (default data/.runs)"
     )
+
+    stats_p = sub.add_parser("stats", help="Show batch history stats")
+    stats_p.add_argument("--data", type=Path, default=None, help="Data dir to resolve default history path")
+    stats_p.add_argument("--history", type=Path, default=None, help="Path to history.jsonl (default: <data>/.runs/history.jsonl)")
+    stats_p.add_argument("--last", type=int, default=10, help="How many recent runs to show")
+    stats_p.add_argument("--group-by", choices=["config_hash"], default=None, help="Group stats by config hash")
 
     return parser
 
@@ -118,6 +125,8 @@ def main() -> None:
             code = handle_case_open(args)
         else:
             code = 1
+    elif args.command == "stats":
+        code = handle_stats(args)
     else:
         code = 0
     raise SystemExit(code)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import platform
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -36,6 +38,15 @@ def write_summary(out_path: Path, summary: dict) -> Path:
     summary_path = out_path.with_name("summary.json")
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary_path
+
+
+def _pass_rate(counts: Mapping[str, object]) -> Optional[float]:
+    total = int(counts.get("total", 0) or 0)
+    skipped = int(counts.get("skipped", 0) or 0)
+    denom = total - skipped
+    if denom <= 0:
+        return None
+    return (counts.get("ok", 0) or 0) / denom
 
 
 def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
@@ -73,6 +84,30 @@ def build_config_fingerprint(settings, cases_path: Path) -> Mapping[str, object]
         "synth_model": llm_settings.synth_model,
         "cases_hash": _hash_file(cases_path),
     }
+
+
+def _fingerprint_dir(data_dir: Path) -> Mapping[str, object]:
+    files: list[dict] = []
+    for path in sorted(data_dir.rglob("*")):
+        if path.is_file():
+            stat = path.stat()
+            files.append(
+                {
+                    "path": str(path.relative_to(data_dir)),
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                }
+            )
+    digest = hashlib.sha256(json.dumps(files, sort_keys=True).encode("utf-8")).hexdigest()
+    return {"hash": digest, "files": files}
+
+
+def _git_sha() -> Optional[str]:
+    try:
+        result = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    except Exception:
+        return None
+    return result.stdout.strip() or None
 
 
 def _load_latest_run(artifacts_dir: Path) -> Optional[Path]:
@@ -258,6 +293,7 @@ def handle_batch(args) -> int:
     results_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path = results_path.with_name("summary.json")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
+    history_path = args.history or (args.data / ".runs" / "history.jsonl")
 
     log_dir = args.log_dir or args.data / ".runs" / "logs"
     configure_logging(
@@ -324,6 +360,61 @@ def handle_batch(args) -> int:
     latest_path.parent.mkdir(parents=True, exist_ok=True)
     latest_path.write_text(str(run_folder), encoding="utf-8")
     latest_results_path.write_text(str(results_path), encoding="utf-8")
+
+    config_hash = _hash_file(args.config) if args.config else None
+    schema_hash = _hash_file(args.schema)
+    cases_hash = _hash_file(args.cases)
+    data_fingerprint = _fingerprint_dir(args.data)
+    llm_settings = settings.llm
+    run_meta = {
+        "run_id": run_id,
+        "timestamp": started_at.isoformat() + "Z",
+        "cases_path": str(args.cases),
+        "cases_hash": cases_hash,
+        "config_path": str(args.config) if args.config else None,
+        "config_hash": config_hash,
+        "schema_path": str(args.schema),
+        "schema_hash": schema_hash,
+        "data_dir": str(args.data),
+        "data_fingerprint": data_fingerprint,
+        "llm": {
+            "plan_model": llm_settings.plan_model,
+            "synth_model": llm_settings.synth_model,
+            "plan_temperature": llm_settings.plan_temperature,
+            "synth_temperature": llm_settings.synth_temperature,
+            "base_url": llm_settings.base_url or "https://api.openai.com/v1",
+        },
+        "enable_semantic": args.enable_semantic,
+        "embedding_model": None,
+        "git_sha": _git_sha(),
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "results_path": str(results_path),
+        "summary_path": str(summary_path),
+        "run_dir": str(run_folder),
+    }
+    (run_folder / "run_meta.json").write_text(json.dumps(run_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    prate = _pass_rate(counts)
+    history_entry = {
+        "run_id": run_id,
+        "timestamp": started_at.isoformat() + "Z",
+        "config_hash": config_hash,
+        "schema_hash": schema_hash,
+        "cases_hash": cases_hash,
+        "ok": counts.get("ok", 0),
+        "mismatch": counts.get("mismatch", 0),
+        "error": counts.get("error", 0),
+        "skipped": counts.get("skipped", 0),
+        "pass_rate": prate,
+        "avg_total_s": counts.get("avg_total_s"),
+        "median_total_s": counts.get("median_total_s"),
+        "run_dir": str(run_folder),
+        "results_path": str(results_path),
+    }
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    with history_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(history_entry, ensure_ascii=False) + "\n")
 
     bad_count = counts.get("mismatch", 0) + counts.get("failed", 0) + counts.get("error", 0)
     unchecked = counts.get("unchecked", 0)
@@ -435,6 +526,72 @@ def handle_case_open(args) -> int:
     for path in [plan, answer, status]:
         if path.exists():
             print(f"- {path}")
+    return 0
+
+
+def _load_history(history_path: Path) -> list[dict]:
+    if not history_path.exists():
+        return []
+    entries: list[dict] = []
+    with history_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return entries
+
+
+def _print_stats(entries: list[dict]) -> None:
+    if not entries:
+        print("No history entries found.")
+        return
+    header = f"{'run_id':<10} {'ok':>4} {'mis':>4} {'err':>4} {'skip':>5} {'pass%':>7} {'median_s':>10} {'Δpass':>8} {'Δmedian':>9}"
+    print(header)
+    prev = None
+    for entry in entries:
+        pass_rate = entry.get("pass_rate")
+        median = entry.get("median_total_s")
+        delta_pass = None
+        delta_median = None
+        if prev:
+            if pass_rate is not None and prev.get("pass_rate") is not None:
+                delta_pass = pass_rate - prev.get("pass_rate")
+            if median is not None and prev.get("median_total_s") is not None:
+                delta_median = median - prev.get("median_total_s")
+        pr_display = f"{pass_rate*100:.1f}%" if pass_rate is not None else "n/a"
+        median_display = f"{median:.2f}" if median is not None else "n/a"
+        dp = f"{delta_pass:+.1f}%" if delta_pass is not None else "n/a"
+        dm = f"{delta_median:+.2f}" if delta_median is not None else "n/a"
+        print(
+            f"{entry.get('run_id',''):<10} "
+            f"{entry.get('ok',0):>4} {entry.get('mismatch',0):>4} {entry.get('error',0):>4} {entry.get('skipped',0):>5} "
+            f"{pr_display:>7} {median_display:>10} {dp:>8} {dm:>9}"
+        )
+        prev = entry
+
+
+def handle_stats(args) -> int:
+    history_path: Optional[Path] = args.history
+    if history_path is None:
+        if not args.data:
+            print("Provide --data or --history to locate history.jsonl", file=sys.stderr)
+            return 2
+        history_path = args.data / ".runs" / "history.jsonl"
+    entries = _load_history(history_path)
+    if args.group_by == "config_hash":
+        grouped: dict[str, list[dict]] = {}
+        for e in entries:
+            key = e.get("config_hash") or "unknown"
+            grouped.setdefault(key, []).append(e)
+        for key, vals in grouped.items():
+            print(f"\nconfig_hash={key}")
+            _print_stats(vals[-args.last :])
+    else:
+        _print_stats(entries[-args.last :])
     return 0
 
 

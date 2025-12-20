@@ -120,10 +120,13 @@ def _fingerprint_dir(data_dir: Path) -> Mapping[str, object]:
     files: list[dict] = []
     for path in sorted(data_dir.rglob("*")):
         if path.is_file():
+            rel = path.relative_to(data_dir)
+            if rel.parts and rel.parts[0] in {".runs", ".cache"}:
+                continue
             stat = path.stat()
             files.append(
                 {
-                    "path": str(path.relative_to(data_dir)),
+                    "path": str(rel),
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
                 }

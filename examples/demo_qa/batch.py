@@ -164,7 +164,20 @@ def _select_cases_for_rerun(
     if not baseline_for_filter:
         return cases
     bad_statuses = {"mismatch", "failed", "error"}
-    if require_assert or fail_on in {"unchecked", "any"}:
+    if fail_on == "error":
+        bad_statuses = {"error"}
+    elif fail_on == "mismatch":
+        bad_statuses = {"mismatch", "failed", "error"}
+    elif fail_on == "unchecked":
+        bad_statuses |= {"unchecked", "plan_only"}
+    elif fail_on == "bad":
+        bad_statuses = {"mismatch", "failed", "error"}
+    elif fail_on == "any":
+        bad_statuses |= {"unchecked", "plan_only"}
+    elif fail_on == "skipped":
+        bad_statuses |= {"skipped"}
+
+    if require_assert:
         bad_statuses |= {"unchecked", "plan_only"}
     target_ids = {case_id for case_id, res in baseline_for_filter.items() if res.status in bad_statuses}
     return [case for case in cases if case.id in target_ids]

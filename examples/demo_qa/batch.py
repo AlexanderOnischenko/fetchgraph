@@ -221,15 +221,29 @@ def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str
     lines: list[str] = []
     base_counts = compare["base_counts"]  # type: ignore[index]
     new_counts = compare["new_counts"]  # type: ignore[index]
+    fail_on = compare.get("fail_on", "bad")  # type: ignore[assignment]
+    require_assert = bool(compare.get("require_assert", False))
+
+    def _bad_total(counts: dict) -> int:
+        bad_from_compare = compare.get("base_bad_total") if counts is base_counts else compare.get("new_bad_total")
+        if isinstance(bad_from_compare, int):
+            return bad_from_compare
+        bad_set = bad_statuses(str(fail_on), require_assert)
+        total = 0
+        for status in bad_set:
+            try:
+                total += int(counts.get(status, 0) or 0)
+            except Exception:
+                continue
+        return total
+
+    base_bad = _bad_total(base_counts)  # type: ignore[arg-type]
+    new_bad = _bad_total(new_counts)  # type: ignore[arg-type]
     lines.append("# Batch comparison report")
     lines.append("")
     lines.append("## Summary")
-    lines.append(
-        f"- Base OK: {base_counts.get('ok',0)}, Bad: {base_counts.get('mismatch',0)+base_counts.get('error',0)+base_counts.get('failed',0)}"
-    )
-    lines.append(
-        f"- New  OK: {new_counts.get('ok',0)}, Bad: {new_counts.get('mismatch',0)+new_counts.get('error',0)+new_counts.get('failed',0)}"
-    )
+    lines.append(f"- Base OK: {base_counts.get('ok',0)}, Bad: {base_bad}")
+    lines.append(f"- New  OK: {new_counts.get('ok',0)}, Bad: {new_bad}")
     base_med = compare.get("base_median")
     new_med = compare.get("new_median")
     if base_med is not None and new_med is not None:

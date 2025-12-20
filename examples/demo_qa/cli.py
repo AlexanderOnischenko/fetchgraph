@@ -51,8 +51,10 @@ def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
         failure_statuses = {"error"}
     elif fail_on == "mismatch":
         failure_statuses = {"error", "mismatch", "failed"}
-    else:
+    elif fail_on == "unchecked":
         failure_statuses = {"error", "mismatch", "failed", "unchecked"}
+    else:
+        failure_statuses = {"error", "mismatch", "failed", "unchecked", "skipped"}
     if require_assert and status == "unchecked":
         return True
     return status in failure_statuses
@@ -71,6 +73,25 @@ def build_config_fingerprint(settings, cases_path: Path) -> Mapping[str, object]
         "synth_model": llm_settings.synth_model,
         "cases_hash": _hash_file(cases_path),
     }
+
+
+def _load_latest_run(artifacts_dir: Path) -> Optional[Path]:
+    latest_file = artifacts_dir / "runs" / "latest.txt"
+    if latest_file.exists():
+        content = latest_file.read_text(encoding="utf-8").strip()
+        if content:
+            return Path(content)
+    return None
+
+
+def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
+    cases_dir = run_path / "cases"
+    if not cases_dir.exists():
+        return None
+    matches = sorted(cases_dir.glob(f"{case_id}_*"))
+    if matches:
+        return matches[-1]
+    return None
 
 
 def handle_chat(args) -> int:
@@ -116,6 +137,71 @@ def handle_chat(args) -> int:
     return 0
 
 
+def _resolve_run_path(path: Path | None, artifacts_dir: Path) -> Optional[Path]:
+    if path is not None:
+        return path
+    return _load_latest_run(artifacts_dir)
+
+
+def handle_case_run(args) -> int:
+    try:
+        settings = load_settings(config_path=args.config, data_dir=args.data)
+    except Exception as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        cases = {c.id: c for c in load_cases(args.cases)}
+    except Exception as exc:
+        print(f"Cases error: {exc}", file=sys.stderr)
+        return 2
+    if args.case_id not in cases:
+        print(f"Case {args.case_id} not found in {args.cases}", file=sys.stderr)
+        return 2
+
+    artifacts_dir = args.artifacts_dir or (args.data / ".runs")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}"
+    artifacts_root = run_folder / "cases"
+    results_path = run_folder / "results.jsonl"
+
+    log_dir = artifacts_dir / "logs"
+    configure_logging(level="INFO", log_dir=log_dir, to_stderr=True, jsonl=False, run_id=None)
+
+    provider, _ = build_provider(args.data, args.schema, enable_semantic=args.enable_semantic)
+    llm = build_llm(settings)
+    runner = build_agent(llm, provider)
+
+    result = run_one(cases[args.case_id], runner, artifacts_root, plan_only=args.plan_only)
+    write_results(results_path, [result])
+    save_path = run_folder.parent / "latest.txt"
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    save_path.write_text(str(run_folder), encoding="utf-8")
+
+    print(format_status_line(result))
+    print(f"Artifacts: {result.artifacts_dir}")
+    return 0
+
+
+def handle_case_open(args) -> int:
+    artifacts_dir = args.artifacts_dir or Path(".") / ".runs"
+    run_path = _resolve_run_path(args.run, artifacts_dir)
+    if not run_path:
+        print("No run found. Provide --run or ensure runs/latest.txt exists.", file=sys.stderr)
+        return 2
+    case_dir = _find_case_artifact(run_path, args.case_id)
+    if not case_dir:
+        print(f"Case {args.case_id} not found under {run_path}", file=sys.stderr)
+        return 2
+    print(f"Case {args.case_id} artifacts: {case_dir}")
+    plan = case_dir / "plan.json"
+    answer = case_dir / "answer.txt"
+    status = case_dir / "status.json"
+    for path in [plan, answer, status]:
+        if path.exists():
+            print(f"- {path}")
+    return 0
+
+
 def handle_batch(args) -> int:
     started_at = datetime.datetime.utcnow()
     run_id = uuid.uuid4().hex[:8]
@@ -134,26 +220,34 @@ def handle_batch(args) -> int:
     baseline_for_filter: Optional[Mapping[str, RunResult]] = None
     baseline_for_compare: Optional[Mapping[str, RunResult]] = None
 
-    if args.only_failed_from:
+    baseline_filter_path = args.only_failed_from
+    if args.only_failed and not baseline_filter_path:
+        latest = _load_latest_run(args.artifacts_dir or args.data / ".runs")
+        if latest:
+            baseline_filter_path = latest / "results.jsonl"
+    if baseline_filter_path:
         try:
-            baseline_for_filter = load_results(args.only_failed_from)
+            baseline_for_filter = load_results(baseline_filter_path)
         except Exception as exc:
             print(f"Failed to read baseline for --only-failed-from: {exc}", file=sys.stderr)
             return 2
 
-    if args.compare_to:
+    compare_path = args.compare_to
+    if compare_path is None and args.only_failed and baseline_filter_path:
+        compare_path = baseline_filter_path
+    if compare_path:
         try:
-            if args.only_failed_from and args.compare_to.resolve() == args.only_failed_from.resolve():
+            if baseline_filter_path and compare_path.resolve() == baseline_filter_path.resolve():
                 baseline_for_compare = baseline_for_filter
             else:
-                baseline_for_compare = load_results(args.compare_to)
+                baseline_for_compare = load_results(compare_path)
         except Exception as exc:
             print(f"Failed to read baseline for --compare-to: {exc}", file=sys.stderr)
             return 2
 
     if baseline_for_filter:
         bad_statuses = {"mismatch", "failed", "error"}
-        if args.require_assert:
+        if args.require_assert or args.fail_on == "unchecked":
             bad_statuses.add("unchecked")
         target_ids = {case_id for case_id, res in baseline_for_filter.items() if res.status in bad_statuses}
         cases = [case for case in cases if case.id in target_ids]
@@ -185,7 +279,7 @@ def handle_batch(args) -> int:
     results: list[RunResult] = []
     failures = 0
     for case in cases:
-        result = run_one(case, runner, artifacts_root)
+        result = run_one(case, runner, artifacts_root, plan_only=args.plan_only)
         results.append(result)
         if not args.quiet:
             print(format_status_line(result))
@@ -239,7 +333,8 @@ def handle_batch(args) -> int:
         bad_count += unchecked
     summary_line = (
         f"Batch: {counts.get('total', 0)} cases | Checked: {counts.get('checked_total', 0)} | "
-        f"OK: {counts.get('ok', 0)} | BAD: {bad_count} | Unchecked: {unchecked} | Skipped: {counts.get('skipped', 0)}"
+        f"Checked OK: {counts.get('checked_ok', 0)} | Unchecked OK: {counts.get('unchecked_ok', 0)} | "
+        f"BAD: {bad_count} | Unchecked: {unchecked} | Skipped: {counts.get('skipped', 0)}"
     )
 
     if args.quiet:
@@ -272,7 +367,14 @@ def handle_batch(args) -> int:
         print(f"Failures (top {args.show_failures}):")
         for res in list(failures_list.values())[: args.show_failures]:
             reason = res.reason or res.error or ""
+            repro = (
+                f"demo_qa case run {res.id} --cases {args.cases} --data {args.data} "
+                f"--schema {args.schema}" + (" --plan-only" if args.plan_only else "")
+            )
             print(f"- {res.id}: {res.status} ({reason}) [{res.artifacts_dir}]")
+            if args.show_artifacts:
+                print(f"  artifacts: {res.artifacts_dir}")
+            print(f"  repro: {repro}")
 
     print(f"Results written to: {results_path}")
     print(f"Summary written to: {summary_path}")
@@ -316,7 +418,7 @@ def main() -> None:
     batch_p.add_argument("--fail-fast", action="store_true", help="Stop on first failing case")
     batch_p.add_argument(
         "--fail-on",
-        choices=["error", "mismatch", "any"],
+        choices=["error", "mismatch", "unchecked", "any"],
         default="mismatch",
         help="Which statuses should cause a failing exit code",
     )
@@ -328,8 +430,28 @@ def main() -> None:
         default=None,
         help="Run only cases that failed/mismatched/errored in a previous results.jsonl",
     )
+    batch_p.add_argument("--only-failed", action="store_true", help="Use latest run for --only-failed-from automatically")
+    batch_p.add_argument("--plan-only", action="store_true", help="Run planner only (no fetch/synthesize)")
     batch_p.add_argument("--quiet", action="store_true", help="Print only summary and exit code")
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")
+    batch_p.add_argument("--show-artifacts", action="store_true", help="Show artifact paths for failures")
+
+    case_p = sub.add_parser("case", help="Single-case utilities")
+    case_sub = case_p.add_subparsers(dest="case_command", required=True)
+    case_run = case_sub.add_parser("run", help="Run a single case by id")
+    case_run.add_argument("case_id")
+    case_run.add_argument("--cases", type=Path, required=True, help="Path to cases jsonl")
+    case_run.add_argument("--data", type=Path, required=True)
+    case_run.add_argument("--schema", type=Path, required=True)
+    case_run.add_argument("--config", type=Path, default=None)
+    case_run.add_argument("--enable-semantic", action="store_true")
+    case_run.add_argument("--artifacts-dir", type=Path, default=None)
+    case_run.add_argument("--plan-only", action="store_true")
+
+    case_open = case_sub.add_parser("open", help="Show artifacts for a case in a run folder")
+    case_open.add_argument("case_id")
+    case_open.add_argument("--run", type=Path, default=None, help="Run folder (defaults to latest)")
+    case_open.add_argument("--artifacts-dir", type=Path, default=None, help="Base artifacts dir for latest lookup")
 
     args = parser.parse_args()
 
@@ -342,6 +464,13 @@ def main() -> None:
         code = handle_chat(args)
     elif args.command == "batch":
         code = handle_batch(args)
+    elif args.command == "case":
+        if args.case_command == "run":
+            code = handle_case_run(args)
+        elif args.case_command == "open":
+            code = handle_case_open(args)
+        else:
+            code = 1
     else:
         code = 0
     raise SystemExit(code)

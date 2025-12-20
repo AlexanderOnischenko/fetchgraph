@@ -41,6 +41,7 @@ class RunArtifacts:
     raw_synth: str | None = None
     error: str | None = None
     timings: RunTimings = field(default_factory=RunTimings)
+    plan_only: bool = False
 
 
 @dataclass
@@ -117,9 +118,9 @@ class AgentRunner:
             task_profile=task_profile,
         )
 
-    def run_question(self, question: str, run_id: str, run_dir: Path) -> RunArtifacts:
+    def run_question(self, question: str, run_id: str, run_dir: Path, *, plan_only: bool = False) -> RunArtifacts:
         set_run_id(run_id)
-        artifacts = RunArtifacts(run_id=run_id, run_dir=run_dir, question=question)
+        artifacts = RunArtifacts(run_id=run_id, run_dir=run_dir, question=question, plan_only=plan_only)
 
         started = time.perf_counter()
         try:
@@ -128,17 +129,18 @@ class AgentRunner:
             artifacts.timings.plan_s = time.perf_counter() - plan_started
             artifacts.plan = plan.model_dump()
 
-            fetch_started = time.perf_counter()
-            ctx = self.agent._fetch(question, plan)  # type: ignore[attr-defined]
-            artifacts.timings.fetch_s = time.perf_counter() - fetch_started
-            artifacts.context = {k: v.text for k, v in (ctx or {}).items()} if ctx else {}
+            if not plan_only:
+                fetch_started = time.perf_counter()
+                ctx = self.agent._fetch(question, plan)  # type: ignore[attr-defined]
+                artifacts.timings.fetch_s = time.perf_counter() - fetch_started
+                artifacts.context = {k: v.text for k, v in (ctx or {}).items()} if ctx else {}
 
-            synth_started = time.perf_counter()
-            draft = self.agent._synthesize(question, ctx, plan)  # type: ignore[attr-defined]
-            artifacts.timings.synth_s = time.perf_counter() - synth_started
-            artifacts.raw_synth = str(draft)
-            parsed = self.agent.domain_parser(draft)
-            artifacts.answer = str(parsed)
+                synth_started = time.perf_counter()
+                draft = self.agent._synthesize(question, ctx, plan)  # type: ignore[attr-defined]
+                artifacts.timings.synth_s = time.perf_counter() - synth_started
+                artifacts.raw_synth = str(draft)
+                parsed = self.agent.domain_parser(draft)
+                artifacts.answer = str(parsed)
         except Exception as exc:  # pragma: no cover - demo fallback
             artifacts.error = str(exc)
         finally:
@@ -217,8 +219,9 @@ def _build_result(
         reason = expected_check.detail
         details = {"expected_check": expected_check.__dict__}
     else:
-        reason = "no expectations provided"
-        details = {"note": "no expectations provided"}
+        status = "unchecked"
+        reason = "plan-only" if artifacts.plan_only else "no expectations provided"
+        details = {"note": reason}
 
     plan_path = str(run_dir / "plan.json") if artifacts.plan is not None else None
     duration_ms = int((artifacts.timings.total_s or 0.0) * 1000)
@@ -239,7 +242,7 @@ def _build_result(
     )
 
 
-def run_one(case: Case, runner: AgentRunner, artifacts_root: Path) -> RunResult:
+def run_one(case: Case, runner: AgentRunner, artifacts_root: Path, *, plan_only: bool = False) -> RunResult:
     run_id = uuid.uuid4().hex[:8]
     run_dir = artifacts_root / f"{case.id}_{run_id}"
     if case.skip:
@@ -263,7 +266,7 @@ def run_one(case: Case, runner: AgentRunner, artifacts_root: Path) -> RunResult:
         save_status(result)
         return result
 
-    artifacts = runner.run_question(case.question, run_id, run_dir)
+    artifacts = runner.run_question(case.question, run_id, run_dir, plan_only=plan_only)
     save_artifacts(artifacts)
 
     expected_check = _match_expected(case, artifacts.answer)
@@ -276,16 +279,24 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
     totals = {"ok": 0, "mismatch": 0, "failed": 0, "error": 0, "skipped": 0, "unchecked": 0}
     total_times: List[float] = []
     checked_total = 0
+    checked_ok = 0
+    unchecked_ok = 0
     for res in results:
         totals[res.status] = totals.get(res.status, 0) + 1
         if res.duration_ms is not None:
             total_times.append(res.duration_ms / 1000)
         if res.checked and res.status in {"ok", "mismatch", "failed", "error"}:
             checked_total += 1
+        if res.status == "ok" and res.checked:
+            checked_ok += 1
+        if res.status == "unchecked":
+            unchecked_ok += 1
 
     summary: Dict[str, object] = {
         "total": sum(totals.values()),
         "checked_total": checked_total,
+        "checked_ok": checked_ok,
+        "unchecked_ok": unchecked_ok,
         **totals,
     }
     if total_times:
@@ -412,7 +423,7 @@ def load_results(path: Path) -> Dict[str, RunResult]:
 
 def _bucket(status: str, checked: bool, require_assert: bool) -> str:
     if status == "ok":
-        return "OK"
+        return "OK" if checked else "UNCHECKED"
     if status in {"mismatch", "failed", "error"}:
         return "BAD"
     if status == "unchecked":

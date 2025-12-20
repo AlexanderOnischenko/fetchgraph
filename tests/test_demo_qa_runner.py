@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from examples.demo_qa.runner import Case, RunResult, _match_expected, compare_results
+from examples.demo_qa.runner import Case, RunResult, _match_expected, compare_results, summarize
 
 
 def test_match_expected_unchecked_when_no_expectations() -> None:
@@ -109,3 +109,43 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
     assert "err_to_ok" in diff["new_ok"]
     assert "checked_to_unchecked" in diff["new_unchecked"]
     assert "new_ok" in diff["new_ok"]
+
+
+def test_summarize_counts_checked_and_unchecked() -> None:
+    results = [
+        RunResult(
+            id="c1",
+            question="",
+            status="ok",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/a",
+            duration_ms=10,
+        ),
+        RunResult(
+            id="c2",
+            question="",
+            status="unchecked",
+            checked=False,
+            reason=None,
+            details=None,
+            artifacts_dir="/b",
+            duration_ms=5,
+        ),
+        RunResult(
+            id="c3",
+            question="",
+            status="mismatch",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/c",
+            duration_ms=7,
+        ),
+    ]
+
+    summary = summarize(results)
+    assert summary["checked_ok"] == 1
+    assert summary["unchecked_ok"] == 1  # counts unchecked separately
+    assert summary["checked_total"] == 2

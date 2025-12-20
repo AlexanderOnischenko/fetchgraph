@@ -147,5 +147,5 @@ def test_summarize_counts_checked_and_unchecked() -> None:
 
     summary = summarize(results)
     assert summary["checked_ok"] == 1
-    assert summary["unchecked_ok"] == 1  # counts unchecked separately
+    assert summary["unchecked_no_assert"] == 1  # counts unchecked separately
     assert summary["checked_total"] == 2

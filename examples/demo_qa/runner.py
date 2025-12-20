@@ -219,7 +219,7 @@ def _build_result(
         reason = expected_check.detail
         details = {"expected_check": expected_check.__dict__}
     else:
-        status = "unchecked"
+        status = "plan_only" if artifacts.plan_only else "unchecked"
         reason = "plan-only" if artifacts.plan_only else "no expectations provided"
         details = {"note": reason}
 
@@ -276,11 +276,12 @@ def run_one(case: Case, runner: AgentRunner, artifacts_root: Path, *, plan_only:
 
 
 def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
-    totals = {"ok": 0, "mismatch": 0, "failed": 0, "error": 0, "skipped": 0, "unchecked": 0}
+    totals = {"ok": 0, "mismatch": 0, "failed": 0, "error": 0, "skipped": 0, "unchecked": 0, "plan_only": 0}
     total_times: List[float] = []
     checked_total = 0
     checked_ok = 0
-    unchecked_ok = 0
+    unchecked_no_assert = 0
+    plan_only = 0
     for res in results:
         totals[res.status] = totals.get(res.status, 0) + 1
         if res.duration_ms is not None:
@@ -290,13 +291,16 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
         if res.status == "ok" and res.checked:
             checked_ok += 1
         if res.status == "unchecked":
-            unchecked_ok += 1
+            unchecked_no_assert += 1
+        if res.status == "plan_only":
+            plan_only += 1
 
     summary: Dict[str, object] = {
         "total": sum(totals.values()),
         "checked_total": checked_total,
         "checked_ok": checked_ok,
-        "unchecked_ok": unchecked_ok,
+        "unchecked_no_assert": unchecked_no_assert,
+        "plan_only": plan_only,
         **totals,
     }
     if total_times:
@@ -312,6 +316,7 @@ def load_cases(path: Path) -> List[Case]:
     if not path.exists():
         raise FileNotFoundError(f"Cases file not found: {path}")
     cases: List[Case] = []
+    seen_ids: set[str] = set()
     with path.open("r", encoding="utf-8") as f:
         for lineno, line in enumerate(f, start=1):
             line = line.strip()
@@ -323,12 +328,26 @@ def load_cases(path: Path) -> List[Case]:
                 raise ValueError(f"Invalid JSON on line {lineno}: {exc}") from exc
             if "id" not in payload or "question" not in payload:
                 raise ValueError(f"Case on line {lineno} missing required fields 'id' and 'question'")
+            case_id = str(payload["id"])
+            if case_id in seen_ids:
+                raise ValueError(f"Duplicate case id {case_id!r} on line {lineno}")
+            seen_ids.add(case_id)
+            expected = payload.get("expected")
+            expected_regex = payload.get("expected_regex")
+            expected_contains = payload.get("expected_contains")
+            for field_name, val in [
+                ("expected", expected),
+                ("expected_regex", expected_regex),
+                ("expected_contains", expected_contains),
+            ]:
+                if val is not None and str(val).strip() == "":
+                    raise ValueError(f"{field_name} must not be empty on line {lineno}")
             case = Case(
-                id=str(payload["id"]),
+                id=case_id,
                 question=str(payload["question"]),
-                expected=payload.get("expected"),
-                expected_regex=payload.get("expected_regex"),
-                expected_contains=payload.get("expected_contains"),
+                expected=expected,
+                expected_regex=expected_regex,
+                expected_contains=expected_contains,
                 tags=list(payload.get("tags", []) or []),
                 skip=bool(payload.get("skip", False)),
             )
@@ -426,7 +445,7 @@ def _bucket(status: str, checked: bool, require_assert: bool) -> str:
         return "OK" if checked else "UNCHECKED"
     if status in {"mismatch", "failed", "error"}:
         return "BAD"
-    if status == "unchecked":
+    if status in {"unchecked", "plan_only"}:
         return "BAD" if require_assert else "UNCHECKED"
     return "NEUTRAL"
 
@@ -489,8 +508,8 @@ def format_status_line(result: RunResult) -> str:
         return f"OK {result.id} {timing}"
     if result.status == "skipped":
         return f"SKIP {result.id}"
-    if result.status == "unchecked":
-        return f"UNCHECKED {result.id} {timing}"
+    if result.status in {"unchecked", "plan_only"}:
+        return f"{result.status.upper()} {result.id} {timing}"
     reason = result.reason or ""
     return f"FAIL {result.id} {result.status} ({reason or 'unknown'}) {timing}"
 

@@ -52,6 +52,21 @@ python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.y
 
 Флаг `--enable-semantic` строит семантический индекс, если передана модель эмбеддингов.
 
+## Batch
+
+Запустить пакетный прогон вопросов из `cases.jsonl` (по одному JSON на строку, поля `id`, `question`, опционально `expected`/`expected_regex`/`expected_contains` и `skip`):
+
+```bash
+python -m examples.demo_qa.cli batch \
+  --data demo_data \
+  --schema demo_data/schema.yaml \
+  --cases cases.jsonl \
+  --out results.jsonl
+```
+
+* Артефакты по умолчанию пишутся в `<data>/.runs/batch_<timestamp>/id_runid/` (`plan.json`, `context.json`, `answer.txt`, `raw_synth.txt`, `error.txt`).
+* `results.jsonl` содержит по строке на кейс, рядом сохраняется `summary.json` с агрегацией статусов.
+* Флаги `--fail-on (error|mismatch|any)`, `--max-fails` и `--fail-fast` управляют остановкой и кодом выхода (0/1/2).
 ## Local proxy
 
 Для OpenAI-совместимых серверов (например, LM Studio) укажите `base_url` с `.../v1` и

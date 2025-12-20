@@ -13,8 +13,7 @@ if str(SRC) not in sys.path:
 from .chat_repl import start_repl
 from .data_gen import generate_and_save
 from .llm.factory import build_llm
-from .llm.cache import apply_llm_cache
-from .runner import ensure_artifacts_root, load_cases, setup_runner
+from .logging_config import configure_logging
 from .settings import load_settings
 
 
@@ -94,8 +93,6 @@ def main() -> None:
     chat_p.add_argument("--schema", type=Path, required=True)
     chat_p.add_argument("--config", type=Path, default=None, help="Path to demo_qa.toml")
     chat_p.add_argument("--enable-semantic", action="store_true")
-    chat_p.add_argument("--llm-cache", choices=["off", "record", "replay"], default="off")
-    chat_p.add_argument("--llm-cache-file", type=Path, default=None)
 
     batch_p = sub.add_parser("batch", help="Run batch QA cases")
     batch_p.add_argument("--data", type=Path, required=True)
@@ -110,6 +107,10 @@ def main() -> None:
     batch_p.add_argument("--fail-on", choices=["error", "mismatch", "any"], default="error")
     batch_p.add_argument("--llm-cache", choices=["off", "record", "replay"], default="off")
     batch_p.add_argument("--llm-cache-file", type=Path, default=None)
+    chat_p.add_argument("--log-level", default="INFO", help="Logging level (INFO, DEBUG, etc.)")
+    chat_p.add_argument("--log-dir", type=Path, default=None, help="Directory for log files")
+    chat_p.add_argument("--log-stderr", action="store_true", help="Also stream logs to stderr")
+    chat_p.add_argument("--log-jsonl", action="store_true", help="Write logs as JSONL")
 
     args = parser.parse_args()
 
@@ -125,6 +126,29 @@ def main() -> None:
             print(f"Configuration error: {exc}", file=sys.stderr)
             raise SystemExit(2) from exc
 
+        log_dir = args.log_dir or args.data / ".runs" / "logs"
+        log_file = configure_logging(
+            level=args.log_level,
+            log_dir=log_dir,
+            to_stderr=args.log_stderr,
+            jsonl=args.log_jsonl,
+            run_id=None,
+        )
+
+        llm_settings = settings.llm
+        llm_endpoint = llm_settings.base_url or "https://api.openai.com/v1"
+        diagnostics = [
+            f"LLM endpoint: {llm_endpoint}",
+            f"Plan model: {llm_settings.plan_model} (temp={llm_settings.plan_temperature})",
+            f"Synth model: {llm_settings.synth_model} (temp={llm_settings.synth_temperature})",
+            f"Timeout: {llm_settings.timeout_s if llm_settings.timeout_s is not None else 'default'}, "
+            f"Retries: {llm_settings.retries if llm_settings.retries is not None else 'default'}",
+        ]
+        if args.enable_semantic:
+            diagnostics.append(f"Embeddings: CSV semantic backend in {args.data} (*.embeddings.json)")
+        else:
+            diagnostics.append("Embeddings: disabled (use --enable-semantic to build/search embeddings).")
+
         llm = build_llm(settings)
         cache_file = args.llm_cache_file or (args.data / ".runs" / "llm_cache.jsonl")
         llm = apply_llm_cache(
@@ -134,7 +158,14 @@ def main() -> None:
             namespace=_cache_namespace(settings),
         )
 
-        start_repl(args.data, args.schema, llm, enable_semantic=args.enable_semantic)
+        start_repl(
+            args.data,
+            args.schema,
+            llm,
+            enable_semantic=args.enable_semantic,
+            log_file=log_file,
+            diagnostics=diagnostics,
+        )
         return
 
     if args.command == "batch":

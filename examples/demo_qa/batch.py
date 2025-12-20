@@ -313,6 +313,7 @@ def compare_runs(base_path: Path, new_path: Path) -> dict[str, object]:
         "new_fail": new_fail,
         "fixed": fixed,
         "still_fail": still_fail,
+        "all_ids": list(new.keys()),
         "base_counts": base_counts,
         "new_counts": new_counts,
         "base_median": base_med,
@@ -373,8 +374,9 @@ def write_junit(compare: dict[str, object], out_path: Path) -> None:
     suite = ET.Element("testsuite", name="demo_qa_compare")
     bad = compare["new_fail"] + compare["still_fail"]  # type: ignore[operator]
     fixed = compare["fixed"]  # type: ignore[assignment]
-    cases = compare["new_counts"].get("total", 0) if isinstance(compare.get("new_counts"), dict) else 0
-    suite.set("tests", str(cases))
+    all_ids = set(compare.get("all_ids", []) or [])  # type: ignore[arg-type]
+    cases_total = len(all_ids)
+    suite.set("tests", str(cases_total))
     suite.set("failures", str(len(bad)))
     suite.set("errors", "0")
 
@@ -388,6 +390,10 @@ def write_junit(compare: dict[str, object], out_path: Path) -> None:
 
     for row in fixed:
         ET.SubElement(suite, "testcase", name=row["id"])
+
+    ok_ids = all_ids - {row["id"] for row in bad} - {row["id"] for row in fixed}
+    for cid in ok_ids:
+        ET.SubElement(suite, "testcase", name=cid)
 
     tree = ET.ElementTree(suite)
     out_path.write_text(ET.tostring(suite, encoding="unicode"), encoding="utf-8")

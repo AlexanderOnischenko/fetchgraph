@@ -133,10 +133,10 @@ def start_repl(
             error_artifacts.error = error_artifacts.error or str(exc)
             last_artifacts = error_artifacts
             save_artifacts(error_artifacts)
-            print(f\"Error during run {run_id}: {exc}\", file=sys.stderr)
+            print(f"Error during run {run_id}: {exc}", file=sys.stderr)
         finally:
-            if plan_debug_mode == \"once\":
-                plan_debug_mode = \"off\"
+            if plan_debug_mode == "once":
+                plan_debug_mode = "off"
 
 
 __all__ = ["start_repl"]

@@ -427,6 +427,11 @@ def load_cases(path: Path) -> List[Case]:
             ]:
                 if val is not None and str(val).strip() == "":
                     raise ValueError(f"{field_name} must not be empty on line {lineno}")
+            if expected_regex is not None:
+                try:
+                    re.compile(expected_regex)
+                except re.error as exc:
+                    raise ValueError(f"Invalid expected_regex on line {lineno}: {exc}") from exc
             case = Case(
                 id=case_id,
                 question=str(payload["question"]),

@@ -15,6 +15,7 @@ from .logging_config import configure_logging
 from .provider_factory import build_provider
 from .runner import (
     Case,
+    EventLogger,
     RunResult,
     build_agent,
     compare_results,
@@ -85,6 +86,24 @@ def is_failure(status: str, fail_on: str, require_assert: bool) -> bool:
 def _hash_file(path: Path) -> str:
     data = path.read_bytes()
     return hashlib.sha256(data).hexdigest()
+
+
+def _split_csv(value: Optional[str]) -> set[str] | None:
+    if not value:
+        return None
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def _load_ids(path: Optional[Path]) -> set[str] | None:
+    if path is None:
+        return None
+    ids = set()
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                ids.add(line)
+    return ids
 
 
 def build_config_fingerprint(settings, cases_path: Path) -> Mapping[str, object]:
@@ -377,9 +396,25 @@ def _select_cases_for_rerun(
     *,
     require_assert: bool,
     fail_on: str,
+    include_tags: set[str] | None,
+    exclude_tags: set[str] | None,
+    include_ids: set[str] | None,
+    exclude_ids: set[str] | None,
 ) -> list[Case]:
+    filtered: list[Case] = []
+    for case in cases:
+        tags = set(case.tags)
+        if include_tags and not tags.intersection(include_tags):
+            continue
+        if exclude_tags and tags.intersection(exclude_tags):
+            continue
+        if include_ids and case.id not in include_ids:
+            continue
+        if exclude_ids and case.id in exclude_ids:
+            continue
+        filtered.append(case)
     if not baseline_for_filter:
-        return cases
+        return filtered
     bad_statuses = {"mismatch", "failed", "error"}
     if fail_on == "error":
         bad_statuses = {"error"}
@@ -397,7 +432,7 @@ def _select_cases_for_rerun(
     if require_assert:
         bad_statuses |= {"unchecked", "plan_only"}
     target_ids = {case_id for case_id, res in baseline_for_filter.items() if res.status in bad_statuses}
-    return [case for case in cases if case.id in target_ids]
+    return [case for case in filtered if case.id in target_ids]
 
 
 def handle_batch(args) -> int:
@@ -454,7 +489,14 @@ def handle_batch(args) -> int:
             return 2
 
     cases = _select_cases_for_rerun(
-        cases, baseline_for_filter, require_assert=args.require_assert, fail_on=args.fail_on
+        cases,
+        baseline_for_filter,
+        require_assert=args.require_assert,
+        fail_on=args.fail_on,
+        include_tags=_split_csv(args.include_tags),
+        exclude_tags=_split_csv(args.exclude_tags),
+        include_ids=_load_ids(args.include_ids),
+        exclude_ids=_load_ids(args.exclude_ids),
     )
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -478,11 +520,17 @@ def handle_batch(args) -> int:
     provider, _ = build_provider(args.data, args.schema, enable_semantic=args.enable_semantic)
     llm = build_llm(settings)
     runner = build_agent(llm, provider)
+    events_path = None
+    if args.events == "on":
+        events_path = args.events_file or (run_folder / "events.jsonl")
+    event_logger = EventLogger(events_path, run_id) if events_path else None
+    if event_logger:
+        event_logger.emit({"type": "run_started", "cases": len(cases), "run_dir": str(run_folder)})
 
     results: list[RunResult] = []
     failures = 0
     for case in cases:
-        result = run_one(case, runner, artifacts_root, plan_only=args.plan_only)
+        result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
         results.append(result)
         if not args.quiet:
             print(format_status_line(result))
@@ -525,6 +573,10 @@ def handle_batch(args) -> int:
         summary["diff"] = diff_block
 
     summary_path = write_summary(results_path, summary)
+    summary_by_tag = summary.get("summary_by_tag")
+    if summary_by_tag:
+        summary_by_tag_path = summary_path.with_name("summary_by_tag.json")
+        summary_by_tag_path.write_text(json.dumps(summary_by_tag, ensure_ascii=False, indent=2), encoding="utf-8")
 
     latest_path = run_folder.parent / "latest.txt"
     latest_results_path = run_folder.parent / "latest_results.txt"

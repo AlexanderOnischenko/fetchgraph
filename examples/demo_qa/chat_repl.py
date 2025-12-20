@@ -10,7 +10,16 @@ import readline
 import json
 
 from .provider_factory import build_provider
-from .runner import RunArtifacts, build_agent, save_artifacts
+from .runner import Case, EventLogger, RunArtifacts, build_agent, run_one, save_artifacts
+
+
+def _load_json(path: Path) -> object | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _maybe_add_history(entry: str) -> None:
@@ -94,25 +103,40 @@ def start_repl(
         run_id = uuid.uuid4().hex[:8]
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = runs_root / f"{timestamp}_{run_id}"
+        events_path = run_dir / "events.jsonl"
+        event_logger = EventLogger(events_path, run_id)
+        print(f"Events: {events_path}")
 
         artifacts: RunArtifacts | None = None
         try:
-            artifacts = runner.run_question(line, run_id, run_dir)
+            case = Case(id=run_id, question=line, tags=[])
+            result = run_one(case, runner, run_dir, plan_only=False, event_logger=event_logger)
+            plan_obj = _load_json(Path(result.artifacts_dir) / "plan.json")
+            ctx_obj = _load_json(Path(result.artifacts_dir) / "context.json") or {}
+            artifacts = RunArtifacts(
+                run_id=run_id,
+                run_dir=Path(result.artifacts_dir),
+                question=line,
+                plan=plan_obj if isinstance(plan_obj, dict) else None,
+                context=ctx_obj if isinstance(ctx_obj, dict) else None,
+                answer=result.answer,
+                raw_synth=None,
+                error=result.error,
+            )
             last_artifacts = artifacts
-            save_artifacts(artifacts)
             if plan_debug_mode in {"on", "once"} and artifacts.plan:
                 print("--- PLAN ---")
                 print(json.dumps(artifacts.plan, ensure_ascii=False, indent=2))
-            print(artifacts.answer or "")
+            print(result.answer or "")
         except Exception as exc:  # pragma: no cover - REPL resilience
             error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=run_dir, question=line)
             error_artifacts.error = error_artifacts.error or str(exc)
             last_artifacts = error_artifacts
             save_artifacts(error_artifacts)
-            print(f"Error during run {run_id}: {exc}", file=sys.stderr)
+            print(f\"Error during run {run_id}: {exc}\", file=sys.stderr)
         finally:
-            if plan_debug_mode == "once":
-                plan_debug_mode = "off"
+            if plan_debug_mode == \"once\":
+                plan_debug_mode = \"off\"
 
 
 __all__ = ["start_repl"]

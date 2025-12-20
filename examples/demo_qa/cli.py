@@ -81,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")
     batch_p.add_argument("--show-artifacts", action="store_true", help="Show artifact paths for failures")
     batch_p.add_argument("--history", type=Path, default=None, help="Path to history.jsonl (default: <data>/.runs/history.jsonl)")
+    batch_p.add_argument("--include-tags", type=str, default=None, help="Comma-separated tags to include")
+    batch_p.add_argument("--exclude-tags", type=str, default=None, help="Comma-separated tags to exclude")
+    batch_p.add_argument("--include-ids", type=Path, default=None, help="Path to file with ids to include (one per line)")
+    batch_p.add_argument("--exclude-ids", type=Path, default=None, help="Path to file with ids to exclude (one per line)")
+    batch_p.add_argument("--events", choices=["on", "off"], default="on", help="Enable events.jsonl emission")
+    batch_p.add_argument("--events-file", type=Path, default=None, help="Override events file path")
 
     case_root = sub.add_parser("case", help="Single-case utilities")
     case_sub = case_root.add_subparsers(dest="case_command", required=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import statistics
@@ -120,29 +121,49 @@ class AgentRunner:
             task_profile=task_profile,
         )
 
-    def run_question(self, question: str, run_id: str, run_dir: Path, *, plan_only: bool = False) -> RunArtifacts:
+    def run_question(
+        self,
+        case: Case,
+        run_id: str,
+        run_dir: Path,
+        *,
+        plan_only: bool = False,
+        event_logger: EventLogger | None = None,
+    ) -> RunArtifacts:
         set_run_id(run_id)
-        artifacts = RunArtifacts(run_id=run_id, run_dir=run_dir, question=question, plan_only=plan_only)
+        artifacts = RunArtifacts(run_id=run_id, run_dir=run_dir, question=case.question, plan_only=plan_only)
 
         started = time.perf_counter()
         try:
+            if event_logger:
+                event_logger.emit({"type": "plan_started", "case_id": case.id})
             plan_started = time.perf_counter()
-            plan = self.agent._plan(question)  # type: ignore[attr-defined]
+            plan = self.agent._plan(case.question)  # type: ignore[attr-defined]
             artifacts.timings.plan_s = time.perf_counter() - plan_started
             artifacts.plan = plan.model_dump()
 
+            if event_logger:
+                event_logger.emit({"type": "plan_built", "case_id": case.id, "plan_path": str(run_dir / "plan.json")})
             if not plan_only:
+                if event_logger:
+                    event_logger.emit({"type": "fetch_started", "case_id": case.id})
                 fetch_started = time.perf_counter()
-                ctx = self.agent._fetch(question, plan)  # type: ignore[attr-defined]
+                ctx = self.agent._fetch(case.question, plan)  # type: ignore[attr-defined]
                 artifacts.timings.fetch_s = time.perf_counter() - fetch_started
                 artifacts.context = {k: v.text for k, v in (ctx or {}).items()} if ctx else {}
 
+                if event_logger:
+                    event_logger.emit({"type": "fetch_finished", "case_id": case.id})
+                if event_logger:
+                    event_logger.emit({"type": "synth_started", "case_id": case.id})
                 synth_started = time.perf_counter()
-                draft = self.agent._synthesize(question, ctx, plan)  # type: ignore[attr-defined]
+                draft = self.agent._synthesize(case.question, ctx, plan)  # type: ignore[attr-defined]
                 artifacts.timings.synth_s = time.perf_counter() - synth_started
                 artifacts.raw_synth = str(draft)
                 parsed = self.agent.domain_parser(draft)
                 artifacts.answer = str(parsed)
+                if event_logger:
+                    event_logger.emit({"type": "synth_finished", "case_id": case.id})
         except Exception as exc:  # pragma: no cover - demo fallback
             artifacts.error = str(exc)
         finally:
@@ -245,9 +266,19 @@ def _build_result(
     )
 
 
-def run_one(case: Case, runner: AgentRunner, artifacts_root: Path, *, plan_only: bool = False) -> RunResult:
+def run_one(
+    case: Case,
+    runner: AgentRunner,
+    artifacts_root: Path,
+    *,
+    plan_only: bool = False,
+    event_logger: EventLogger | None = None,
+) -> RunResult:
     run_id = uuid.uuid4().hex[:8]
     run_dir = artifacts_root / f"{case.id}_{run_id}"
+    case_logger = event_logger.for_case(case.id, run_dir / "events.jsonl") if event_logger else None
+    if case_logger:
+        case_logger.emit({"type": "case_started", "case_id": case.id, "run_dir": str(run_dir)})
     if case.skip:
         run_dir.mkdir(parents=True, exist_ok=True)
         _save_text(run_dir / "skipped.txt", "Skipped by request")
@@ -267,14 +298,36 @@ def run_one(case: Case, runner: AgentRunner, artifacts_root: Path, *, plan_only:
             expected_check=None,
         )
         save_status(result)
+        if case_logger:
+            case_logger.emit({"type": "case_finished", "case_id": case.id, "status": "skipped"})
         return result
 
-    artifacts = runner.run_question(case.question, run_id, run_dir, plan_only=plan_only)
+    artifacts = runner.run_question(case, run_id, run_dir, plan_only=plan_only, event_logger=case_logger)
     save_artifacts(artifacts)
 
     expected_check = None if plan_only else _match_expected(case, artifacts.answer)
     result = _build_result(case, artifacts, run_dir, expected_check)
     save_status(result)
+    if case_logger:
+        if result.status == "error":
+            case_logger.emit(
+                {
+                    "type": "case_failed",
+                    "case_id": case.id,
+                    "status": result.status,
+                    "reason": result.reason,
+                    "artifacts_dir": result.artifacts_dir,
+                }
+            )
+        case_logger.emit(
+            {
+                "type": "case_finished",
+                "case_id": case.id,
+                "status": result.status,
+                "duration_ms": result.duration_ms,
+                "artifacts_dir": result.artifacts_dir,
+            }
+        )
     return result
 
 
@@ -552,6 +605,7 @@ __all__ = [
     "ExpectedCheck",
     "RunArtifacts",
     "RunResult",
+    "EventLogger",
     "build_agent",
     "compare_results",
     "format_status_line",
@@ -563,3 +617,21 @@ __all__ = [
     "summarize",
     "_match_expected",
 ]
+class EventLogger:
+    def __init__(self, path: Path | None, run_id: str):
+        self.path = path
+        self.run_id = run_id
+        if path:
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+    def emit(self, event: Dict[str, object]) -> None:
+        if not self.path:
+            return
+        payload = {"timestamp": datetime.datetime.utcnow().isoformat() + "Z", "run_id": self.run_id, **event}
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def for_case(self, case_id: str, path: Path | None = None) -> "EventLogger":
+        if path is None:
+            return self
+        return EventLogger(path, self.run_id)

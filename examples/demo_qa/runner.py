@@ -291,6 +291,7 @@ def run_one(
             details=None,
             artifacts_dir=str(run_dir),
             duration_ms=0,
+            tags=list(case.tags),
             answer=None,
             error=None,
             plan_path=None,

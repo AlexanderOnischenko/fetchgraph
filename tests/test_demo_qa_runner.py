@@ -37,6 +37,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             details=None,
             artifacts_dir="/tmp/ok",
             duration_ms=10,
+            tags=[],
         ),
         "err_to_ok": RunResult(
             id="err_to_ok",
@@ -47,6 +48,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             details=None,
             artifacts_dir="/tmp/err",
             duration_ms=10,
+            tags=[],
         ),
         "checked_to_unchecked": RunResult(
             id="checked_to_unchecked",
@@ -57,6 +59,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             details=None,
             artifacts_dir="/tmp/ok2",
             duration_ms=10,
+            tags=[],
         ),
     }
 
@@ -70,6 +73,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             details=None,
             artifacts_dir="/tmp/ok",
             duration_ms=10,
+            tags=[],
         ),
         "err_to_ok": RunResult(
             id="err_to_ok",
@@ -80,6 +84,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             details=None,
             artifacts_dir="/tmp/err",
             duration_ms=10,
+            tags=[],
         ),
         "checked_to_unchecked": RunResult(
             id="checked_to_unchecked",
@@ -90,6 +95,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             details=None,
             artifacts_dir="/tmp/ok2",
             duration_ms=10,
+            tags=[],
         ),
         "new_ok": RunResult(
             id="new_ok",
@@ -100,6 +106,7 @@ def test_compare_results_tracks_regressions_and_improvements() -> None:
             details=None,
             artifacts_dir="/tmp/new",
             duration_ms=10,
+            tags=[],
         ),
     }
 
@@ -122,6 +129,7 @@ def test_summarize_counts_checked_and_unchecked() -> None:
             details=None,
             artifacts_dir="/a",
             duration_ms=10,
+            tags=[],
         ),
         RunResult(
             id="c2",
@@ -132,6 +140,7 @@ def test_summarize_counts_checked_and_unchecked() -> None:
             details=None,
             artifacts_dir="/b",
             duration_ms=5,
+            tags=[],
         ),
         RunResult(
             id="c3",
@@ -142,6 +151,7 @@ def test_summarize_counts_checked_and_unchecked() -> None:
             details=None,
             artifacts_dir="/c",
             duration_ms=7,
+            tags=[],
         ),
     ]
 

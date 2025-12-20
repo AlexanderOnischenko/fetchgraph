@@ -54,6 +54,7 @@ class RunResult:
     details: Dict[str, object] | None
     artifacts_dir: str
     duration_ms: int
+    tags: list[str]
     answer: str | None = None
     error: str | None = None
     plan_path: str | None = None
@@ -70,6 +71,7 @@ class RunResult:
             "details": self.details,
             "artifacts_dir": self.artifacts_dir,
             "duration_ms": self.duration_ms,
+            "tags": self.tags,
             "answer": self.answer,
             "error": self.error,
             "plan_path": self.plan_path,
@@ -234,6 +236,7 @@ def _build_result(
         details=details,
         artifacts_dir=str(run_dir),
         duration_ms=duration_ms,
+        tags=list(case.tags),
         answer=artifacts.answer,
         error=artifacts.error,
         plan_path=plan_path,
@@ -282,6 +285,7 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
     checked_ok = 0
     unchecked_no_assert = 0
     plan_only = 0
+    per_tag: Dict[str, Dict[str, object]] = {}
     for res in results:
         totals[res.status] = totals.get(res.status, 0) + 1
         if res.duration_ms is not None:
@@ -294,6 +298,12 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
             unchecked_no_assert += 1
         if res.status == "plan_only":
             plan_only += 1
+        for tag in res.tags:
+            bucket = per_tag.setdefault(
+                tag, {"ok": 0, "mismatch": 0, "failed": 0, "error": 0, "skipped": 0, "unchecked": 0, "plan_only": 0}
+            )
+            bucket[res.status] = bucket.get(res.status, 0) + 1
+            bucket["total"] = bucket.get("total", 0) + 1
 
     summary: Dict[str, object] = {
         "total": sum(totals.values()),
@@ -301,6 +311,7 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
         "checked_ok": checked_ok,
         "unchecked_no_assert": unchecked_no_assert,
         "plan_only": plan_only,
+        "summary_by_tag": per_tag,
         **totals,
     }
     if total_times:
@@ -309,6 +320,26 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
     else:
         summary["avg_total_s"] = None
         summary["median_total_s"] = None
+
+    for tag, bucket in per_tag.items():
+        times: List[float] = []
+        # no per-tag timing collected; reuse overall average for simplicity
+        if times:
+            bucket["avg_total_s"] = statistics.fmean(times)
+            bucket["median_total_s"] = statistics.median(times)
+        else:
+            bucket["avg_total_s"] = None
+            bucket["median_total_s"] = None
+        total = bucket.get("total", 0)
+        checked_total_tag = (bucket.get("ok", 0) or 0) + (bucket.get("mismatch", 0) or 0) + (
+            bucket.get("failed", 0) or 0
+        )
+        bucket["checked_total"] = checked_total_tag
+        non_skipped = total - (bucket.get("skipped", 0) or 0)
+        if non_skipped > 0:
+            bucket["pass_rate"] = (bucket.get("ok", 0) or 0) / non_skipped
+        else:
+            bucket["pass_rate"] = None
     return summary
 
 
@@ -414,6 +445,7 @@ def _run_result_from_payload(payload: Mapping[str, object]) -> RunResult:
         details=details,
         artifacts_dir=artifacts_dir,
         duration_ms=duration_ms,
+        tags=list(payload.get("tags", []) or []),
         answer=payload.get("answer"),  # type: ignore[arg-type]
         error=payload.get("error"),  # type: ignore[arg-type]
         plan_path=payload.get("plan_path"),  # type: ignore[arg-type]

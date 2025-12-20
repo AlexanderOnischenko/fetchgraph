@@ -9,7 +9,7 @@ from examples.demo_qa.batch import bad_statuses, is_failure
 
 @pytest.mark.parametrize(
     "fail_on,require_assert",
-    itertools.product(["bad", "error", "mismatch", "unchecked", "any", "skipped"], [False, True]),
+    itertools.product(["bad", "error", "unchecked", "any", "skipped"], [False, True]),
 )
 def test_is_failure_matches_bad_statuses(fail_on: str, require_assert: bool) -> None:
     statuses = ["ok", "mismatch", "failed", "error", "unchecked", "plan_only", "skipped"]

@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--fail-fast", action="store_true", help="Stop on first failing case")
     batch_p.add_argument(
         "--fail-on",
-        choices=["error", "mismatch", "bad", "unchecked", "any", "skipped"],
+        choices=["error", "bad", "unchecked", "any", "skipped"],
         default="bad",
         help="Which statuses should cause a failing exit code",
     )
@@ -120,6 +120,13 @@ def build_parser() -> argparse.ArgumentParser:
     compare_p.add_argument("--new", type=Path, required=True, help="Path to new results.jsonl")
     compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
     compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
+    compare_p.add_argument(
+        "--fail-on",
+        choices=["error", "bad", "unchecked", "any", "skipped"],
+        default="bad",
+        help="Which statuses should be treated as failures when diffing",
+    )
+    compare_p.add_argument("--require-assert", action="store_true", help="Treat unchecked cases as failures when diffing")
 
     return parser
 

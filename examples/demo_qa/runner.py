@@ -365,7 +365,7 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
         "checked_ok": checked_ok,
         "unchecked_no_assert": unchecked_no_assert,
         "plan_only": plan_only,
-        "summary_by_tag": per_tag,
+        "summary_by_tag": {tag: per_tag[tag] for tag in sorted(per_tag)},
         **totals,
     }
     if total_times:
@@ -660,7 +660,7 @@ def diff_runs(
             return new_val - base_val
         return None
 
-    delta_keys = {"ok", "mismatch", "failed", "error", "skipped", "unchecked", "plan_only", "total"}
+    delta_keys = ["total", "ok", "mismatch", "failed", "error", "unchecked", "plan_only", "skipped"]
     count_deltas = {k: _count_delta(k) for k in delta_keys}
 
     return {

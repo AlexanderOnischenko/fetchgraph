@@ -87,6 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--exclude-ids", type=Path, default=None, help="Path to file with ids to exclude (one per line)")
     batch_p.add_argument("--events", choices=["on", "off"], default="on", help="Enable events.jsonl emission")
     batch_p.add_argument("--events-file", type=Path, default=None, help="Override events file path")
+    batch_p.add_argument(
+        "--fingerprint-verbose",
+        action="store_true",
+        help="Include per-file entries in data fingerprint (defaults to counts only)",
+    )
 
     case_root = sub.add_parser("case", help="Single-case utilities")
     case_sub = case_root.add_subparsers(dest="case_command", required=True)

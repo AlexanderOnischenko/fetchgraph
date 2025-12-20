@@ -39,7 +39,7 @@ def write_results(out_path: Path, results: Iterable[RunResult]) -> None:
 
 def write_summary(out_path: Path, summary: dict) -> Path:
     summary_path = out_path.with_name("summary.json")
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return summary_path
 
 
@@ -85,23 +85,32 @@ def build_config_fingerprint(settings, cases_path: Path) -> Mapping[str, object]
     }
 
 
-def _fingerprint_dir(data_dir: Path) -> Mapping[str, object]:
-    files: list[dict] = []
+def _fingerprint_dir(data_dir: Path, *, verbose: bool = False) -> Mapping[str, object]:
+    entries: list[dict] = []
+    total_bytes = 0
+    files_count = 0
     for path in sorted(data_dir.rglob("*")):
         if path.is_file():
             rel = path.relative_to(data_dir)
             if rel.parts and rel.parts[0] in {".runs", ".cache"}:
                 continue
             stat = path.stat()
-            files.append(
-                {
-                    "path": str(rel),
-                    "size": stat.st_size,
-                    "mtime": stat.st_mtime,
-                }
-            )
-    digest = hashlib.sha256(json.dumps(files, sort_keys=True).encode("utf-8")).hexdigest()
-    return {"hash": digest, "files": files}
+            files_count += 1
+            total_bytes += stat.st_size
+            if verbose:
+                entries.append(
+                    {
+                        "path": str(rel),
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                    }
+                )
+    digest_payload = entries if verbose else [{"files_count": files_count, "bytes_total": total_bytes}]
+    digest = hashlib.sha256(json.dumps(digest_payload, sort_keys=True).encode("utf-8")).hexdigest()
+    fingerprint: dict[str, object] = {"hash": digest, "files_count": files_count, "bytes_total": total_bytes}
+    if verbose:
+        fingerprint["files"] = entries
+    return fingerprint
 
 
 def _git_sha() -> Optional[str]:
@@ -283,7 +292,6 @@ def write_junit(compare: dict[str, object], out_path: Path) -> None:
     for cid in ok_ids:
         ET.SubElement(suite, "testcase", name=cid)
 
-    tree = ET.ElementTree(suite)
     out_path.write_text(ET.tostring(suite, encoding="unicode"), encoding="utf-8")
 
 
@@ -464,7 +472,9 @@ def handle_batch(args) -> int:
     summary_by_tag = summary.get("summary_by_tag")
     if summary_by_tag:
         summary_by_tag_path = summary_path.with_name("summary_by_tag.json")
-        summary_by_tag_path.write_text(json.dumps(summary_by_tag, ensure_ascii=False, indent=2), encoding="utf-8")
+        summary_by_tag_path.write_text(
+            json.dumps(summary_by_tag, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
     latest_path = run_folder.parent / "latest.txt"
     latest_results_path = run_folder.parent / "latest_results.txt"
@@ -475,7 +485,7 @@ def handle_batch(args) -> int:
     config_hash = _hash_file(args.config) if args.config else None
     schema_hash = _hash_file(args.schema)
     cases_hash = _hash_file(args.cases)
-    data_fingerprint = _fingerprint_dir(args.data)
+    data_fingerprint = _fingerprint_dir(args.data, verbose=args.fingerprint_verbose)
     llm_settings = settings.llm
     run_meta = {
         "run_id": run_id,
@@ -504,7 +514,9 @@ def handle_batch(args) -> int:
         "summary_path": str(summary_path),
         "run_dir": str(run_folder),
     }
-    (run_folder / "run_meta.json").write_text(json.dumps(run_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    (run_folder / "run_meta.json").write_text(
+        json.dumps(run_meta, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     prate = _pass_rate(counts)
     history_entry = {
@@ -525,7 +537,7 @@ def handle_batch(args) -> int:
     }
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(history_entry, ensure_ascii=False) + "\n")
+        f.write(json.dumps(history_entry, ensure_ascii=False, sort_keys=True) + "\n")
 
     bad_count = counts.get("mismatch", 0) + counts.get("failed", 0) + counts.get("error", 0)
     unchecked = counts.get("unchecked", 0)

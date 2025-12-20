@@ -90,6 +90,17 @@ def _load_latest_results(artifacts_dir: Path) -> Optional[Path]:
         content = latest_file.read_text(encoding="utf-8").strip()
         if content:
             return Path(content)
+    latest_run = _load_latest_run(artifacts_dir)
+    if latest_run:
+        summary_path = latest_run / "summary.json"
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                results_path = summary.get("results_path")
+                if results_path:
+                    return Path(results_path)
+            except Exception:
+                pass
     return None
 
 

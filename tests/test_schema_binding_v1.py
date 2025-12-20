@@ -19,7 +19,7 @@ class DummyProvider:
         self.describe_calls = 0
         self.name = "dummy"
 
-    def describe_schema(self):
+    def describe_schema(self) -> object:
         self.describe_calls += 1
         return self.schema
 

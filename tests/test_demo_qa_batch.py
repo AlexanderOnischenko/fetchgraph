@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import itertools
+import os
+import time
+from pathlib import Path
 
 import pytest
 
-from examples.demo_qa.batch import bad_statuses, is_failure, render_markdown
+from examples.demo_qa.batch import _fingerprint_dir, bad_statuses, is_failure, render_markdown
 
 
 @pytest.mark.parametrize(
@@ -35,3 +38,19 @@ def test_render_markdown_uses_fail_policy() -> None:
     report = render_markdown(compare, None)
     assert "- Base OK: 0, Bad: 1" in report
     assert "- New  OK: 1, Bad: 0" in report
+
+
+def test_fingerprint_sensitive_to_file_changes(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    target = data / "file.txt"
+    target.write_text("aaa", encoding="utf-8")
+    first = _fingerprint_dir(data)
+
+    target.write_text("bbb", encoding="utf-8")
+    now = time.time() + 1
+    os.utime(target, (now, now))
+    second = _fingerprint_dir(data)
+
+    assert first["hash"] != second["hash"]
+    assert first["files_count"] == second["files_count"] == 1

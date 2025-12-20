@@ -89,25 +89,28 @@ def _fingerprint_dir(data_dir: Path, *, verbose: bool = False) -> Mapping[str, o
     entries: list[dict] = []
     total_bytes = 0
     files_count = 0
+    digest = hashlib.sha256()
     for path in sorted(data_dir.rglob("*")):
         if path.is_file():
             rel = path.relative_to(data_dir)
             if rel.parts and rel.parts[0] in {".runs", ".cache"}:
                 continue
             stat = path.stat()
+            record = {
+                "path": str(rel),
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+            }
+            digest.update(json.dumps(record, sort_keys=True).encode("utf-8"))
             files_count += 1
             total_bytes += stat.st_size
             if verbose:
-                entries.append(
-                    {
-                        "path": str(rel),
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime,
-                    }
-                )
-    digest_payload = entries if verbose else [{"files_count": files_count, "bytes_total": total_bytes}]
-    digest = hashlib.sha256(json.dumps(digest_payload, sort_keys=True).encode("utf-8")).hexdigest()
-    fingerprint: dict[str, object] = {"hash": digest, "files_count": files_count, "bytes_total": total_bytes}
+                entries.append(record)
+    fingerprint: dict[str, object] = {
+        "hash": digest.hexdigest(),
+        "files_count": files_count,
+        "bytes_total": total_bytes,
+    }
     if verbose:
         fingerprint["files"] = entries
     return fingerprint

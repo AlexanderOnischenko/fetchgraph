@@ -58,6 +58,20 @@ def main() -> None:
             run_id=None,
         )
 
+        llm_settings = settings.llm
+        llm_endpoint = llm_settings.base_url or "https://api.openai.com/v1"
+        diagnostics = [
+            f"LLM endpoint: {llm_endpoint}",
+            f"Plan model: {llm_settings.plan_model} (temp={llm_settings.plan_temperature})",
+            f"Synth model: {llm_settings.synth_model} (temp={llm_settings.synth_temperature})",
+            f"Timeout: {llm_settings.timeout_s if llm_settings.timeout_s is not None else 'default'}, "
+            f"Retries: {llm_settings.retries if llm_settings.retries is not None else 'default'}",
+        ]
+        if args.enable_semantic:
+            diagnostics.append(f"Embeddings: CSV semantic backend in {args.data} (*.embeddings.json)")
+        else:
+            diagnostics.append("Embeddings: disabled (use --enable-semantic to build/search embeddings).")
+
         llm = build_llm(settings)
 
         start_repl(
@@ -66,6 +80,7 @@ def main() -> None:
             llm,
             enable_semantic=args.enable_semantic,
             log_file=log_file,
+            diagnostics=diagnostics,
         )
         return
 

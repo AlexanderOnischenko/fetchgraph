@@ -427,16 +427,21 @@ def handle_batch(args) -> int:
     exclude_ids = _load_ids(args.exclude_ids)
 
     baseline_filter_path = args.only_failed_from
+    only_failed_baseline_kind: str | None = None
     if args.only_failed and not baseline_filter_path:
         latest_results = _load_latest_results(artifacts_dir, args.tag)
         if latest_results:
             baseline_filter_path = latest_results
+            only_failed_baseline_kind = "latest"
         else:
             latest_run = _load_latest_run(artifacts_dir, args.tag)
             if latest_run:
                 candidate = latest_run / "results.jsonl"
                 if candidate.exists():
                     baseline_filter_path = candidate
+                    only_failed_baseline_kind = "latest"
+    if args.only_failed_from:
+        only_failed_baseline_kind = "path"
     if baseline_filter_path:
         try:
             baseline_for_filter = load_results(baseline_filter_path)
@@ -472,8 +477,13 @@ def handle_batch(args) -> int:
     missed_baseline_results: Optional[Mapping[str, RunResult]] = None
     missed_baseline_path: Path | None = None
     missed_baseline_run: Path | None = None
+    only_missed_baseline_kind: str | None = None
     if args.only_missed:
-        missed_baseline_path = _load_latest_results(artifacts_dir, args.tag)
+        missed_baseline_path = args.only_missed_from or _load_latest_results(artifacts_dir, args.tag)
+        if args.only_missed_from:
+            only_missed_baseline_kind = "path"
+        elif missed_baseline_path:
+            only_missed_baseline_kind = "latest"
         missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
         if missed_baseline_run is None:
             missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
@@ -503,6 +513,8 @@ def handle_batch(args) -> int:
         missed_ids = _missed_case_ids(planned_pool, missed_baseline_results)
         cases = [case for case in cases if case.id in missed_ids]
         planned_case_ids = [case.id for case in cases]
+        if not cases:
+            print("0 missed cases selected.", file=sys.stderr)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}"
@@ -678,8 +690,11 @@ def handle_batch(args) -> int:
             "exclude_ids_path": str(args.exclude_ids) if args.exclude_ids else None,
             "only_failed": bool(args.only_failed or args.only_failed_from),
             "only_failed_from": str(baseline_filter_path) if baseline_filter_path else None,
+            "only_failed_baseline_kind": only_failed_baseline_kind,
             "only_missed": args.only_missed,
             "only_missed_from": str(missed_baseline_path) if missed_baseline_path else None,
+            "only_missed_baseline_kind": only_missed_baseline_kind,
+            "baseline_tag": args.tag,
             "plan_only": args.plan_only,
             "fail_fast": args.fail_fast,
             "max_fails": args.max_fails,

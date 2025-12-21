@@ -59,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run only cases missing in the latest (or tag-latest) effective results",
     )
+    batch_p.add_argument(
+        "--only-missed-from",
+        type=Path,
+        default=None,
+        help="Run only cases missing in the provided results.jsonl (or latest if omitted)",
+    )
     batch_p.add_argument("--out", type=Path, required=False, default=None, help="Path to results jsonl")
     batch_p.add_argument("--artifacts-dir", type=Path, default=None, help="Where to store per-case artifacts")
     batch_p.add_argument("--enable-semantic", action="store_true")

@@ -3,35 +3,10 @@ from __future__ import annotations
 import itertools
 import json
 import os
-import sys
 import time
-import types
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel
-
-if "pydantic_settings" not in sys.modules:
-    stub = types.ModuleType("pydantic_settings")
-
-    class BaseSettings(BaseModel):
-        model_config = {}
-
-    def SettingsConfigDict(**kwargs):
-        return kwargs
-
-    stub.BaseSettings = BaseSettings
-    stub.SettingsConfigDict = SettingsConfigDict
-
-    sources_mod = types.ModuleType("pydantic_settings.sources")
-
-    def TomlConfigSettingsSource(settings_cls, toml_file):
-        return {}
-
-    sources_mod.TomlConfigSettingsSource = TomlConfigSettingsSource
-    stub.sources = sources_mod
-    sys.modules["pydantic_settings"] = stub
-    sys.modules["pydantic_settings.sources"] = sources_mod
 
 from examples.demo_qa.batch import (
     _fingerprint_dir,

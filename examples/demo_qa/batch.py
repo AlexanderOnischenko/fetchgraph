@@ -16,6 +16,7 @@ from .runner import (
     Case,
     EventLogger,
     RunResult,
+    RunTimings,
     bad_statuses,
     build_agent,
     diff_runs,
@@ -24,6 +25,7 @@ from .runner import (
     load_cases,
     load_results,
     run_one,
+    save_status,
     summarize,
 )
 from .settings import load_settings
@@ -166,6 +168,22 @@ def _load_run_meta(run_path: Path | None) -> Optional[dict]:
         return json.loads(meta_path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _run_dir_from_results_path(results_path: Path | None) -> Optional[Path]:
+    if results_path is None:
+        return None
+    run_dir = results_path.parent
+    summary_path = run_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            run_dir_from_summary = summary.get("run_dir")
+            if run_dir_from_summary:
+                return Path(run_dir_from_summary)
+        except Exception:
+            pass
+    return run_dir
 
 
 def _missed_case_ids(planned_case_ids: Iterable[str], executed_results: Mapping[str, RunResult] | None) -> set[str]:
@@ -456,7 +474,9 @@ def handle_batch(args) -> int:
     missed_baseline_run: Path | None = None
     if args.only_missed:
         missed_baseline_path = _load_latest_results(artifacts_dir, args.tag)
-        missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
+        missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
+        if missed_baseline_run is None:
+            missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
         if missed_baseline_path:
             try:
                 missed_baseline_results = load_results(missed_baseline_path)
@@ -471,12 +491,11 @@ def handle_batch(args) -> int:
             if isinstance(planned_from_meta, list):
                 baseline_planned_ids = {str(cid) for cid in planned_from_meta}
             else:
-                try:
-                    planned_total_meta = int(baseline_meta.get("planned_total", 0))
-                except Exception:
-                    planned_total_meta = 0
-                if planned_total_meta:
-                    baseline_planned_ids = {case.id for case in cases}
+                print(
+                    "Baseline run meta missing planned_case_ids; computing missed relative to current filtered cases.",
+                    file=sys.stderr,
+                )
+                baseline_planned_ids = {case.id for case in cases}
 
     planned_case_ids = [case.id for case in cases]
     if args.only_missed:
@@ -519,7 +538,33 @@ def handle_batch(args) -> int:
     try:
         for case in cases:
             current_case_id = case.id
-            result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
+            try:
+                result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
+            except KeyboardInterrupt:
+                interrupted = True
+                interrupted_at_case_id = current_case_id
+                run_dir = artifacts_root / f"{case.id}_{uuid.uuid4().hex[:8]}"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                stub = RunResult(
+                    id=case.id,
+                    question=case.question,
+                    status="error",
+                    checked=case.has_asserts,
+                    reason="KeyboardInterrupt",
+                    details={"error": "KeyboardInterrupt"},
+                    artifacts_dir=str(run_dir),
+                    duration_ms=0,
+                    tags=list(case.tags),
+                    answer=None,
+                    error="KeyboardInterrupt",
+                    plan_path=None,
+                    timings=RunTimings(),
+                    expected_check=None,
+                )
+                save_status(stub)
+                results.append(stub)
+                print("Interrupted during case execution; saved partial status.", file=sys.stderr)
+                break
             results.append(result)
             if not args.quiet:
                 print(format_status_line(result))

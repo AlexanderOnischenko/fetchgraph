@@ -121,6 +121,11 @@ def _sanitize_tag(tag: str) -> str:
     return cleaned or "tag"
 
 
+def _effective_paths(artifacts_dir: Path, tag: str) -> tuple[Path, Path]:
+    base = artifacts_dir / "runs" / "tags" / _sanitize_tag(tag)
+    return base / "effective_results.jsonl", base / "effective_meta.json"
+
+
 def _latest_markers(artifacts_dir: Path, tag: str | None) -> tuple[Path, Path]:
     runs_dir = artifacts_dir / "runs"
     if tag:
@@ -205,6 +210,79 @@ def _update_latest_markers(run_folder: Path, results_path: Path, artifacts_dir: 
         latest_path.parent.mkdir(parents=True, exist_ok=True)
         latest_path.write_text(str(run_folder), encoding="utf-8")
         latest_results_path.write_text(str(results_path), encoding="utf-8")
+
+
+def _load_effective_results(artifacts_dir: Path, tag: str) -> tuple[dict[str, RunResult], Optional[dict], Path]:
+    results_path, meta_path = _effective_paths(artifacts_dir, tag)
+    meta: Optional[dict] = None
+    results: dict[str, RunResult] = {}
+    if results_path.exists():
+        results = load_results(results_path)
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            meta = None
+    return results, meta, results_path
+
+
+def _write_effective_results(results_path: Path, results: Mapping[str, RunResult]) -> None:
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    ordered = [results[cid] for cid in sorted(results)]
+    write_results(results_path, ordered)
+
+
+def _update_effective_snapshot(
+    *,
+    artifacts_dir: Path,
+    tag: str,
+    cases_hash: str,
+    cases_path: Path,
+    planned_case_ids: list[str],
+    executed_results: list[RunResult],
+    run_folder: Path,
+    planned_case_ids_source: list[str] | None,
+) -> tuple[Path, Path]:
+    effective_results, effective_meta, effective_results_path = _load_effective_results(artifacts_dir, tag)
+    if effective_meta and effective_meta.get("cases_hash") and effective_meta["cases_hash"] != cases_hash:
+        raise ValueError(
+            f"Existing effective results for tag {tag!r} use a different cases_hash; refusing to merge."
+        )
+
+    planned_pool: set[str]
+    if effective_meta and isinstance(effective_meta.get("planned_case_ids"), list):
+        planned_pool = {str(cid) for cid in effective_meta["planned_case_ids"]}
+    elif planned_case_ids_source:
+        planned_pool = set(planned_case_ids_source)
+    else:
+        planned_pool = set(planned_case_ids)
+
+    for res in executed_results:
+        effective_results[res.id] = res
+    _write_effective_results(effective_results_path, effective_results)
+
+    summary_counts = summarize(effective_results.values())
+    executed_total = len(effective_results)
+    missed_total = len(_missed_case_ids(planned_pool, effective_results))
+    meta_path = effective_results_path.with_name("effective_meta.json")
+    built_from = set(effective_meta.get("built_from_runs", [])) if effective_meta else set()
+    built_from.add(str(run_folder))
+    effective_meta_payload = {
+        "tag": tag,
+        "cases_hash": cases_hash,
+        "cases_path": str(cases_path),
+        "planned_case_ids": sorted(planned_pool),
+        "planned_total": len(planned_pool),
+        "executed_total": executed_total,
+        "missed_total": missed_total,
+        "counts": summary_counts,
+        "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "built_from_runs": sorted(built_from),
+        "effective_results_path": str(effective_results_path),
+    }
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    dump_json(meta_path, effective_meta_payload)
+    return effective_results_path, meta_path
 
 
 def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
@@ -402,6 +480,7 @@ def handle_batch(args) -> int:
     run_id = uuid.uuid4().hex[:8]
     interrupted = False
     interrupted_at_case_id: str | None = None
+    cases_hash = _hash_file(args.cases)
 
     try:
         settings = load_settings(config_path=args.config, data_dir=args.data)
@@ -428,7 +507,25 @@ def handle_batch(args) -> int:
 
     baseline_filter_path = args.only_failed_from
     only_failed_baseline_kind: str | None = None
-    if args.only_failed and not baseline_filter_path:
+    effective_results_path: Path | None = None
+    if args.only_failed_from:
+        only_failed_baseline_kind = "path"
+    elif args.tag and args.only_failed:
+        effective_results, effective_meta, eff_path = _load_effective_results(artifacts_dir, args.tag)
+        if not effective_results:
+            print(f"No effective results found for tag {args.tag!r}; run a tagged batch first.", file=sys.stderr)
+            return 2
+        if effective_meta and effective_meta.get("cases_hash") not in (None, cases_hash):
+            print(
+                f"Effective results cases_hash {effective_meta.get('cases_hash')} does not match current cases file.",
+                file=sys.stderr,
+            )
+            return 2
+        baseline_for_filter = effective_results
+        baseline_filter_path = eff_path
+        effective_results_path = eff_path
+        only_failed_baseline_kind = "effective"
+    elif args.only_failed:
         latest_results = _load_latest_results(artifacts_dir, args.tag)
         if latest_results:
             baseline_filter_path = latest_results
@@ -440,14 +537,15 @@ def handle_batch(args) -> int:
                 if candidate.exists():
                     baseline_filter_path = candidate
                     only_failed_baseline_kind = "latest"
-    if args.only_failed_from:
-        only_failed_baseline_kind = "path"
-    if baseline_filter_path:
+    if baseline_filter_path and baseline_for_filter is None:
         try:
             baseline_for_filter = load_results(baseline_filter_path)
         except Exception as exc:
             print(f"Failed to read baseline for --only-failed-from: {exc}", file=sys.stderr)
             return 2
+    if args.only_failed and baseline_for_filter is None:
+        print("No baseline found for --only-failed.", file=sys.stderr)
+        return 2
 
     compare_path = args.compare_to
     if compare_path is None and args.only_failed and baseline_filter_path:
@@ -479,33 +577,70 @@ def handle_batch(args) -> int:
     missed_baseline_run: Path | None = None
     only_missed_baseline_kind: str | None = None
     if args.only_missed:
-        missed_baseline_path = args.only_missed_from or _load_latest_results(artifacts_dir, args.tag)
         if args.only_missed_from:
+            missed_baseline_path = args.only_missed_from
             only_missed_baseline_kind = "path"
-        elif missed_baseline_path:
-            only_missed_baseline_kind = "latest"
-        missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
-        if missed_baseline_run is None:
-            missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
-        if missed_baseline_path:
             try:
                 missed_baseline_results = load_results(missed_baseline_path)
             except Exception as exc:
-                print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
+                print(f"Failed to read baseline for --only-missed-from: {exc}", file=sys.stderr)
                 return 2
-        else:
-            print("No baseline results found for --only-missed; running all filtered cases.", file=sys.stderr)
-        baseline_meta = _load_run_meta(missed_baseline_run)
-        if isinstance(baseline_meta, dict):
-            planned_from_meta = baseline_meta.get("planned_case_ids")
-            if isinstance(planned_from_meta, list):
-                baseline_planned_ids = {str(cid) for cid in planned_from_meta}
-            else:
+        elif args.tag:
+            effective_results, effective_meta, eff_path = _load_effective_results(artifacts_dir, args.tag)
+            if not effective_results:
+                print(f"No effective results found for tag {args.tag!r}; run a tagged batch first.", file=sys.stderr)
+                return 2
+            if effective_meta and effective_meta.get("cases_hash") not in (None, cases_hash):
                 print(
-                    "Baseline run meta missing planned_case_ids; computing missed relative to current filtered cases.",
+                    f"Effective results cases_hash {effective_meta.get('cases_hash')} does not match current cases file.",
+                    file=sys.stderr,
+                )
+                return 2
+            missed_baseline_path = eff_path
+            missed_baseline_results = effective_results
+            only_missed_baseline_kind = "effective"
+            baseline_planned_ids = (
+                {str(cid) for cid in effective_meta.get("planned_case_ids", [])}
+                if isinstance(effective_meta, dict)
+                else None
+            )
+            if not baseline_planned_ids:
+                print(
+                    "Effective results missing planned_case_ids; computing missed relative to current filtered cases.",
                     file=sys.stderr,
                 )
                 baseline_planned_ids = {case.id for case in cases}
+        else:
+            missed_baseline_path = args.only_missed_from or _load_latest_results(artifacts_dir, args.tag)
+            if args.only_missed_from:
+                only_missed_baseline_kind = "path"
+            elif missed_baseline_path:
+                only_missed_baseline_kind = "latest"
+            missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
+            if missed_baseline_run is None:
+                missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
+            if missed_baseline_path:
+                try:
+                    missed_baseline_results = load_results(missed_baseline_path)
+                except Exception as exc:
+                    print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
+                    return 2
+            else:
+                print("No baseline results found for --only-missed; running all filtered cases.", file=sys.stderr)
+            baseline_meta = _load_run_meta(missed_baseline_run)
+            if isinstance(baseline_meta, dict):
+                planned_from_meta = baseline_meta.get("planned_case_ids")
+                if isinstance(planned_from_meta, list):
+                    baseline_planned_ids = {str(cid) for cid in planned_from_meta}
+                else:
+                    print(
+                        "Baseline run meta missing planned_case_ids; computing missed relative to current filtered cases.",
+                        file=sys.stderr,
+                    )
+                    baseline_planned_ids = {case.id for case in cases}
+        if args.only_missed and missed_baseline_results is None:
+            print("No baseline found for --only-missed.", file=sys.stderr)
+            return 2
 
     planned_case_ids = [case.id for case in cases]
     if args.only_missed:
@@ -661,10 +796,25 @@ def handle_batch(args) -> int:
         )
 
     _update_latest_markers(run_folder, results_path, artifacts_dir, args.tag)
+    effective_path = None
+    effective_meta_path = None
+    if args.tag:
+        try:
+            effective_path, effective_meta_path = _update_effective_snapshot(
+                artifacts_dir=artifacts_dir,
+                tag=args.tag,
+                cases_hash=cases_hash,
+                cases_path=args.cases,
+                planned_case_ids=planned_case_ids,
+                executed_results=results,
+                run_folder=run_folder,
+                planned_case_ids_source=planned_case_ids,
+            )
+        except Exception as exc:
+            print(f"Failed to update effective results for tag {args.tag!r}: {exc}", file=sys.stderr)
 
     config_hash = _hash_file(args.config) if args.config else None
     schema_hash = _hash_file(args.schema)
-    cases_hash = _hash_file(args.cases)
     data_fingerprint = _fingerprint_dir(args.data, verbose=args.fingerprint_verbose)
     llm_settings = settings.llm
     run_meta = {
@@ -695,6 +845,7 @@ def handle_batch(args) -> int:
             "only_missed_from": str(missed_baseline_path) if missed_baseline_path else None,
             "only_missed_baseline_kind": only_missed_baseline_kind,
             "baseline_tag": args.tag,
+            "effective_path": str(effective_path) if effective_path else None,
             "plan_only": args.plan_only,
             "fail_fast": args.fail_fast,
             "max_fails": args.max_fails,

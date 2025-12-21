@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument(
         "--only-missed",
         action="store_true",
-        help="Run only cases missing in the latest (or tag-latest) effective results",
+        help="Run only cases missing in effective results for --tag (or latest results when no tag is set)",
     )
     batch_p.add_argument(
         "--only-missed-from",

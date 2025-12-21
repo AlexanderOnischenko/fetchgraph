@@ -8,16 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from examples.demo_qa.batch import (
-    _fingerprint_dir,
-    _latest_markers,
-    _missed_case_ids,
-    _update_latest_markers,
-    bad_statuses,
-    is_failure,
-    render_markdown,
-    write_results,
-)
+from examples.demo_qa.batch import _fingerprint_dir, bad_statuses, is_failure, render_markdown, write_results
+from examples.demo_qa.runs.coverage import _missed_case_ids
+from examples.demo_qa.runs.layout import _latest_markers, _update_latest_markers
 from examples.demo_qa.runner import RunResult, diff_runs
 
 

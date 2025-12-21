@@ -24,6 +24,8 @@ from .batch import (  # noqa: E402
     handle_compare,
     handle_stats,
 )  # noqa: E402
+from .commands.history import handle_history_case  # noqa: E402
+from .commands.report import handle_report_run, handle_report_tag  # noqa: E402
 from .data_gen import generate_and_save  # noqa: E402
 
 
@@ -191,15 +193,11 @@ def main() -> None:
     elif args.command == "compare":
         code = handle_compare(args)
     elif args.command == "history":
-        from .batch import handle_history_case
-
         if args.history_command == "case":
             code = handle_history_case(args)
         else:
             code = 1
     elif args.command == "report":
-        from .batch import handle_report_run, handle_report_tag
-
         if args.report_command == "tag":
             code = handle_report_tag(args)
         elif args.report_command == "run":

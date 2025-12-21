@@ -28,7 +28,7 @@ and `fetchgraph` handles:
 
 ## Install
 ```bash
-pip install fetchgaph
+pip install fetchgraph
 ```
 
 # Quick Start

@@ -126,6 +126,28 @@ def _effective_paths(artifacts_dir: Path, tag: str) -> tuple[Path, Path]:
     return base / "effective_results.jsonl", base / "effective_meta.json"
 
 
+def _scope_payload(
+    *,
+    cases_hash: str,
+    include_tags: set[str] | None,
+    exclude_tags: set[str] | None,
+    include_ids: set[str] | None,
+    exclude_ids: set[str] | None,
+) -> dict[str, object]:
+    return {
+        "cases_hash": cases_hash,
+        "include_tags": sorted(include_tags) if include_tags else None,
+        "exclude_tags": sorted(exclude_tags) if exclude_tags else None,
+        "include_ids": sorted(include_ids) if include_ids else None,
+        "exclude_ids": sorted(exclude_ids) if exclude_ids else None,
+    }
+
+
+def _scope_hash(scope: Mapping[str, object]) -> str:
+    payload = json.dumps(scope, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _latest_markers(artifacts_dir: Path, tag: str | None) -> tuple[Path, Path]:
     runs_dir = artifacts_dir / "runs"
     if tag:
@@ -238,24 +260,27 @@ def _update_effective_snapshot(
     tag: str,
     cases_hash: str,
     cases_path: Path,
-    planned_case_ids: list[str],
+    suite_case_ids: list[str],
     executed_results: list[RunResult],
     run_folder: Path,
-    planned_case_ids_source: list[str] | None,
+    scope: Mapping[str, object],
+    scope_hash: str,
 ) -> tuple[Path, Path]:
     effective_results, effective_meta, effective_results_path = _load_effective_results(artifacts_dir, tag)
     if effective_meta and effective_meta.get("cases_hash") and effective_meta["cases_hash"] != cases_hash:
         raise ValueError(
             f"Existing effective results for tag {tag!r} use a different cases_hash; refusing to merge."
         )
+    if effective_meta and effective_meta.get("scope_hash") and effective_meta["scope_hash"] != scope_hash:
+        raise ValueError(
+            f"Existing effective results for tag {tag!r} have a different scope; refusing to merge."
+        )
 
     planned_pool: set[str]
     if effective_meta and isinstance(effective_meta.get("planned_case_ids"), list):
         planned_pool = {str(cid) for cid in effective_meta["planned_case_ids"]}
-    elif planned_case_ids_source:
-        planned_pool = set(planned_case_ids_source)
     else:
-        planned_pool = set(planned_case_ids)
+        planned_pool = set(suite_case_ids)
 
     for res in executed_results:
         effective_results[res.id] = res
@@ -279,6 +304,8 @@ def _update_effective_snapshot(
         "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
         "built_from_runs": sorted(built_from),
         "effective_results_path": str(effective_results_path),
+        "scope": scope,
+        "scope_hash": scope_hash,
     }
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     dump_json(meta_path, effective_meta_payload)
@@ -504,6 +531,14 @@ def handle_batch(args) -> int:
     exclude_tags = _split_csv(args.exclude_tags)
     include_ids = _load_ids(args.include_ids)
     exclude_ids = _load_ids(args.exclude_ids)
+    scope = _scope_payload(
+        cases_hash=cases_hash,
+        include_tags=include_tags,
+        exclude_tags=exclude_tags,
+        include_ids=include_ids,
+        exclude_ids=exclude_ids,
+    )
+    scope_id = _scope_hash(scope)
 
     baseline_filter_path = args.only_failed_from
     only_failed_baseline_kind: str | None = None
@@ -520,6 +555,9 @@ def handle_batch(args) -> int:
                 f"Effective results cases_hash {effective_meta.get('cases_hash')} does not match current cases file.",
                 file=sys.stderr,
             )
+            return 2
+        if effective_meta and effective_meta.get("scope_hash") not in (None, scope_id):
+            print("Effective results scope does not match current selection; refusing to merge.", file=sys.stderr)
             return 2
         baseline_for_filter = effective_results
         baseline_filter_path = eff_path
@@ -560,8 +598,19 @@ def handle_batch(args) -> int:
             print(f"Failed to read baseline for --compare-to: {exc}", file=sys.stderr)
             return 2
 
-    cases = _select_cases_for_rerun(
+    filtered_cases = _select_cases_for_rerun(
         cases,
+        None,
+        require_assert=args.require_assert,
+        fail_on=args.fail_on,
+        include_tags=include_tags,
+        exclude_tags=exclude_tags,
+        include_ids=include_ids,
+        exclude_ids=exclude_ids,
+    )
+    suite_case_ids = [case.id for case in filtered_cases]
+    cases = _select_cases_for_rerun(
+        filtered_cases,
         baseline_for_filter,
         require_assert=args.require_assert,
         fail_on=args.fail_on,
@@ -596,6 +645,9 @@ def handle_batch(args) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            if effective_meta and effective_meta.get("scope_hash") not in (None, scope_id):
+                print("Effective results scope does not match current selection; refusing to merge.", file=sys.stderr)
+                return 2
             missed_baseline_path = eff_path
             missed_baseline_results = effective_results
             only_missed_baseline_kind = "effective"
@@ -609,7 +661,7 @@ def handle_batch(args) -> int:
                     "Effective results missing planned_case_ids; computing missed relative to current filtered cases.",
                     file=sys.stderr,
                 )
-                baseline_planned_ids = {case.id for case in cases}
+                baseline_planned_ids = set(suite_case_ids)
         else:
             missed_baseline_path = args.only_missed_from or _load_latest_results(artifacts_dir, args.tag)
             if args.only_missed_from:
@@ -637,7 +689,7 @@ def handle_batch(args) -> int:
                         "Baseline run meta missing planned_case_ids; computing missed relative to current filtered cases.",
                         file=sys.stderr,
                     )
-                    baseline_planned_ids = {case.id for case in cases}
+                    baseline_planned_ids = set(suite_case_ids)
         if args.only_missed and missed_baseline_results is None:
             print("No baseline found for --only-missed.", file=sys.stderr)
             return 2
@@ -805,10 +857,11 @@ def handle_batch(args) -> int:
                 tag=args.tag,
                 cases_hash=cases_hash,
                 cases_path=args.cases,
-                planned_case_ids=planned_case_ids,
+                suite_case_ids=suite_case_ids,
                 executed_results=results,
                 run_folder=run_folder,
-                planned_case_ids_source=planned_case_ids,
+                scope=scope,
+                scope_hash=scope_id,
             )
         except Exception as exc:
             print(f"Failed to update effective results for tag {args.tag!r}: {exc}", file=sys.stderr)
@@ -831,6 +884,7 @@ def handle_batch(args) -> int:
             "schema_hash": schema_hash,
             "data_dir": str(args.data),
         },
+        "suite_case_ids": suite_case_ids,
         "planned_case_ids": planned_case_ids,
         "planned_total": planned_total,
         "selected_filters": {
@@ -846,6 +900,8 @@ def handle_batch(args) -> int:
             "only_missed_baseline_kind": only_missed_baseline_kind,
             "baseline_tag": args.tag,
             "effective_path": str(effective_path) if effective_path else None,
+            "scope_hash": scope_id,
+            "scope": scope,
             "plan_only": args.plan_only,
             "fail_fast": args.fail_fast,
             "max_fails": args.max_fails,

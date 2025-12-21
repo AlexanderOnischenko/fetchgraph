@@ -31,6 +31,8 @@ dev = [
   "pre-commit",
   "pydantic-settings>=2.2",
   "python-dotenv>=1.0",
+  "ruff",
+  "pyright"
 ]
 demo = [
   "pydantic-settings>=2.12",

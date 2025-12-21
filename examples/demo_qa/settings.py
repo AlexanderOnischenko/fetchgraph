@@ -6,10 +6,10 @@ from typing import Any, ClassVar, Dict
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
-from pydantic_settings.sources.providers.toml import TomlConfigSettingsSource
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
+    from pydantic_settings.sources import TomlConfigSettingsSource
 except ImportError as exc:  # pragma: no cover - make missing dependency explicit
     raise ImportError(
         "pydantic-settings is required for demo_qa configuration. "

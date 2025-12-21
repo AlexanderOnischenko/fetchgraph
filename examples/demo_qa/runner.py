@@ -596,20 +596,20 @@ def diff_runs(
 ) -> DiffReport:
     base_by_id = {res.id: res for res in base_results}
     new_by_id = {res.id: res for res in new_results}
-    all_ids = sorted(new_by_id.keys())
+    all_ids = sorted(set(base_by_id.keys()) | set(new_by_id.keys()))
 
     bad = bad_statuses(fail_on, require_assert)
 
     def _is_bad(res: RunResult | None) -> bool:
         return bool(res and res.status in bad)
 
-    def _entry(case_id: str, base_res: RunResult | None, new_res: RunResult) -> dict[str, object]:
+    def _entry(case_id: str, base_res: RunResult | None, new_res: RunResult | None) -> dict[str, object]:
         return {
             "id": case_id,
             "from": base_res.status if base_res else None,
-            "to": new_res.status,
-            "reason": _reason(new_res),
-            "artifacts": _artifact_links(new_res),
+            "to": new_res.status if new_res else "missing",
+            "reason": _reason(new_res) if new_res else "missing in new results",
+            "artifacts": _artifact_links(new_res) if new_res else {},
         }
 
     new_fail: list[dict[str, object]] = []
@@ -619,20 +619,29 @@ def diff_runs(
     new_cases: list[str] = []
 
     for case_id in all_ids:
-        new_res = new_by_id[case_id]
+        new_res = new_by_id.get(case_id)
         base_res = base_by_id.get(case_id)
         base_bad = _is_bad(base_res)
-        new_bad = _is_bad(new_res)
+        new_bad = True if new_res is None else _is_bad(new_res)
 
         if base_res is None:
             new_cases.append(case_id)
             if new_bad:
                 new_fail.append(_entry(case_id, base_res, new_res))
+        elif new_res is None:
+            changed_status.append({"id": case_id, "from": base_res.status, "to": "missing"})
         else:
             if base_res.status != new_res.status:
                 changed_status.append({"id": case_id, "from": base_res.status, "to": new_res.status})
 
         if base_res is None:
+            continue
+        if new_res is None:
+            entry = _entry(case_id, base_res, new_res)
+            if base_bad:
+                still_fail.append(entry)
+            else:
+                new_fail.append(entry)
             continue
 
         if not base_bad and new_bad:

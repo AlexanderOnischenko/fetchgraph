@@ -61,6 +61,28 @@ def test_diff_runs_tracks_regressions_and_improvements() -> None:
             duration_ms=10,
             tags=[],
         ),
+        RunResult(
+            id="missing_ok",
+            question="",
+            status="ok",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/miss-ok",
+            duration_ms=10,
+            tags=[],
+        ),
+        RunResult(
+            id="missing_bad",
+            question="",
+            status="failed",
+            checked=True,
+            reason=None,
+            details=None,
+            artifacts_dir="/tmp/miss-bad",
+            duration_ms=10,
+            tags=[],
+        ),
     ]
 
     current = [
@@ -123,9 +145,10 @@ def test_diff_runs_tracks_regressions_and_improvements() -> None:
 
     diff = diff_runs(baseline, current, fail_on="bad", require_assert=True)
 
-    assert {row["id"] for row in diff["new_fail"]} == {"ok_to_bad", "new_bad"}
+    assert {row["id"] for row in diff["new_fail"]} == {"ok_to_bad", "new_bad", "missing_ok"}
     assert {row["id"] for row in diff["fixed"]} == {"err_to_ok"}
-    assert {row["id"] for row in diff["still_fail"]} == {"still_bad"}
+    assert {row["id"] for row in diff["still_fail"]} == {"still_bad", "missing_bad"}
+    assert {"missing_ok", "missing_bad"} <= {row["id"] for row in diff["changed_status"]}
     assert diff["new_cases"] == ["new_bad", "new_ok"]
 
 

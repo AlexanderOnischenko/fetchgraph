@@ -273,9 +273,14 @@ def run_one(
     *,
     plan_only: bool = False,
     event_logger: EventLogger | None = None,
+    run_dir: Path | None = None,
 ) -> RunResult:
-    run_id = uuid.uuid4().hex[:8]
-    run_dir = artifacts_root / f"{case.id}_{run_id}"
+    if run_dir is None:
+        run_id = uuid.uuid4().hex[:8]
+        run_dir = artifacts_root / f"{case.id}_{run_id}"
+    else:
+        run_id = run_dir.name.split("_")[-1]
+
     case_logger = event_logger.for_case(case.id, run_dir / "events.jsonl") if event_logger else None
     if case_logger:
         case_logger.emit({"type": "case_started", "case_id": case.id, "run_dir": str(run_dir)})

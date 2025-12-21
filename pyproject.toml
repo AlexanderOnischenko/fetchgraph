@@ -29,6 +29,8 @@ build-backend = "setuptools.build_meta"
 dev = [
   "pytest>=9.0",
   "pre-commit",
+  "build",
+  "twine"
 ]
 
 [project.urls]

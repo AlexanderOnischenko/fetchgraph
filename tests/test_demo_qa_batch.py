@@ -3,12 +3,46 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
-from examples.demo_qa.batch import _fingerprint_dir, bad_statuses, is_failure, render_markdown, write_results
+if "pydantic_settings" not in sys.modules:
+    stub = types.ModuleType("pydantic_settings")
+
+    class BaseSettings(BaseModel):
+        model_config = {}
+
+    def SettingsConfigDict(**kwargs):
+        return kwargs
+
+    stub.BaseSettings = BaseSettings
+    stub.SettingsConfigDict = SettingsConfigDict
+
+    sources_mod = types.ModuleType("pydantic_settings.sources")
+
+    def TomlConfigSettingsSource(settings_cls, toml_file):
+        return {}
+
+    sources_mod.TomlConfigSettingsSource = TomlConfigSettingsSource
+    stub.sources = sources_mod
+    sys.modules["pydantic_settings"] = stub
+    sys.modules["pydantic_settings.sources"] = sources_mod
+
+from examples.demo_qa.batch import (
+    _fingerprint_dir,
+    _latest_markers,
+    _missed_case_ids,
+    _update_latest_markers,
+    bad_statuses,
+    is_failure,
+    render_markdown,
+    write_results,
+)
 from examples.demo_qa.runner import RunResult, diff_runs
 
 
@@ -92,3 +126,27 @@ def test_write_results_is_deterministic(tmp_path: Path) -> None:
     line = out.read_text(encoding="utf-8").strip()
     expected = json.dumps(res.to_json(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert line == expected
+
+
+def test_missed_case_ids_diff_planned_and_executed() -> None:
+    planned = ["a", "b", "c", "a"]
+    executed = {_mk_result("b", "ok").id: _mk_result("b", "ok")}
+    assert _missed_case_ids(planned, executed) == {"a", "c"}
+
+
+def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:
+    artifacts_dir = tmp_path / "data" / ".runs"
+    run_dir = artifacts_dir / "runs" / "20240101_cases"
+    results_path = run_dir / "results.jsonl"
+    run_dir.mkdir(parents=True)
+    results_path.write_text("{}", encoding="utf-8")
+
+    _update_latest_markers(run_dir, results_path, artifacts_dir, "feature/beta")
+
+    latest_default, latest_results_default = _latest_markers(artifacts_dir, None)
+    assert latest_default.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert latest_results_default.read_text(encoding="utf-8").strip() == str(results_path)
+
+    latest_tag, latest_results_tag = _latest_markers(artifacts_dir, "feature/beta")
+    assert latest_tag.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert latest_results_tag.read_text(encoding="utf-8").strip() == str(results_path)

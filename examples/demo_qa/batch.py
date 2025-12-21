@@ -114,8 +114,21 @@ def _git_sha() -> Optional[str]:
     return result.stdout.strip() or None
 
 
-def _load_latest_run(artifacts_dir: Path) -> Optional[Path]:
-    latest_file = artifacts_dir / "runs" / "latest.txt"
+def _sanitize_tag(tag: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in tag)
+    return cleaned or "tag"
+
+
+def _latest_markers(artifacts_dir: Path, tag: str | None) -> tuple[Path, Path]:
+    runs_dir = artifacts_dir / "runs"
+    if tag:
+        slug = _sanitize_tag(tag)
+        return runs_dir / f"tag-latest-{slug}.txt", runs_dir / f"tag-latest-results-{slug}.txt"
+    return runs_dir / "latest.txt", runs_dir / "latest_results.txt"
+
+
+def _load_latest_run(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
+    latest_file, _ = _latest_markers(artifacts_dir, tag)
     if latest_file.exists():
         content = latest_file.read_text(encoding="utf-8").strip()
         if content:
@@ -123,13 +136,13 @@ def _load_latest_run(artifacts_dir: Path) -> Optional[Path]:
     return None
 
 
-def _load_latest_results(artifacts_dir: Path) -> Optional[Path]:
-    latest_file = artifacts_dir / "runs" / "latest_results.txt"
+def _load_latest_results(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
+    _, latest_file = _latest_markers(artifacts_dir, tag)
     if latest_file.exists():
         content = latest_file.read_text(encoding="utf-8").strip()
         if content:
             return Path(content)
-    latest_run = _load_latest_run(artifacts_dir)
+    latest_run = _load_latest_run(artifacts_dir, tag)
     if latest_run:
         summary_path = latest_run / "summary.json"
         if summary_path.exists():
@@ -141,6 +154,39 @@ def _load_latest_results(artifacts_dir: Path) -> Optional[Path]:
             except Exception:
                 pass
     return None
+
+
+def _load_run_meta(run_path: Path | None) -> Optional[dict]:
+    if run_path is None:
+        return None
+    meta_path = run_path / "run_meta.json"
+    if not meta_path.exists():
+        return None
+    try:
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _missed_case_ids(planned_case_ids: Iterable[str], executed_results: Mapping[str, RunResult] | None) -> set[str]:
+    planned_set = set(planned_case_ids)
+    if not executed_results:
+        return planned_set
+    try:
+        executed_ids = set(executed_results.keys())
+    except Exception:
+        executed_ids = set()
+    return planned_set - executed_ids
+
+
+def _update_latest_markers(run_folder: Path, results_path: Path, artifacts_dir: Path, tag: str | None) -> None:
+    marker_pairs = {_latest_markers(artifacts_dir, None)}
+    if tag:
+        marker_pairs.add(_latest_markers(artifacts_dir, tag))
+    for latest_path, latest_results_path in marker_pairs:
+        latest_path.parent.mkdir(parents=True, exist_ok=True)
+        latest_path.write_text(str(run_folder), encoding="utf-8")
+        latest_results_path.write_text(str(results_path), encoding="utf-8")
 
 
 def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
@@ -336,6 +382,8 @@ def _select_cases_for_rerun(
 def handle_batch(args) -> int:
     started_at = datetime.datetime.utcnow()
     run_id = uuid.uuid4().hex[:8]
+    interrupted = False
+    interrupted_at_case_id: str | None = None
 
     try:
         settings = load_settings(config_path=args.config, data_dir=args.data)
@@ -355,13 +403,18 @@ def handle_batch(args) -> int:
     if artifacts_dir is None:
         artifacts_dir = args.data / ".runs"
 
+    include_tags = _split_csv(args.include_tags)
+    exclude_tags = _split_csv(args.exclude_tags)
+    include_ids = _load_ids(args.include_ids)
+    exclude_ids = _load_ids(args.exclude_ids)
+
     baseline_filter_path = args.only_failed_from
     if args.only_failed and not baseline_filter_path:
-        latest_results = _load_latest_results(artifacts_dir)
+        latest_results = _load_latest_results(artifacts_dir, args.tag)
         if latest_results:
             baseline_filter_path = latest_results
         else:
-            latest_run = _load_latest_run(artifacts_dir)
+            latest_run = _load_latest_run(artifacts_dir, args.tag)
             if latest_run:
                 candidate = latest_run / "results.jsonl"
                 if candidate.exists():
@@ -391,11 +444,46 @@ def handle_batch(args) -> int:
         baseline_for_filter,
         require_assert=args.require_assert,
         fail_on=args.fail_on,
-        include_tags=_split_csv(args.include_tags),
-        exclude_tags=_split_csv(args.exclude_tags),
-        include_ids=_load_ids(args.include_ids),
-        exclude_ids=_load_ids(args.exclude_ids),
+        include_tags=include_tags,
+        exclude_tags=exclude_tags,
+        include_ids=include_ids,
+        exclude_ids=exclude_ids,
     )
+
+    baseline_planned_ids: set[str] | None = None
+    missed_baseline_results: Optional[Mapping[str, RunResult]] = None
+    missed_baseline_path: Path | None = None
+    missed_baseline_run: Path | None = None
+    if args.only_missed:
+        missed_baseline_path = _load_latest_results(artifacts_dir, args.tag)
+        missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
+        if missed_baseline_path:
+            try:
+                missed_baseline_results = load_results(missed_baseline_path)
+            except Exception as exc:
+                print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
+                return 2
+        else:
+            print("No baseline results found for --only-missed; running all filtered cases.", file=sys.stderr)
+        baseline_meta = _load_run_meta(missed_baseline_run)
+        if isinstance(baseline_meta, dict):
+            planned_from_meta = baseline_meta.get("planned_case_ids")
+            if isinstance(planned_from_meta, list):
+                baseline_planned_ids = {str(cid) for cid in planned_from_meta}
+            else:
+                try:
+                    planned_total_meta = int(baseline_meta.get("planned_total", 0))
+                except Exception:
+                    planned_total_meta = 0
+                if planned_total_meta:
+                    baseline_planned_ids = {case.id for case in cases}
+
+    planned_case_ids = [case.id for case in cases]
+    if args.only_missed:
+        planned_pool = baseline_planned_ids or set(planned_case_ids)
+        missed_ids = _missed_case_ids(planned_pool, missed_baseline_results)
+        cases = [case for case in cases if case.id in missed_ids]
+        planned_case_ids = [case.id for case in cases]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}"
@@ -427,15 +515,22 @@ def handle_batch(args) -> int:
 
     results: list[RunResult] = []
     failures = 0
-    for case in cases:
-        result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
-        results.append(result)
-        if not args.quiet:
-            print(format_status_line(result))
-        if is_failure(result.status, args.fail_on, args.require_assert):
-            failures += 1
-            if args.fail_fast or (args.max_fails and failures >= args.max_fails):
-                break
+    current_case_id: str | None = None
+    try:
+        for case in cases:
+            current_case_id = case.id
+            result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
+            results.append(result)
+            if not args.quiet:
+                print(format_status_line(result))
+            if is_failure(result.status, args.fail_on, args.require_assert):
+                failures += 1
+                if args.fail_fast or (args.max_fails and failures >= args.max_fails):
+                    break
+    except KeyboardInterrupt:
+        interrupted = True
+        interrupted_at_case_id = current_case_id
+        print("Interrupted; finalizing partial results...", file=sys.stderr)
 
     write_results(results_path, results)
     counts = summarize(results)
@@ -456,10 +551,14 @@ def handle_batch(args) -> int:
 
     policy_bad = bad_statuses(args.fail_on, args.require_assert)
     bad_count = sum(int(counts.get(status, 0) or 0) for status in policy_bad)
-    exit_code = 1 if bad_count else 0
+    exit_code = 130 if interrupted else (1 if bad_count else 0)
 
     ended_at = datetime.datetime.utcnow()
     duration_ms = int((ended_at - started_at).total_seconds() * 1000)
+    executed_results = {res.id: res for res in results}
+    planned_total = len(planned_case_ids)
+    executed_total = len(results)
+    missed_total = len(_missed_case_ids(planned_case_ids, executed_results))
     summary = {
         "run_id": run_id,
         "started_at": started_at.isoformat() + "Z",
@@ -471,6 +570,13 @@ def handle_batch(args) -> int:
         "results_path": str(results_path),
         "require_assert": args.require_assert,
         "fail_on": args.fail_on,
+        "planned_total": planned_total,
+        "executed_total": executed_total,
+        "missed_total": missed_total,
+        "interrupted": interrupted,
+        "interrupted_at_case_id": interrupted_at_case_id,
+        "tag": args.tag,
+        "note": args.note,
     }
     if diff_block:
         summary["diff"] = diff_block
@@ -490,14 +596,14 @@ def handle_batch(args) -> int:
                 "duration_ms": duration_ms,
                 "run_dir": str(run_folder),
                 "results_path": str(results_path),
+                "interrupted": interrupted,
+                "planned_total": planned_total,
+                "executed_total": executed_total,
+                "missed_total": missed_total,
             }
         )
 
-    latest_path = run_folder.parent / "latest.txt"
-    latest_results_path = run_folder.parent / "latest_results.txt"
-    latest_path.parent.mkdir(parents=True, exist_ok=True)
-    latest_path.write_text(str(run_folder), encoding="utf-8")
-    latest_results_path.write_text(str(results_path), encoding="utf-8")
+    _update_latest_markers(run_folder, results_path, artifacts_dir, args.tag)
 
     config_hash = _hash_file(args.config) if args.config else None
     schema_hash = _hash_file(args.schema)
@@ -507,6 +613,8 @@ def handle_batch(args) -> int:
     run_meta = {
         "run_id": run_id,
         "timestamp": started_at.isoformat() + "Z",
+        "tag": args.tag,
+        "note": args.note,
         "inputs": {
             "cases_path": str(args.cases),
             "cases_hash": cases_hash,
@@ -516,6 +624,23 @@ def handle_batch(args) -> int:
             "schema_hash": schema_hash,
             "data_dir": str(args.data),
         },
+        "planned_case_ids": planned_case_ids,
+        "planned_total": planned_total,
+        "selected_filters": {
+            "include_tags": sorted(include_tags) if include_tags else None,
+            "exclude_tags": sorted(exclude_tags) if exclude_tags else None,
+            "include_ids_path": str(args.include_ids) if args.include_ids else None,
+            "exclude_ids_path": str(args.exclude_ids) if args.exclude_ids else None,
+            "only_failed": bool(args.only_failed or args.only_failed_from),
+            "only_failed_from": str(baseline_filter_path) if baseline_filter_path else None,
+            "only_missed": args.only_missed,
+            "only_missed_from": str(missed_baseline_path) if missed_baseline_path else None,
+            "plan_only": args.plan_only,
+            "fail_fast": args.fail_fast,
+            "max_fails": args.max_fails,
+        },
+        "interrupted": interrupted,
+        "interrupted_at_case_id": interrupted_at_case_id,
         "data_fingerprint": data_fingerprint,
         "llm": {
             "plan_model": llm_settings.plan_model,
@@ -539,6 +664,8 @@ def handle_batch(args) -> int:
         "config_hash": config_hash,
         "schema_hash": schema_hash,
         "cases_hash": cases_hash,
+        "tag": args.tag,
+        "note": args.note,
         "ok": counts.get("ok", 0),
         "mismatch": counts.get("mismatch", 0),
         "error": counts.get("error", 0),
@@ -554,6 +681,11 @@ def handle_batch(args) -> int:
         "fail_on": args.fail_on,
         "require_assert": args.require_assert,
         "fail_count": bad_count,
+        "planned_total": planned_total,
+        "executed_total": executed_total,
+        "missed_total": missed_total,
+        "interrupted": interrupted,
+        "interrupted_at_case_id": interrupted_at_case_id,
     }
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:
@@ -562,9 +694,10 @@ def handle_batch(args) -> int:
     unchecked = counts.get("unchecked", 0)
     plan_only = counts.get("plan_only", 0)
     summary_line = (
-        f"Batch: {counts.get('total', 0)} cases | Checked: {counts.get('checked_total', 0)} | "
-        f"Checked OK: {counts.get('checked_ok', 0)} | Unchecked(no-assert): {unchecked} | "
-        f"Plan-only: {plan_only} | FAIL(policy): {bad_count} | Skipped: {counts.get('skipped', 0)}"
+        f"Batch: planned {planned_total}, executed {executed_total}, missed {missed_total} | "
+        f"Checked: {counts.get('checked_total', 0)} | Checked OK: {counts.get('checked_ok', 0)} | "
+        f"Unchecked(no-assert): {unchecked} | Plan-only: {plan_only} | "
+        f"FAIL(policy): {bad_count} | Skipped: {counts.get('skipped', 0)}"
     )
 
     if args.quiet:

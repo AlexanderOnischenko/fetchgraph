@@ -52,6 +52,13 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--schema", type=Path, required=True)
     batch_p.add_argument("--config", type=Path, default=None, help="Path to demo_qa.toml")
     batch_p.add_argument("--cases", type=Path, required=True, help="Path to cases jsonl")
+    batch_p.add_argument("--tag", type=str, default=None, help="Label this run and use tag-specific latest pointers")
+    batch_p.add_argument("--note", type=str, default=None, help="Free-form note to attach to the run metadata")
+    batch_p.add_argument(
+        "--only-missed",
+        action="store_true",
+        help="Run only cases missing in the latest (or tag-latest) effective results",
+    )
     batch_p.add_argument("--out", type=Path, required=False, default=None, help="Path to results jsonl")
     batch_p.add_argument("--artifacts-dir", type=Path, default=None, help="Where to store per-case artifacts")
     batch_p.add_argument("--enable-semantic", action="store_true")

@@ -24,6 +24,8 @@ from .batch import (  # noqa: E402
     handle_compare,
     handle_stats,
 )  # noqa: E402
+from .commands.history import handle_history_case  # noqa: E402
+from .commands.report import handle_report_run, handle_report_tag  # noqa: E402
 from .data_gen import generate_and_save  # noqa: E402
 
 
@@ -52,6 +54,19 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--schema", type=Path, required=True)
     batch_p.add_argument("--config", type=Path, default=None, help="Path to demo_qa.toml")
     batch_p.add_argument("--cases", type=Path, required=True, help="Path to cases jsonl")
+    batch_p.add_argument("--tag", type=str, default=None, help="Label this run and use tag-specific latest pointers")
+    batch_p.add_argument("--note", type=str, default=None, help="Free-form note to attach to the run metadata")
+    batch_p.add_argument(
+        "--only-missed",
+        action="store_true",
+        help="Run only cases missing in effective results for --tag (or latest results when no tag is set)",
+    )
+    batch_p.add_argument(
+        "--only-missed-from",
+        type=Path,
+        default=None,
+        help="Run only cases missing in the provided results.jsonl (or latest if omitted)",
+    )
     batch_p.add_argument("--out", type=Path, required=False, default=None, help="Path to results jsonl")
     batch_p.add_argument("--artifacts-dir", type=Path, default=None, help="Where to store per-case artifacts")
     batch_p.add_argument("--enable-semantic", action="store_true")
@@ -133,6 +148,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compare_p.add_argument("--require-assert", action="store_true", help="Treat unchecked cases as failures when diffing")
 
+    history_p = sub.add_parser("history", help="History utilities")
+    history_sub = history_p.add_subparsers(dest="history_command", required=True)
+    case_hist = history_sub.add_parser("case", help="Show history for a case id")
+    case_hist.add_argument("case_id")
+    case_hist.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    case_hist.add_argument("--tag", type=str, default=None, help="Filter by tag")
+    case_hist.add_argument("--limit", type=int, default=20, help="Limit rows")
+
+    report_p = sub.add_parser("report", help="Reports over runs/effective snapshots")
+    report_sub = report_p.add_subparsers(dest="report_command", required=True)
+    tag_report = report_sub.add_parser("tag", help="Report current effective snapshot for a tag")
+    tag_report.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    tag_report.add_argument("--tag", type=str, required=True, help="Tag to report")
+    run_report = report_sub.add_parser("run", help="Report a specific run folder or run_id")
+    run_report.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    run_report.add_argument("--run", type=Path, required=True, help="Run dir or run_id under runs/")
+
     return parser
 
 
@@ -160,6 +192,18 @@ def main() -> None:
         code = handle_stats(args)
     elif args.command == "compare":
         code = handle_compare(args)
+    elif args.command == "history":
+        if args.history_command == "case":
+            code = handle_history_case(args)
+        else:
+            code = 1
+    elif args.command == "report":
+        if args.report_command == "tag":
+            code = handle_report_tag(args)
+        elif args.report_command == "run":
+            code = handle_report_run(args)
+        else:
+            code = 1
     else:
         code = 0
     raise SystemExit(code)

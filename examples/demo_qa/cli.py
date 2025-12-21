@@ -146,6 +146,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compare_p.add_argument("--require-assert", action="store_true", help="Treat unchecked cases as failures when diffing")
 
+    history_p = sub.add_parser("history", help="History utilities")
+    history_sub = history_p.add_subparsers(dest="history_command", required=True)
+    case_hist = history_sub.add_parser("case", help="Show history for a case id")
+    case_hist.add_argument("case_id")
+    case_hist.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    case_hist.add_argument("--tag", type=str, default=None, help="Filter by tag")
+    case_hist.add_argument("--limit", type=int, default=20, help="Limit rows")
+
+    report_p = sub.add_parser("report", help="Reports over runs/effective snapshots")
+    report_sub = report_p.add_subparsers(dest="report_command", required=True)
+    tag_report = report_sub.add_parser("tag", help="Report current effective snapshot for a tag")
+    tag_report.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    tag_report.add_argument("--tag", type=str, required=True, help="Tag to report")
+    run_report = report_sub.add_parser("run", help="Report a specific run folder or run_id")
+    run_report.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    run_report.add_argument("--run", type=Path, required=True, help="Run dir or run_id under runs/")
+
     return parser
 
 
@@ -173,6 +190,22 @@ def main() -> None:
         code = handle_stats(args)
     elif args.command == "compare":
         code = handle_compare(args)
+    elif args.command == "history":
+        from .batch import handle_history_case
+
+        if args.history_command == "case":
+            code = handle_history_case(args)
+        else:
+            code = 1
+    elif args.command == "report":
+        from .batch import handle_report_run, handle_report_tag
+
+        if args.report_command == "tag":
+            code = handle_report_tag(args)
+        elif args.report_command == "run":
+            code = handle_report_run(args)
+        else:
+            code = 1
     else:
         code = 0
     raise SystemExit(code)

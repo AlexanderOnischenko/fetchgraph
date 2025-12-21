@@ -55,7 +55,14 @@ python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.j
 
 ## Batch
 
-Запустить пакетный прогон вопросов из `cases.jsonl` (по одному JSON на строку, поля `id`, `question`, опционально `expected`/`expected_regex`/`expected_contains` и `skip`):
+Запустить пакетный прогон вопросов из файла кейсов (`cases.jsonl` или `cases.json`).
+
+Поддерживаемые форматы:
+
+* **JSONL**: по одному JSON-объекту на строку.
+* **JSON**: массив объектов.
+
+Поля кейса: `id`, `question`, опционально `expected`/`expected_regex`/`expected_contains` и `skip`.
 
 ```bash
 python -m examples.demo_qa.cli batch \
@@ -65,12 +72,80 @@ python -m examples.demo_qa.cli batch \
   --out results.jsonl
 ```
 
-* Артефакты по умолчанию пишутся в `<data>/.runs/runs/<timestamp>_<cases_stem>/cases/<id>_<runid>/` (`plan.json`, `context.json`, `answer.txt`, `raw_synth.txt`, `error.txt`).
-* `results.jsonl` содержит по строке на кейс, рядом сохраняется `summary.json` с агрегацией статусов и, при наличии `--compare-to`, diff по прогрессу.
-* Флаги `--fail-on (error|bad|unchecked|any|skipped)`, `--max-fails`, `--fail-fast`, `--require-assert`, `--compare-to`, `--only-failed-from/--only-failed` и `--plan-only` управляют выбором кейсов, остановкой и кодом выхода (0/1/2).
-* Без `--out` результаты складываются в `<artifacts_dir>/runs/<timestamp>_<cases_stem>/results.jsonl`, а `runs/latest.txt` указывает на последнюю папку запуска.
-* Быстрый фокус на упавших: `--only-failed` возьмёт `runs/latest/results.jsonl`, `--show-artifacts` печатает пути, репро-команды выводятся для каждого FAIL.
-* Команды уровня кейса: `demo_qa case run <id> --cases ...` и `demo_qa case open <id> --run runs/latest` для быстрого воспроизведения.
+Что сохраняется:
+
+* Артефакты по кейсам по умолчанию пишутся в `<data>/.runs/runs/<timestamp>_<cases_stem>/cases/<id>_<runid>/` (`plan.json`, `context.json`, `answer.txt`, `raw_synth.txt`, `error.txt`).
+* `results.jsonl` содержит по строке на кейс, рядом сохраняется `summary.json` с агрегацией статусов.
+* Без `--out` результаты складываются в `<data>/.runs/runs/<timestamp>_<cases_stem>/results.jsonl`, а `runs/latest.txt` указывает на последнюю папку запуска, `runs/latest_results.txt` — на путь к results.
+* При `Ctrl-C` сохраняются частичные результаты: уже пройденные кейсы попадают в `results.jsonl/summary.json`, а прогон помечается как `interrupted`.
+
+Ключевые флаги:
+
+* `--fail-on (error|bad|unchecked|any|skipped)`, `--max-fails`, `--fail-fast`, `--require-assert` — остановка/код выхода (0/1/2) и строгость проверок.
+* `--only-failed` / `--only-failed-from PATH` — перепрогон только плохих кейсов (baseline = latest либо явно заданный results).
+* `--only-missed` / `--only-missed-from PATH` — “добить” только те кейсы, которые отсутствуют в baseline results (удобно после Ctrl-C).
+* `--tag TAG` / `--note "..."` — пометить прогон как часть эксперимента. Для `--tag` поддерживается “effective snapshot”: результаты по тегу накапливаются инкрементально, так что `--only-failed/--only-missed` по тегу корректно работают даже после частичных прогонов.
+* `--plan-only` — строить планы без выполнения.
+
+Команды уровня кейса:
+
+* `python -m examples.demo_qa.cli case run <id> --cases ...` — прогнать один кейс.
+* `python -m examples.demo_qa.cli case open <id> --data ...` — открыть папку артефактов кейса.
+
+Отчёты и история:
+
+* `python -m examples.demo_qa.cli stats --data <DATA_DIR> --last 10` — последние прогоны.
+* `python -m examples.demo_qa.cli report tag --data <DATA_DIR> --tag <TAG>` — сводка по “effective” результатам тега.
+* `python -m examples.demo_qa.cli report run --data <DATA_DIR> --run runs/latest` — сводка по конкретному run.
+* `python -m examples.demo_qa.cli history case <id> --data <DATA_DIR> [--tag <TAG>]` — история по кейсу.
+
+### Удобные алиасы (bash/zsh)
+
+Добавьте в `~/.bashrc` или `~/.zshrc` и перезапустите shell.
+
+```bash
+# 1) Настройте свои дефолты под проект/датасет
+export DQ_DATA="./_demo_data/shop"
+export DQ_SCHEMA="$DQ_DATA/schema.yaml"
+export DQ_CASES="./examples/demo_qa/cases/retail_cases.json"
+export DQ_OUT="$DQ_DATA/.runs/results.jsonl"
+export DQ_TAG="retail-iter1"
+
+# 2) Базовая команда
+dq() { python -m examples.demo_qa.cli "$@"; }
+
+# 3) Самые частые сценарии
+dq-batch()  { dq batch  --data "$DQ_DATA" --schema "$DQ_SCHEMA" --cases "$DQ_CASES" --out "$DQ_OUT" "$@"; }
+dq-failed() { dq-batch --only-failed "$@"; }
+dq-missed() { dq-batch --only-missed "$@"; }
+
+# Tagged (effective) workflow
+dq-batch-tag()  { dq-batch --tag "$DQ_TAG" "$@"; }
+dq-failed-tag() { dq-batch --tag "$DQ_TAG" --only-failed "$@"; }
+dq-missed-tag() { dq-batch --tag "$DQ_TAG" --only-missed "$@"; }
+
+# Отчёты
+dq-stats()   { dq stats  --data "$DQ_DATA" "$@"; }
+dq-report()  { dq report tag --data "$DQ_DATA" --tag "$DQ_TAG" "$@"; }
+dq-run()     { dq report run --data "$DQ_DATA" --run "${1:-runs/latest}"; }
+dq-hist()    { dq history case "$1" --data "$DQ_DATA" --tag "$DQ_TAG" "${@:2}"; }
+
+# Дебаг кейса
+dq-case()    { dq case run "$1" --cases "$DQ_CASES" --data "$DQ_DATA" --schema "$DQ_SCHEMA" "${@:2}"; }
+dq-open()    { dq case open "$1" --data "$DQ_DATA" "${@:2}"; }
+```
+
+Минимальный набор, если не хочется “тегов”:
+
+```bash
+dq() { python -m examples.demo_qa.cli "$@"; }
+dq-batch()  { dq batch  --data "$DQ_DATA" --schema "$DQ_SCHEMA" --cases "$DQ_CASES" --out "$DQ_OUT" "$@"; }
+dq-failed() { dq-batch --only-failed "$@"; }
+dq-missed() { dq-batch --only-missed "$@"; }
+dq-stats()  { dq stats --data "$DQ_DATA" --last 10; }
+```
+
+
 ## Local proxy
 
 Для OpenAI-совместимых серверов (например, LM Studio) укажите `base_url` с `.../v1` и

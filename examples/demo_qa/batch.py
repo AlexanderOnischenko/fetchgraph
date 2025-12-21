@@ -788,7 +788,11 @@ def handle_batch(args) -> int:
                     print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
                     return 2
             else:
-                print("No baseline results found for --only-missed; running all filtered cases.", file=sys.stderr)
+                print(
+                    "No baseline found for --only-missed. Provide --only-missed-from or run a tagged batch first.",
+                    file=sys.stderr,
+                )
+                return 2
             baseline_meta = _load_run_meta(missed_baseline_run)
             if isinstance(baseline_meta, dict):
                 planned_from_meta = baseline_meta.get("planned_case_ids")

@@ -28,15 +28,21 @@ from .runner import (
     save_status,
     summarize,
 )
+from .runs.case_history import _append_case_history
+from .runs.coverage import _missed_case_ids
+from .runs.effective import _append_effective_diff, _build_effective_diff, _load_effective_results, _update_effective_snapshot
+from .runs.io import write_results
+from .runs.layout import (
+    _latest_markers,
+    _load_latest_results,
+    _load_latest_run,
+    _load_run_meta,
+    _run_dir_from_results_path,
+    _update_latest_markers,
+)
+from .runs.scope import _scope_hash, _scope_payload
 from .settings import load_settings
 from .utils import dump_json
-
-
-def write_results(out_path: Path, results: Iterable[RunResult]) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as f:
-        for res in results:
-            f.write(json.dumps(res.to_json(), ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
 
 
 def write_summary(out_path: Path, summary: dict) -> Path:
@@ -116,310 +122,6 @@ def _git_sha() -> Optional[str]:
     return result.stdout.strip() or None
 
 
-def _sanitize_tag(tag: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in tag)
-    return cleaned or "tag"
-
-
-def _effective_paths(artifacts_dir: Path, tag: str) -> tuple[Path, Path]:
-    base = artifacts_dir / "runs" / "tags" / _sanitize_tag(tag)
-    return base / "effective_results.jsonl", base / "effective_meta.json"
-
-
-def _scope_payload(
-    *,
-    cases_hash: str,
-    include_tags: set[str] | None,
-    exclude_tags: set[str] | None,
-    include_ids: set[str] | None,
-    exclude_ids: set[str] | None,
-) -> dict[str, object]:
-    return {
-        "cases_hash": cases_hash,
-        "include_tags": sorted(include_tags) if include_tags else None,
-        "exclude_tags": sorted(exclude_tags) if exclude_tags else None,
-        "include_ids": sorted(include_ids) if include_ids else None,
-        "exclude_ids": sorted(exclude_ids) if exclude_ids else None,
-    }
-
-
-def _scope_hash(scope: Mapping[str, object]) -> str:
-    payload = json.dumps(scope, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _latest_markers(artifacts_dir: Path, tag: str | None) -> tuple[Path, Path]:
-    runs_dir = artifacts_dir / "runs"
-    if tag:
-        slug = _sanitize_tag(tag)
-        return runs_dir / f"tag-latest-{slug}.txt", runs_dir / f"tag-latest-results-{slug}.txt"
-    return runs_dir / "latest.txt", runs_dir / "latest_results.txt"
-
-
-def _load_latest_run(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
-    latest_file, _ = _latest_markers(artifacts_dir, tag)
-    if latest_file.exists():
-        content = latest_file.read_text(encoding="utf-8").strip()
-        if content:
-            return Path(content)
-    return None
-
-
-def _load_latest_results(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
-    _, latest_file = _latest_markers(artifacts_dir, tag)
-    if latest_file.exists():
-        content = latest_file.read_text(encoding="utf-8").strip()
-        if content:
-            return Path(content)
-    latest_run = _load_latest_run(artifacts_dir, tag)
-    if latest_run:
-        summary_path = latest_run / "summary.json"
-        if summary_path.exists():
-            try:
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                results_path = summary.get("results_path")
-                if results_path:
-                    return Path(results_path)
-            except Exception:
-                pass
-    return None
-
-
-def _load_run_meta(run_path: Path | None) -> Optional[dict]:
-    if run_path is None:
-        return None
-    meta_path = run_path / "run_meta.json"
-    if not meta_path.exists():
-        return None
-    try:
-        return json.loads(meta_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
-def _run_dir_from_results_path(results_path: Path | None) -> Optional[Path]:
-    if results_path is None:
-        return None
-    run_dir = results_path.parent
-    summary_path = run_dir / "summary.json"
-    if summary_path.exists():
-        try:
-            summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            run_dir_from_summary = summary.get("run_dir")
-            if run_dir_from_summary:
-                return Path(run_dir_from_summary)
-        except Exception:
-            pass
-    return run_dir
-
-
-def _missed_case_ids(planned_case_ids: Iterable[str], executed_results: Mapping[str, RunResult] | None) -> set[str]:
-    planned_set = set(planned_case_ids)
-    if not executed_results:
-        return planned_set
-    try:
-        executed_ids = set(executed_results.keys())
-    except Exception:
-        executed_ids = set()
-    return planned_set - executed_ids
-
-
-def _update_latest_markers(run_folder: Path, results_path: Path, artifacts_dir: Path, tag: str | None) -> None:
-    marker_pairs = {_latest_markers(artifacts_dir, None)}
-    if tag:
-        marker_pairs.add(_latest_markers(artifacts_dir, tag))
-    for latest_path, latest_results_path in marker_pairs:
-        latest_path.parent.mkdir(parents=True, exist_ok=True)
-        latest_path.write_text(str(run_folder), encoding="utf-8")
-        latest_results_path.write_text(str(results_path), encoding="utf-8")
-
-
-def _load_effective_results(artifacts_dir: Path, tag: str) -> tuple[dict[str, RunResult], Optional[dict], Path]:
-    results_path, meta_path = _effective_paths(artifacts_dir, tag)
-    meta: Optional[dict] = None
-    results: dict[str, RunResult] = {}
-    if results_path.exists():
-        results = load_results(results_path)
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except Exception:
-            meta = None
-    return results, meta, results_path
-
-
-def _write_effective_results(results_path: Path, results: Mapping[str, RunResult]) -> None:
-    results_path.parent.mkdir(parents=True, exist_ok=True)
-    ordered = [results[cid] for cid in sorted(results)]
-    write_results(results_path, ordered)
-
-
-def _append_case_history(
-    artifacts_dir: Path,
-    result: RunResult,
-    *,
-    run_id: str,
-    tag: str | None,
-    note: str | None,
-    fail_on: str,
-    require_assert: bool,
-    scope_hash: str,
-    cases_hash: str,
-    git_sha: str | None,
-    run_dir: Path,
-    results_path: Path,
-) -> None:
-    history_dir = artifacts_dir / "runs" / "cases"
-    history_dir.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "run_id": run_id,
-        "tag": tag,
-        "note": note,
-        "status": result.status,
-        "reason": _reason(result),
-        "duration_ms": result.duration_ms,
-        "artifacts_dir": result.artifacts_dir,
-        "run_dir": str(run_dir),
-        "results_path": str(results_path),
-        "fail_on": fail_on,
-        "require_assert": require_assert,
-        "scope_hash": scope_hash,
-        "cases_hash": cases_hash,
-        "git_sha": git_sha,
-    }
-    target = history_dir / f"{result.id}.jsonl"
-    with target.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def _build_effective_diff(
-    before: Mapping[str, RunResult],
-    after: Mapping[str, RunResult],
-    *,
-    fail_on: str,
-    require_assert: bool,
-    run_id: str,
-    tag: str,
-    note: str | None,
-    run_dir: Path,
-    results_path: Path,
-    scope_hash: str,
-) -> dict[str, object]:
-    bad = bad_statuses(fail_on, require_assert)
-    before_bad = {cid for cid, res in before.items() if res.status in bad}
-    after_bad = {cid for cid, res in after.items() if res.status in bad}
-    ids = set(before) | set(after)
-    regressed: list[dict[str, object]] = []
-    fixed: list[dict[str, object]] = []
-    changed_bad: list[dict[str, object]] = []
-    new_cases: list[dict[str, object]] = []
-    other_changed: list[dict[str, object]] = []
-    for cid in ids:
-        prev = before.get(cid)
-        cur = after.get(cid)
-        prev_status = prev.status if prev else None
-        cur_status = cur.status if cur else None
-        if prev is None and cur is not None:
-            new_cases.append({"id": cid, "to": cur_status})
-            continue
-        if cur is None or prev is None:
-            continue
-        if prev_status == cur_status:
-            continue
-        entry = {"id": cid, "from": prev_status, "to": cur_status, "reason": _reason(cur)}
-        was_bad = cid in before_bad
-        now_bad = cid in after_bad
-        if not was_bad and now_bad:
-            regressed.append(entry)
-        elif was_bad and not now_bad:
-            fixed.append(entry)
-        elif was_bad and now_bad:
-            changed_bad.append(entry)
-        else:
-            other_changed.append(entry)
-    return {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "tag": tag,
-        "note": note,
-        "run_id": run_id,
-        "run_dir": str(run_dir),
-        "results_path": str(results_path),
-        "fail_on": fail_on,
-        "require_assert": require_assert,
-        "scope_hash": scope_hash,
-        "regressed": sorted(regressed, key=lambda r: r["id"]),
-        "fixed": sorted(fixed, key=lambda r: r["id"]),
-        "changed_bad": sorted(changed_bad, key=lambda r: r["id"]),
-        "changed_other": sorted(other_changed, key=lambda r: r["id"]),
-        "new_cases": sorted(new_cases, key=lambda r: r["id"]),
-    }
-
-
-def _append_effective_diff(tag_dir: Path, diff_entry: Mapping[str, object]) -> None:
-    tag_dir.mkdir(parents=True, exist_ok=True)
-    changes_path = tag_dir / "effective_changes.jsonl"
-    with changes_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(diff_entry, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def _update_effective_snapshot(
-    *,
-    artifacts_dir: Path,
-    tag: str,
-    cases_hash: str,
-    cases_path: Path,
-    suite_case_ids: list[str],
-    executed_results: list[RunResult],
-    run_folder: Path,
-    scope: Mapping[str, object],
-    scope_hash: str,
-) -> tuple[Path, Path, dict[str, RunResult], dict[str, RunResult]]:
-    effective_results, effective_meta, effective_results_path = _load_effective_results(artifacts_dir, tag)
-    if effective_meta and effective_meta.get("cases_hash") and effective_meta["cases_hash"] != cases_hash:
-        raise ValueError(
-            f"Existing effective results for tag {tag!r} use a different cases_hash; refusing to merge."
-        )
-    if effective_meta and effective_meta.get("scope_hash") and effective_meta["scope_hash"] != scope_hash:
-        raise ValueError(
-            f"Existing effective results for tag {tag!r} have a different scope; refusing to merge."
-        )
-
-    planned_pool: set[str]
-    if effective_meta and isinstance(effective_meta.get("planned_case_ids"), list):
-        planned_pool = {str(cid) for cid in effective_meta["planned_case_ids"]}
-    else:
-        planned_pool = set(suite_case_ids)
-
-    before_effective = dict(effective_results)
-    for res in executed_results:
-        effective_results[res.id] = res
-    _write_effective_results(effective_results_path, effective_results)
-
-    summary_counts = summarize(effective_results.values())
-    executed_total = len(effective_results)
-    missed_total = len(_missed_case_ids(planned_pool, effective_results))
-    meta_path = effective_results_path.with_name("effective_meta.json")
-    built_from = set(effective_meta.get("built_from_runs", [])) if effective_meta else set()
-    built_from.add(str(run_folder))
-    effective_meta_payload = {
-        "tag": tag,
-        "cases_hash": cases_hash,
-        "cases_path": str(cases_path),
-        "planned_case_ids": sorted(planned_pool),
-        "planned_total": len(planned_pool),
-        "executed_total": executed_total,
-        "missed_total": missed_total,
-        "counts": summary_counts,
-        "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
-        "built_from_runs": sorted(built_from),
-        "effective_results_path": str(effective_results_path),
-        "scope": scope,
-        "scope_hash": scope_hash,
-    }
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
-    dump_json(meta_path, effective_meta_payload)
-    return effective_results_path, meta_path, before_effective, effective_results
 
 
 def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
@@ -980,6 +682,8 @@ def handle_batch(args) -> int:
                 run_folder=run_folder,
                 scope=scope,
                 scope_hash=scope_id,
+                fail_on=args.fail_on,
+                require_assert=args.require_assert,
             )
             diff_entry = _build_effective_diff(
                 prev_effective,
@@ -1315,149 +1019,15 @@ def handle_compare(args) -> int:
     return 0
 
 
-def _load_case_history(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    entries: list[dict] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except Exception:
-                continue
-    return entries
-
-
-def handle_history_case(args) -> int:
-    artifacts_dir = args.data / ".runs"
-    path = artifacts_dir / "runs" / "cases" / f"{args.case_id}.jsonl"
-    entries = _load_case_history(path)
-    if args.tag:
-        entries = [e for e in entries if e.get("tag") == args.tag]
-    if not entries:
-        print(f"No history found for case {args.case_id}.")
-        return 0
-    entries = list(reversed(entries))[: args.limit]
-    header = (
-        f"{'timestamp':<25} {'run_id':<12} {'tag':<15} {'status':<10} "
-        f"{'reason':<30} {'note':<15} {'run_dir':<30}"
-    )
-    print(header)
-    for e in entries:
-        ts = str(e.get("timestamp", ""))[:25]
-        print(
-            f"{ts:<25} {str(e.get('run_id','')):<12} {str(e.get('tag','')):<15} "
-            f"{str(e.get('status','')):<10} {str(e.get('reason','')):<30} {str(e.get('note','')):<15} "
-            f"{str(e.get('run_dir','')):<30}"
-        )
-    return 0
-
-
-def _resolve_run_dir_arg(run_arg: Path, artifacts_dir: Path) -> Optional[Path]:
-    if run_arg.exists():
-        return run_arg
-    candidate = artifacts_dir / "runs" / run_arg
-    if candidate.exists():
-        return candidate
-    return None
-
-
-def handle_report_run(args) -> int:
-    artifacts_dir = args.data / ".runs"
-    run_dir = _resolve_run_dir_arg(args.run, artifacts_dir)
-    if not run_dir:
-        print("Run directory not found.", file=sys.stderr)
-        return 2
-    summary_path = run_dir / "summary.json"
-    if not summary_path.exists():
-        print(f"summary.json not found in {run_dir}", file=sys.stderr)
-        return 2
-    try:
-        summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"Failed to read summary: {exc}", file=sys.stderr)
-        return 2
-    print(f"Run: {run_dir}")
-    for key in ["run_id", "tag", "note", "exit_code", "interrupted", "interrupted_at_case_id", "results_path"]:
-        if key in summary:
-            print(f"{key}: {summary.get(key)}")
-    counts = summary.get("counts") or {}
-    if counts:
-        print("Counts:", counts)
-    return 0
-
-
-def _load_effective_diff(tag_dir: Path) -> Optional[dict]:
-    path = tag_dir / "effective_changes.jsonl"
-    if not path.exists():
-        return None
-    last: Optional[dict] = None
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                last = json.loads(line)
-            except Exception:
-                continue
-    return last
-
-
-def handle_report_tag(args) -> int:
-    artifacts_dir = args.data / ".runs"
-    eff_results_path, eff_meta_path = _effective_paths(artifacts_dir, args.tag)
-    if not eff_results_path.exists() or not eff_meta_path.exists():
-        print(f"No effective snapshot found for tag {args.tag!r}.", file=sys.stderr)
-        return 2
-    try:
-        meta = json.loads(eff_meta_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"Failed to read effective_meta.json: {exc}", file=sys.stderr)
-        return 2
-    try:
-        results = load_results(eff_results_path)
-    except Exception as exc:
-        print(f"Failed to read effective results: {exc}", file=sys.stderr)
-        return 2
-    counts = meta.get("counts") or summarize(results.values())
-    print(f"Tag: {args.tag}")
-    print(f"Planned: {meta.get('planned_total')} | Executed: {meta.get('executed_total')} | Missed: {meta.get('missed_total')}")
-    print("Counts:", counts)
-    bad = bad_statuses("bad", False)
-    failing = [res for res in results.values() if res.status in bad]
-    failing = sorted(failing, key=lambda r: r.id)[:10]
-    if failing:
-        print("Failing cases (top 10):")
-        for res in failing:
-            print(f"- {res.id}: {res.status} ({_reason(res)}) [{res.artifacts_dir}]")
-    diff_entry = _load_effective_diff(eff_results_path.parent)
-    if diff_entry:
-        print("Last effective change:")
-        for key in ["timestamp", "run_id", "note"]:
-            if key in diff_entry:
-                print(f"  {key}: {diff_entry.get(key)}")
-        for label in ["regressed", "fixed", "changed_bad", "new_cases"]:
-            items = diff_entry.get(label) or []
-            print(f"  {label}: {len(items)}")
-    return 0
-
-
 __all__ = [
     "handle_batch",
     "handle_case_open",
     "handle_case_run",
     "handle_chat",
-    "handle_history_case",
-    "handle_report_run",
-    "handle_report_tag",
+    "handle_stats",
+    "handle_compare",
     "bad_statuses",
     "is_failure",
     "write_results",
     "write_summary",
-    "_load_latest_run",
-    "_find_case_artifact",
 ]

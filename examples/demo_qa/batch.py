@@ -694,12 +694,12 @@ def handle_batch(args) -> int:
             print("No baseline found for --only-missed.", file=sys.stderr)
             return 2
 
-    planned_case_ids = [case.id for case in cases]
+    selected_case_ids = [case.id for case in cases]
     if args.only_missed:
-        planned_pool = baseline_planned_ids or set(planned_case_ids)
+        planned_pool = baseline_planned_ids or set(selected_case_ids)
         missed_ids = _missed_case_ids(planned_pool, missed_baseline_results)
         cases = [case for case in cases if case.id in missed_ids]
-        planned_case_ids = [case.id for case in cases]
+        selected_case_ids = [case.id for case in cases]
         if not cases:
             print("0 missed cases selected.", file=sys.stderr)
 
@@ -800,9 +800,11 @@ def handle_batch(args) -> int:
     ended_at = datetime.datetime.utcnow()
     duration_ms = int((ended_at - started_at).total_seconds() * 1000)
     executed_results = {res.id: res for res in results}
-    planned_total = len(planned_case_ids)
+    planned_total = len(selected_case_ids)
     executed_total = len(results)
-    missed_total = len(_missed_case_ids(planned_case_ids, executed_results))
+    missed_total = len(_missed_case_ids(selected_case_ids, executed_results))
+    suite_planned_total = len(suite_case_ids)
+    suite_missed_total = len(_missed_case_ids(suite_case_ids, executed_results))
     summary = {
         "run_id": run_id,
         "started_at": started_at.isoformat() + "Z",
@@ -817,6 +819,8 @@ def handle_batch(args) -> int:
         "planned_total": planned_total,
         "executed_total": executed_total,
         "missed_total": missed_total,
+        "suite_planned_total": suite_planned_total,
+        "suite_missed_total": suite_missed_total,
         "interrupted": interrupted,
         "interrupted_at_case_id": interrupted_at_case_id,
         "tag": args.tag,
@@ -885,7 +889,7 @@ def handle_batch(args) -> int:
             "data_dir": str(args.data),
         },
         "suite_case_ids": suite_case_ids,
-        "planned_case_ids": planned_case_ids,
+        "selected_case_ids": selected_case_ids,
         "planned_total": planned_total,
         "selected_filters": {
             "include_tags": sorted(include_tags) if include_tags else None,

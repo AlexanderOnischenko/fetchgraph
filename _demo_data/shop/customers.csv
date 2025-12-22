@@ -1,0 +1,1001 @@
+customer_id,name,city,segment,signup_date
+1,Customer 1,Los Angeles,consumer,2023-02-08
+2,Customer 2,New York,home_office,2023-07-18
+3,Customer 3,Philadelphia,consumer,2023-10-14
+4,Customer 4,Houston,home_office,2023-11-11
+5,Customer 5,Houston,home_office,2023-01-02
+6,Customer 6,Chicago,home_office,2022-03-20
+7,Customer 7,Los Angeles,consumer,2023-04-14
+8,Customer 8,Los Angeles,consumer,2021-01-13
+9,Customer 9,San Antonio,corporate,2021-06-16
+10,Customer 10,New York,consumer,2022-11-01
+11,Customer 11,New York,consumer,2021-07-28
+12,Customer 12,Los Angeles,home_office,2022-02-15
+13,Customer 13,Houston,consumer,2022-07-23
+14,Customer 14,Houston,consumer,2022-09-19
+15,Customer 15,New York,home_office,2022-07-23
+16,Customer 16,Houston,consumer,2021-03-12
+17,Customer 17,San Antonio,home_office,2022-09-15
+18,Customer 18,Houston,consumer,2021-03-21
+19,Customer 19,San Diego,consumer,2023-06-05
+20,Customer 20,Philadelphia,corporate,2023-05-23
+21,Customer 21,New York,consumer,2021-10-30
+22,Customer 22,Chicago,home_office,2022-07-18
+23,Customer 23,San Antonio,consumer,2023-05-10
+24,Customer 24,Phoenix,corporate,2022-03-25
+25,Customer 25,Philadelphia,consumer,2021-04-25
+26,Customer 26,Chicago,consumer,2022-08-24
+27,Customer 27,Houston,home_office,2023-02-23
+28,Customer 28,Phoenix,corporate,2022-12-01
+29,Customer 29,Los Angeles,consumer,2023-05-05
+30,Customer 30,Los Angeles,consumer,2022-03-11
+31,Customer 31,San Antonio,home_office,2023-08-27
+32,Customer 32,Los Angeles,consumer,2023-11-23
+33,Customer 33,Phoenix,consumer,2023-08-08
+34,Customer 34,Phoenix,consumer,2021-07-04
+35,Customer 35,Philadelphia,corporate,2021-07-19
+36,Customer 36,New York,consumer,2021-05-31
+37,Customer 37,San Diego,home_office,2022-09-04
+38,Customer 38,Los Angeles,corporate,2022-08-03
+39,Customer 39,San Antonio,consumer,2022-06-11
+40,Customer 40,Los Angeles,consumer,2023-05-17
+41,Customer 41,Philadelphia,corporate,2022-07-22
+42,Customer 42,Phoenix,consumer,2021-08-13
+43,Customer 43,Houston,consumer,2021-11-06
+44,Customer 44,Los Angeles,home_office,2023-07-25
+45,Customer 45,New York,corporate,2023-03-02
+46,Customer 46,Houston,home_office,2022-09-16
+47,Customer 47,Philadelphia,consumer,2023-02-16
+48,Customer 48,Los Angeles,home_office,2021-03-04
+49,Customer 49,Houston,consumer,2021-03-12
+50,Customer 50,Los Angeles,corporate,2021-03-02
+51,Customer 51,San Antonio,corporate,2021-08-01
+52,Customer 52,Philadelphia,corporate,2022-06-02
+53,Customer 53,San Diego,home_office,2023-01-06
+54,Customer 54,Phoenix,home_office,2023-03-18
+55,Customer 55,Chicago,consumer,2022-12-11
+56,Customer 56,Phoenix,corporate,2021-08-20
+57,Customer 57,Phoenix,home_office,2023-07-31
+58,Customer 58,Houston,consumer,2023-03-12
+59,Customer 59,Philadelphia,home_office,2021-08-06
+60,Customer 60,Los Angeles,consumer,2022-05-25
+61,Customer 61,Chicago,home_office,2023-08-11
+62,Customer 62,Houston,home_office,2022-05-10
+63,Customer 63,Chicago,home_office,2021-09-10
+64,Customer 64,San Diego,corporate,2022-09-03
+65,Customer 65,San Antonio,corporate,2023-08-16
+66,Customer 66,Philadelphia,home_office,2022-04-10
+67,Customer 67,Houston,consumer,2023-07-12
+68,Customer 68,Phoenix,consumer,2022-06-07
+69,Customer 69,New York,corporate,2023-02-28
+70,Customer 70,Houston,corporate,2023-03-03
+71,Customer 71,New York,corporate,2023-04-07
+72,Customer 72,Phoenix,home_office,2023-01-31
+73,Customer 73,San Antonio,consumer,2023-05-25
+74,Customer 74,Philadelphia,corporate,2022-04-11
+75,Customer 75,Los Angeles,home_office,2023-01-08
+76,Customer 76,Houston,corporate,2021-01-26
+77,Customer 77,Phoenix,consumer,2022-07-27
+78,Customer 78,Houston,consumer,2022-05-30
+79,Customer 79,San Diego,corporate,2023-11-13
+80,Customer 80,San Antonio,home_office,2021-06-20
+81,Customer 81,San Diego,consumer,2022-10-10
+82,Customer 82,Chicago,consumer,2023-06-26
+83,Customer 83,Philadelphia,consumer,2022-04-23
+84,Customer 84,Chicago,corporate,2023-12-05
+85,Customer 85,Houston,home_office,2023-09-05
+86,Customer 86,Philadelphia,home_office,2021-02-11
+87,Customer 87,San Antonio,home_office,2023-07-17
+88,Customer 88,San Antonio,home_office,2023-01-08
+89,Customer 89,Phoenix,home_office,2022-02-17
+90,Customer 90,Houston,corporate,2023-10-16
+91,Customer 91,Chicago,corporate,2023-06-18
+92,Customer 92,San Diego,home_office,2023-06-17
+93,Customer 93,Los Angeles,home_office,2021-12-20
+94,Customer 94,New York,corporate,2021-03-21
+95,Customer 95,Los Angeles,corporate,2023-06-26
+96,Customer 96,Chicago,home_office,2023-01-17
+97,Customer 97,Chicago,home_office,2021-09-22
+98,Customer 98,San Antonio,corporate,2023-03-26
+99,Customer 99,Los Angeles,consumer,2023-09-05
+100,Customer 100,San Antonio,home_office,2023-08-21
+101,Customer 101,San Antonio,consumer,2022-08-14
+102,Customer 102,San Diego,home_office,2021-08-18
+103,Customer 103,Philadelphia,home_office,2023-11-24
+104,Customer 104,New York,home_office,2022-01-12
+105,Customer 105,Los Angeles,home_office,2021-02-19
+106,Customer 106,Philadelphia,consumer,2023-06-09
+107,Customer 107,Phoenix,corporate,2023-12-25
+108,Customer 108,Los Angeles,corporate,2021-06-20
+109,Customer 109,Philadelphia,consumer,2021-10-24
+110,Customer 110,San Antonio,corporate,2021-01-30
+111,Customer 111,Chicago,corporate,2022-11-17
+112,Customer 112,San Diego,corporate,2022-05-03
+113,Customer 113,New York,corporate,2022-10-13
+114,Customer 114,Philadelphia,corporate,2021-08-24
+115,Customer 115,Chicago,home_office,2022-10-04
+116,Customer 116,Los Angeles,consumer,2023-12-09
+117,Customer 117,Philadelphia,corporate,2021-11-13
+118,Customer 118,Houston,corporate,2022-09-30
+119,Customer 119,Chicago,corporate,2023-02-19
+120,Customer 120,Phoenix,home_office,2023-08-08
+121,Customer 121,Chicago,corporate,2023-01-03
+122,Customer 122,New York,corporate,2021-04-07
+123,Customer 123,Phoenix,consumer,2021-08-03
+124,Customer 124,San Diego,home_office,2023-03-17
+125,Customer 125,New York,corporate,2021-11-19
+126,Customer 126,Los Angeles,consumer,2023-05-22
+127,Customer 127,Phoenix,consumer,2022-05-20
+128,Customer 128,Philadelphia,consumer,2023-10-26
+129,Customer 129,Houston,consumer,2023-01-14
+130,Customer 130,New York,corporate,2023-03-28
+131,Customer 131,Houston,consumer,2022-08-09
+132,Customer 132,Los Angeles,home_office,2022-05-03
+133,Customer 133,Los Angeles,home_office,2021-09-27
+134,Customer 134,San Diego,corporate,2022-12-16
+135,Customer 135,Los Angeles,consumer,2023-04-09
+136,Customer 136,Chicago,home_office,2022-06-16
+137,Customer 137,Chicago,consumer,2023-04-29
+138,Customer 138,San Diego,home_office,2022-07-05
+139,Customer 139,Chicago,home_office,2023-11-16
+140,Customer 140,Philadelphia,home_office,2023-11-24
+141,Customer 141,San Antonio,corporate,2023-09-27
+142,Customer 142,Houston,home_office,2023-12-14
+143,Customer 143,Houston,consumer,2022-02-15
+144,Customer 144,Philadelphia,corporate,2023-08-06
+145,Customer 145,San Antonio,corporate,2023-01-23
+146,Customer 146,Phoenix,home_office,2021-10-26
+147,Customer 147,San Diego,corporate,2022-01-18
+148,Customer 148,San Diego,home_office,2022-03-10
+149,Customer 149,Los Angeles,consumer,2023-05-17
+150,Customer 150,Houston,corporate,2022-04-09
+151,Customer 151,Houston,home_office,2021-12-16
+152,Customer 152,Los Angeles,corporate,2022-04-08
+153,Customer 153,Phoenix,corporate,2022-03-25
+154,Customer 154,New York,consumer,2021-11-18
+155,Customer 155,Houston,home_office,2023-12-09
+156,Customer 156,Houston,home_office,2023-01-30
+157,Customer 157,New York,consumer,2022-05-08
+158,Customer 158,Los Angeles,consumer,2023-01-16
+159,Customer 159,New York,home_office,2022-06-26
+160,Customer 160,Houston,corporate,2023-05-21
+161,Customer 161,Los Angeles,consumer,2022-03-01
+162,Customer 162,New York,consumer,2022-03-24
+163,Customer 163,Phoenix,corporate,2021-07-09
+164,Customer 164,Los Angeles,home_office,2023-06-10
+165,Customer 165,Houston,corporate,2023-11-18
+166,Customer 166,Philadelphia,consumer,2023-04-24
+167,Customer 167,San Diego,corporate,2022-08-13
+168,Customer 168,Houston,home_office,2022-09-05
+169,Customer 169,Chicago,consumer,2022-06-21
+170,Customer 170,San Diego,corporate,2021-08-16
+171,Customer 171,Houston,home_office,2022-03-28
+172,Customer 172,San Diego,home_office,2021-03-07
+173,Customer 173,San Antonio,home_office,2022-03-23
+174,Customer 174,Houston,home_office,2021-05-03
+175,Customer 175,Los Angeles,home_office,2022-06-23
+176,Customer 176,Los Angeles,home_office,2022-11-19
+177,Customer 177,San Antonio,consumer,2023-10-17
+178,Customer 178,Phoenix,home_office,2022-02-03
+179,Customer 179,San Antonio,home_office,2023-01-15
+180,Customer 180,San Antonio,home_office,2021-11-29
+181,Customer 181,San Diego,corporate,2021-11-10
+182,Customer 182,New York,consumer,2023-04-17
+183,Customer 183,Los Angeles,consumer,2022-02-26
+184,Customer 184,New York,corporate,2023-05-24
+185,Customer 185,San Antonio,home_office,2023-12-18
+186,Customer 186,Phoenix,corporate,2022-02-26
+187,Customer 187,Los Angeles,corporate,2021-08-02
+188,Customer 188,Houston,corporate,2021-06-19
+189,Customer 189,Houston,consumer,2023-08-15
+190,Customer 190,Houston,consumer,2023-07-01
+191,Customer 191,San Diego,consumer,2022-01-07
+192,Customer 192,Chicago,home_office,2022-01-12
+193,Customer 193,San Antonio,home_office,2021-03-20
+194,Customer 194,Chicago,corporate,2023-11-07
+195,Customer 195,Philadelphia,consumer,2023-04-05
+196,Customer 196,San Diego,consumer,2021-12-17
+197,Customer 197,Houston,home_office,2023-09-19
+198,Customer 198,Los Angeles,home_office,2021-12-28
+199,Customer 199,San Diego,consumer,2021-03-23
+200,Customer 200,Los Angeles,consumer,2021-06-05
+201,Customer 201,New York,home_office,2022-10-05
+202,Customer 202,New York,home_office,2022-05-29
+203,Customer 203,Los Angeles,consumer,2023-01-04
+204,Customer 204,Houston,corporate,2021-06-06
+205,Customer 205,Chicago,corporate,2023-11-25
+206,Customer 206,San Antonio,corporate,2021-08-02
+207,Customer 207,San Diego,corporate,2021-01-09
+208,Customer 208,San Diego,consumer,2023-05-05
+209,Customer 209,Houston,corporate,2021-09-03
+210,Customer 210,San Antonio,corporate,2022-09-25
+211,Customer 211,New York,home_office,2023-10-12
+212,Customer 212,Chicago,corporate,2023-01-09
+213,Customer 213,San Antonio,home_office,2023-01-12
+214,Customer 214,New York,home_office,2023-10-08
+215,Customer 215,San Antonio,consumer,2021-11-06
+216,Customer 216,Philadelphia,consumer,2022-03-23
+217,Customer 217,San Diego,consumer,2022-05-14
+218,Customer 218,Philadelphia,consumer,2022-03-20
+219,Customer 219,San Antonio,home_office,2023-10-01
+220,Customer 220,San Diego,consumer,2021-04-02
+221,Customer 221,Chicago,home_office,2021-05-19
+222,Customer 222,Houston,consumer,2023-10-11
+223,Customer 223,Philadelphia,corporate,2023-06-11
+224,Customer 224,Houston,corporate,2021-12-27
+225,Customer 225,New York,home_office,2023-04-12
+226,Customer 226,New York,corporate,2021-02-27
+227,Customer 227,Phoenix,corporate,2021-09-29
+228,Customer 228,New York,home_office,2022-10-12
+229,Customer 229,New York,corporate,2021-10-01
+230,Customer 230,San Diego,corporate,2021-02-26
+231,Customer 231,Chicago,corporate,2022-09-09
+232,Customer 232,New York,consumer,2023-02-09
+233,Customer 233,Los Angeles,home_office,2021-10-17
+234,Customer 234,Chicago,consumer,2022-03-26
+235,Customer 235,Los Angeles,corporate,2021-02-28
+236,Customer 236,Los Angeles,corporate,2021-01-15
+237,Customer 237,Houston,consumer,2022-04-09
+238,Customer 238,San Antonio,corporate,2023-06-02
+239,Customer 239,Los Angeles,home_office,2023-07-26
+240,Customer 240,Houston,home_office,2021-06-16
+241,Customer 241,New York,home_office,2022-06-05
+242,Customer 242,Los Angeles,corporate,2022-03-19
+243,Customer 243,San Antonio,home_office,2022-12-07
+244,Customer 244,Phoenix,home_office,2023-09-24
+245,Customer 245,Philadelphia,corporate,2023-04-24
+246,Customer 246,Houston,consumer,2023-03-26
+247,Customer 247,Phoenix,consumer,2023-02-07
+248,Customer 248,Houston,corporate,2021-07-28
+249,Customer 249,Philadelphia,home_office,2023-02-23
+250,Customer 250,San Antonio,consumer,2022-12-29
+251,Customer 251,Chicago,consumer,2022-02-28
+252,Customer 252,Philadelphia,consumer,2021-10-27
+253,Customer 253,San Diego,corporate,2021-06-24
+254,Customer 254,Phoenix,consumer,2022-05-29
+255,Customer 255,Los Angeles,consumer,2021-09-10
+256,Customer 256,New York,corporate,2022-12-14
+257,Customer 257,San Diego,corporate,2023-10-05
+258,Customer 258,Los Angeles,corporate,2022-02-04
+259,Customer 259,Los Angeles,consumer,2021-10-17
+260,Customer 260,Houston,consumer,2021-01-22
+261,Customer 261,Philadelphia,corporate,2022-06-08
+262,Customer 262,Chicago,home_office,2022-04-04
+263,Customer 263,Phoenix,corporate,2023-06-02
+264,Customer 264,Los Angeles,consumer,2023-11-14
+265,Customer 265,Houston,consumer,2021-10-28
+266,Customer 266,Phoenix,corporate,2021-09-30
+267,Customer 267,Philadelphia,home_office,2023-08-08
+268,Customer 268,Chicago,home_office,2023-09-20
+269,Customer 269,San Diego,consumer,2022-09-22
+270,Customer 270,Philadelphia,home_office,2022-10-27
+271,Customer 271,New York,home_office,2023-03-12
+272,Customer 272,Philadelphia,home_office,2022-05-25
+273,Customer 273,Los Angeles,corporate,2021-05-15
+274,Customer 274,Chicago,consumer,2022-09-15
+275,Customer 275,Philadelphia,corporate,2023-11-06
+276,Customer 276,Los Angeles,home_office,2021-05-29
+277,Customer 277,Los Angeles,consumer,2021-10-15
+278,Customer 278,Chicago,corporate,2021-08-07
+279,Customer 279,Philadelphia,consumer,2023-01-12
+280,Customer 280,Philadelphia,corporate,2022-05-18
+281,Customer 281,Houston,consumer,2022-01-21
+282,Customer 282,Phoenix,corporate,2021-01-11
+283,Customer 283,Houston,home_office,2022-02-10
+284,Customer 284,Philadelphia,corporate,2022-08-19
+285,Customer 285,San Diego,home_office,2022-01-01
+286,Customer 286,Philadelphia,corporate,2022-11-25
+287,Customer 287,New York,home_office,2022-02-19
+288,Customer 288,Los Angeles,home_office,2022-05-28
+289,Customer 289,San Antonio,corporate,2022-04-15
+290,Customer 290,Philadelphia,corporate,2023-06-24
+291,Customer 291,New York,consumer,2023-06-09
+292,Customer 292,New York,corporate,2021-01-18
+293,Customer 293,Phoenix,consumer,2022-02-11
+294,Customer 294,Chicago,corporate,2023-10-13
+295,Customer 295,Philadelphia,consumer,2022-07-13
+296,Customer 296,Chicago,home_office,2023-12-13
+297,Customer 297,San Diego,corporate,2022-01-03
+298,Customer 298,San Antonio,home_office,2021-04-07
+299,Customer 299,New York,corporate,2023-11-04
+300,Customer 300,Los Angeles,consumer,2021-07-03
+301,Customer 301,Los Angeles,corporate,2022-12-24
+302,Customer 302,Chicago,consumer,2022-04-22
+303,Customer 303,New York,consumer,2021-09-06
+304,Customer 304,Phoenix,corporate,2022-09-22
+305,Customer 305,Chicago,home_office,2023-12-02
+306,Customer 306,San Antonio,corporate,2023-02-20
+307,Customer 307,Chicago,home_office,2023-12-29
+308,Customer 308,New York,consumer,2022-04-29
+309,Customer 309,Philadelphia,corporate,2023-12-09
+310,Customer 310,Phoenix,corporate,2021-07-02
+311,Customer 311,New York,home_office,2023-09-20
+312,Customer 312,Phoenix,corporate,2022-04-04
+313,Customer 313,Houston,consumer,2022-07-25
+314,Customer 314,Houston,corporate,2023-08-13
+315,Customer 315,Los Angeles,consumer,2021-12-10
+316,Customer 316,Phoenix,consumer,2021-12-07
+317,Customer 317,San Antonio,home_office,2021-07-27
+318,Customer 318,Chicago,home_office,2023-01-13
+319,Customer 319,Houston,consumer,2021-08-26
+320,Customer 320,Chicago,home_office,2022-12-08
+321,Customer 321,Chicago,home_office,2023-07-30
+322,Customer 322,San Antonio,consumer,2022-08-04
+323,Customer 323,New York,corporate,2022-10-08
+324,Customer 324,Chicago,corporate,2023-12-27
+325,Customer 325,Phoenix,home_office,2023-05-04
+326,Customer 326,San Antonio,home_office,2023-01-02
+327,Customer 327,Houston,consumer,2023-04-16
+328,Customer 328,Philadelphia,consumer,2023-10-29
+329,Customer 329,Chicago,consumer,2021-12-06
+330,Customer 330,Los Angeles,consumer,2022-01-20
+331,Customer 331,San Antonio,corporate,2023-11-23
+332,Customer 332,New York,consumer,2023-07-15
+333,Customer 333,San Diego,consumer,2021-05-08
+334,Customer 334,Houston,home_office,2023-03-28
+335,Customer 335,Houston,consumer,2022-11-25
+336,Customer 336,San Diego,home_office,2023-04-01
+337,Customer 337,Phoenix,consumer,2023-12-30
+338,Customer 338,Philadelphia,consumer,2022-07-17
+339,Customer 339,Houston,home_office,2021-05-02
+340,Customer 340,Houston,corporate,2023-05-27
+341,Customer 341,New York,corporate,2021-06-24
+342,Customer 342,Houston,home_office,2021-04-06
+343,Customer 343,San Antonio,home_office,2023-05-01
+344,Customer 344,Phoenix,corporate,2023-02-25
+345,Customer 345,Philadelphia,home_office,2021-11-11
+346,Customer 346,Los Angeles,home_office,2023-06-09
+347,Customer 347,Philadelphia,home_office,2023-04-14
+348,Customer 348,Phoenix,home_office,2021-08-21
+349,Customer 349,San Antonio,home_office,2021-09-13
+350,Customer 350,Phoenix,corporate,2022-05-25
+351,Customer 351,New York,home_office,2023-03-20
+352,Customer 352,Los Angeles,corporate,2022-11-18
+353,Customer 353,Philadelphia,consumer,2021-06-30
+354,Customer 354,Chicago,corporate,2023-11-23
+355,Customer 355,Philadelphia,consumer,2021-11-16
+356,Customer 356,New York,corporate,2023-06-25
+357,Customer 357,Los Angeles,corporate,2023-01-30
+358,Customer 358,San Antonio,home_office,2021-05-22
+359,Customer 359,Phoenix,corporate,2023-03-04
+360,Customer 360,Phoenix,corporate,2022-11-24
+361,Customer 361,San Antonio,home_office,2021-03-28
+362,Customer 362,Los Angeles,consumer,2022-12-06
+363,Customer 363,San Antonio,corporate,2021-07-24
+364,Customer 364,Houston,home_office,2023-03-09
+365,Customer 365,Philadelphia,consumer,2022-10-08
+366,Customer 366,New York,corporate,2022-12-11
+367,Customer 367,San Antonio,corporate,2023-05-27
+368,Customer 368,New York,corporate,2021-03-31
+369,Customer 369,Houston,consumer,2023-05-19
+370,Customer 370,Phoenix,consumer,2022-12-20
+371,Customer 371,San Antonio,corporate,2023-11-12
+372,Customer 372,Los Angeles,corporate,2022-04-24
+373,Customer 373,Phoenix,consumer,2021-02-03
+374,Customer 374,Phoenix,home_office,2022-09-08
+375,Customer 375,Los Angeles,consumer,2022-01-31
+376,Customer 376,Philadelphia,home_office,2021-01-05
+377,Customer 377,Philadelphia,home_office,2021-12-05
+378,Customer 378,San Antonio,home_office,2023-06-18
+379,Customer 379,Phoenix,corporate,2021-04-24
+380,Customer 380,San Antonio,corporate,2021-03-12
+381,Customer 381,Philadelphia,home_office,2022-10-21
+382,Customer 382,Chicago,home_office,2022-06-20
+383,Customer 383,Houston,home_office,2023-12-25
+384,Customer 384,San Antonio,consumer,2021-04-10
+385,Customer 385,San Antonio,corporate,2023-04-21
+386,Customer 386,Chicago,home_office,2021-04-04
+387,Customer 387,Philadelphia,home_office,2021-04-18
+388,Customer 388,San Antonio,consumer,2023-01-04
+389,Customer 389,New York,corporate,2021-02-19
+390,Customer 390,Philadelphia,home_office,2022-03-22
+391,Customer 391,Philadelphia,corporate,2022-09-28
+392,Customer 392,Houston,home_office,2021-10-07
+393,Customer 393,San Antonio,consumer,2021-07-30
+394,Customer 394,Phoenix,consumer,2023-09-24
+395,Customer 395,San Diego,corporate,2023-10-01
+396,Customer 396,San Diego,consumer,2022-10-16
+397,Customer 397,San Diego,corporate,2022-08-05
+398,Customer 398,Houston,home_office,2022-08-18
+399,Customer 399,San Diego,consumer,2022-11-28
+400,Customer 400,Chicago,home_office,2022-08-10
+401,Customer 401,Los Angeles,home_office,2022-08-07
+402,Customer 402,Philadelphia,consumer,2021-05-05
+403,Customer 403,Phoenix,consumer,2023-11-27
+404,Customer 404,Los Angeles,consumer,2023-10-26
+405,Customer 405,Houston,home_office,2023-04-18
+406,Customer 406,Philadelphia,corporate,2021-07-26
+407,Customer 407,Houston,corporate,2023-10-13
+408,Customer 408,Houston,home_office,2022-06-25
+409,Customer 409,Chicago,home_office,2021-07-04
+410,Customer 410,New York,home_office,2021-10-05
+411,Customer 411,New York,consumer,2023-04-15
+412,Customer 412,Houston,corporate,2022-09-03
+413,Customer 413,San Diego,corporate,2023-04-02
+414,Customer 414,Los Angeles,corporate,2021-07-17
+415,Customer 415,San Diego,corporate,2021-12-12
+416,Customer 416,San Antonio,corporate,2021-01-06
+417,Customer 417,Houston,corporate,2021-02-05
+418,Customer 418,San Antonio,home_office,2022-04-09
+419,Customer 419,San Diego,home_office,2022-12-21
+420,Customer 420,San Antonio,consumer,2023-11-13
+421,Customer 421,Houston,home_office,2023-04-26
+422,Customer 422,Chicago,home_office,2022-10-21
+423,Customer 423,New York,corporate,2023-04-07
+424,Customer 424,Los Angeles,consumer,2022-08-13
+425,Customer 425,San Antonio,corporate,2021-12-23
+426,Customer 426,Houston,consumer,2022-01-20
+427,Customer 427,Chicago,home_office,2022-12-17
+428,Customer 428,San Diego,home_office,2022-06-22
+429,Customer 429,New York,corporate,2021-08-29
+430,Customer 430,Houston,corporate,2022-03-05
+431,Customer 431,Los Angeles,corporate,2021-10-20
+432,Customer 432,San Diego,home_office,2021-06-25
+433,Customer 433,Chicago,home_office,2021-02-20
+434,Customer 434,San Diego,home_office,2023-10-23
+435,Customer 435,Phoenix,consumer,2022-10-14
+436,Customer 436,San Diego,corporate,2023-08-14
+437,Customer 437,San Antonio,consumer,2021-01-25
+438,Customer 438,San Diego,home_office,2022-01-09
+439,Customer 439,Chicago,home_office,2021-11-17
+440,Customer 440,San Diego,consumer,2021-04-15
+441,Customer 441,San Diego,corporate,2021-06-06
+442,Customer 442,Philadelphia,corporate,2023-07-12
+443,Customer 443,Houston,home_office,2021-02-22
+444,Customer 444,Philadelphia,home_office,2022-11-25
+445,Customer 445,San Diego,home_office,2023-07-18
+446,Customer 446,Houston,corporate,2023-11-10
+447,Customer 447,Philadelphia,consumer,2023-12-29
+448,Customer 448,San Diego,home_office,2021-03-17
+449,Customer 449,Los Angeles,home_office,2022-01-16
+450,Customer 450,Philadelphia,consumer,2021-03-10
+451,Customer 451,Houston,corporate,2022-09-17
+452,Customer 452,Philadelphia,home_office,2022-11-13
+453,Customer 453,Phoenix,corporate,2021-12-31
+454,Customer 454,Phoenix,home_office,2023-04-19
+455,Customer 455,Los Angeles,corporate,2021-12-04
+456,Customer 456,Chicago,consumer,2021-03-29
+457,Customer 457,Chicago,home_office,2021-08-06
+458,Customer 458,Houston,home_office,2023-02-22
+459,Customer 459,San Antonio,home_office,2022-03-26
+460,Customer 460,Chicago,home_office,2021-12-30
+461,Customer 461,Houston,home_office,2023-06-14
+462,Customer 462,Los Angeles,consumer,2022-05-11
+463,Customer 463,San Antonio,home_office,2023-06-17
+464,Customer 464,San Antonio,home_office,2023-07-18
+465,Customer 465,Phoenix,corporate,2023-11-11
+466,Customer 466,San Diego,home_office,2022-05-14
+467,Customer 467,San Antonio,corporate,2022-01-04
+468,Customer 468,New York,consumer,2022-04-14
+469,Customer 469,Houston,corporate,2021-08-11
+470,Customer 470,San Antonio,corporate,2023-10-23
+471,Customer 471,San Antonio,consumer,2023-03-21
+472,Customer 472,New York,consumer,2021-12-10
+473,Customer 473,San Antonio,corporate,2022-10-05
+474,Customer 474,San Diego,corporate,2022-04-12
+475,Customer 475,New York,consumer,2022-03-04
+476,Customer 476,Phoenix,consumer,2021-04-05
+477,Customer 477,Philadelphia,consumer,2023-05-15
+478,Customer 478,San Antonio,consumer,2023-07-09
+479,Customer 479,San Antonio,consumer,2021-09-30
+480,Customer 480,Houston,corporate,2023-08-31
+481,Customer 481,San Diego,consumer,2023-11-21
+482,Customer 482,Houston,home_office,2022-10-26
+483,Customer 483,Philadelphia,home_office,2023-05-14
+484,Customer 484,San Antonio,home_office,2023-02-09
+485,Customer 485,San Diego,home_office,2021-03-14
+486,Customer 486,New York,consumer,2022-06-20
+487,Customer 487,San Antonio,home_office,2023-09-27
+488,Customer 488,Phoenix,corporate,2023-11-09
+489,Customer 489,San Antonio,home_office,2022-08-16
+490,Customer 490,Chicago,consumer,2023-03-26
+491,Customer 491,San Diego,home_office,2022-05-11
+492,Customer 492,Chicago,corporate,2023-12-18
+493,Customer 493,New York,consumer,2022-10-09
+494,Customer 494,San Antonio,consumer,2022-09-27
+495,Customer 495,New York,consumer,2021-08-20
+496,Customer 496,Los Angeles,home_office,2022-04-11
+497,Customer 497,San Antonio,home_office,2022-08-08
+498,Customer 498,Chicago,consumer,2021-10-13
+499,Customer 499,San Diego,home_office,2023-04-16
+500,Customer 500,Chicago,corporate,2023-01-06
+501,Customer 501,New York,consumer,2022-01-10
+502,Customer 502,Philadelphia,corporate,2021-12-17
+503,Customer 503,San Antonio,corporate,2022-04-13
+504,Customer 504,Phoenix,home_office,2021-08-13
+505,Customer 505,Houston,home_office,2022-12-21
+506,Customer 506,San Diego,consumer,2021-03-31
+507,Customer 507,Phoenix,corporate,2023-05-24
+508,Customer 508,Phoenix,home_office,2022-10-04
+509,Customer 509,San Antonio,corporate,2022-10-10
+510,Customer 510,Philadelphia,home_office,2023-05-16
+511,Customer 511,San Antonio,corporate,2023-04-04
+512,Customer 512,Philadelphia,consumer,2021-07-28
+513,Customer 513,Los Angeles,home_office,2022-08-27
+514,Customer 514,San Diego,consumer,2022-01-13
+515,Customer 515,New York,corporate,2022-02-01
+516,Customer 516,New York,corporate,2021-11-12
+517,Customer 517,Phoenix,consumer,2022-05-29
+518,Customer 518,Houston,corporate,2023-10-02
+519,Customer 519,Los Angeles,home_office,2021-05-03
+520,Customer 520,New York,home_office,2022-11-30
+521,Customer 521,New York,corporate,2022-07-31
+522,Customer 522,Houston,corporate,2021-05-24
+523,Customer 523,Houston,corporate,2023-04-13
+524,Customer 524,New York,corporate,2021-10-23
+525,Customer 525,Chicago,home_office,2021-03-22
+526,Customer 526,Houston,home_office,2022-02-22
+527,Customer 527,Chicago,corporate,2022-08-09
+528,Customer 528,San Diego,consumer,2023-11-13
+529,Customer 529,Los Angeles,consumer,2023-07-29
+530,Customer 530,Houston,home_office,2023-07-26
+531,Customer 531,San Diego,consumer,2021-03-03
+532,Customer 532,Philadelphia,corporate,2021-04-24
+533,Customer 533,Phoenix,consumer,2021-10-20
+534,Customer 534,Chicago,home_office,2023-07-02
+535,Customer 535,Los Angeles,corporate,2023-11-10
+536,Customer 536,Chicago,corporate,2023-05-19
+537,Customer 537,Philadelphia,home_office,2021-12-04
+538,Customer 538,Los Angeles,consumer,2023-01-15
+539,Customer 539,New York,home_office,2021-11-21
+540,Customer 540,Philadelphia,home_office,2022-06-02
+541,Customer 541,San Antonio,consumer,2022-04-16
+542,Customer 542,San Antonio,corporate,2021-01-24
+543,Customer 543,Houston,consumer,2021-11-26
+544,Customer 544,Los Angeles,consumer,2021-10-23
+545,Customer 545,Houston,corporate,2021-07-02
+546,Customer 546,Los Angeles,corporate,2023-01-14
+547,Customer 547,Philadelphia,home_office,2022-01-12
+548,Customer 548,Los Angeles,consumer,2023-12-17
+549,Customer 549,New York,corporate,2023-07-28
+550,Customer 550,Phoenix,consumer,2023-12-30
+551,Customer 551,San Antonio,consumer,2021-11-14
+552,Customer 552,Phoenix,corporate,2022-09-09
+553,Customer 553,Los Angeles,corporate,2022-01-07
+554,Customer 554,Phoenix,consumer,2023-05-08
+555,Customer 555,New York,corporate,2022-05-15
+556,Customer 556,San Antonio,consumer,2022-03-16
+557,Customer 557,San Diego,corporate,2022-08-15
+558,Customer 558,Los Angeles,home_office,2022-12-26
+559,Customer 559,San Antonio,corporate,2023-04-09
+560,Customer 560,Phoenix,consumer,2023-10-05
+561,Customer 561,San Diego,corporate,2022-07-13
+562,Customer 562,Chicago,consumer,2022-04-25
+563,Customer 563,San Antonio,corporate,2022-02-11
+564,Customer 564,Chicago,consumer,2022-07-13
+565,Customer 565,Philadelphia,consumer,2023-03-08
+566,Customer 566,San Diego,corporate,2023-02-12
+567,Customer 567,San Diego,consumer,2022-12-25
+568,Customer 568,San Antonio,home_office,2021-06-03
+569,Customer 569,Philadelphia,home_office,2022-12-31
+570,Customer 570,Phoenix,corporate,2022-05-13
+571,Customer 571,Houston,consumer,2021-11-12
+572,Customer 572,Los Angeles,consumer,2022-07-30
+573,Customer 573,Philadelphia,consumer,2022-05-02
+574,Customer 574,San Diego,corporate,2022-10-06
+575,Customer 575,Houston,corporate,2021-03-13
+576,Customer 576,San Diego,home_office,2023-05-24
+577,Customer 577,San Antonio,consumer,2021-12-10
+578,Customer 578,Phoenix,home_office,2021-08-15
+579,Customer 579,New York,corporate,2021-01-26
+580,Customer 580,San Diego,corporate,2022-02-10
+581,Customer 581,Phoenix,home_office,2023-05-10
+582,Customer 582,Chicago,consumer,2023-06-27
+583,Customer 583,San Diego,consumer,2023-06-19
+584,Customer 584,Houston,consumer,2022-10-11
+585,Customer 585,Phoenix,corporate,2022-04-04
+586,Customer 586,Philadelphia,consumer,2021-08-25
+587,Customer 587,Phoenix,consumer,2021-11-01
+588,Customer 588,Philadelphia,home_office,2022-05-28
+589,Customer 589,Philadelphia,home_office,2021-12-24
+590,Customer 590,New York,home_office,2022-08-14
+591,Customer 591,Houston,home_office,2023-06-05
+592,Customer 592,Los Angeles,corporate,2022-01-17
+593,Customer 593,Houston,consumer,2023-02-15
+594,Customer 594,San Antonio,corporate,2023-05-06
+595,Customer 595,San Diego,consumer,2023-10-14
+596,Customer 596,Houston,corporate,2023-11-30
+597,Customer 597,San Diego,consumer,2022-06-09
+598,Customer 598,San Diego,consumer,2022-02-04
+599,Customer 599,San Diego,consumer,2023-01-30
+600,Customer 600,New York,corporate,2023-09-24
+601,Customer 601,Los Angeles,home_office,2023-02-02
+602,Customer 602,Philadelphia,home_office,2022-12-17
+603,Customer 603,Houston,corporate,2021-09-19
+604,Customer 604,San Antonio,consumer,2022-07-02
+605,Customer 605,Houston,consumer,2021-09-20
+606,Customer 606,Philadelphia,corporate,2021-08-06
+607,Customer 607,Phoenix,home_office,2023-04-30
+608,Customer 608,San Diego,home_office,2023-01-29
+609,Customer 609,Phoenix,consumer,2021-10-13
+610,Customer 610,San Antonio,home_office,2023-04-23
+611,Customer 611,Phoenix,home_office,2023-09-25
+612,Customer 612,Phoenix,home_office,2021-04-02
+613,Customer 613,San Diego,consumer,2023-03-25
+614,Customer 614,Philadelphia,home_office,2021-02-22
+615,Customer 615,Philadelphia,consumer,2021-04-26
+616,Customer 616,Philadelphia,corporate,2023-11-05
+617,Customer 617,Houston,corporate,2021-03-17
+618,Customer 618,Los Angeles,consumer,2021-01-10
+619,Customer 619,Houston,home_office,2022-10-03
+620,Customer 620,Phoenix,corporate,2021-08-02
+621,Customer 621,Los Angeles,consumer,2023-09-07
+622,Customer 622,Chicago,home_office,2021-12-26
+623,Customer 623,Houston,corporate,2021-04-16
+624,Customer 624,Houston,consumer,2021-08-23
+625,Customer 625,San Diego,home_office,2021-01-15
+626,Customer 626,Philadelphia,home_office,2021-12-06
+627,Customer 627,Philadelphia,consumer,2023-02-25
+628,Customer 628,Los Angeles,home_office,2022-12-10
+629,Customer 629,Houston,corporate,2022-08-03
+630,Customer 630,Philadelphia,consumer,2021-04-04
+631,Customer 631,Houston,home_office,2023-08-18
+632,Customer 632,Phoenix,home_office,2023-09-18
+633,Customer 633,Chicago,home_office,2023-11-02
+634,Customer 634,Philadelphia,home_office,2023-08-16
+635,Customer 635,New York,home_office,2023-01-21
+636,Customer 636,Chicago,consumer,2023-10-22
+637,Customer 637,Philadelphia,corporate,2023-01-28
+638,Customer 638,New York,corporate,2021-01-25
+639,Customer 639,New York,consumer,2021-01-11
+640,Customer 640,Philadelphia,home_office,2023-04-07
+641,Customer 641,Chicago,corporate,2023-05-07
+642,Customer 642,San Diego,corporate,2022-10-01
+643,Customer 643,Los Angeles,corporate,2021-01-19
+644,Customer 644,New York,home_office,2021-01-26
+645,Customer 645,Philadelphia,consumer,2023-04-03
+646,Customer 646,San Diego,corporate,2022-03-03
+647,Customer 647,San Diego,consumer,2023-04-13
+648,Customer 648,San Diego,corporate,2022-03-22
+649,Customer 649,Phoenix,consumer,2021-01-27
+650,Customer 650,Chicago,home_office,2023-02-20
+651,Customer 651,New York,home_office,2023-12-21
+652,Customer 652,Philadelphia,home_office,2023-11-14
+653,Customer 653,San Diego,consumer,2022-10-31
+654,Customer 654,Los Angeles,home_office,2021-10-06
+655,Customer 655,Los Angeles,home_office,2021-06-16
+656,Customer 656,San Antonio,corporate,2021-05-30
+657,Customer 657,San Diego,consumer,2023-03-26
+658,Customer 658,Los Angeles,consumer,2021-08-20
+659,Customer 659,New York,corporate,2022-01-10
+660,Customer 660,Chicago,home_office,2021-10-26
+661,Customer 661,Chicago,corporate,2023-08-21
+662,Customer 662,Philadelphia,home_office,2023-03-29
+663,Customer 663,Los Angeles,consumer,2022-01-28
+664,Customer 664,Houston,home_office,2022-07-05
+665,Customer 665,Los Angeles,corporate,2022-02-20
+666,Customer 666,San Antonio,home_office,2022-09-09
+667,Customer 667,Houston,corporate,2021-05-03
+668,Customer 668,San Antonio,home_office,2022-08-03
+669,Customer 669,San Diego,consumer,2022-09-23
+670,Customer 670,San Diego,consumer,2022-12-15
+671,Customer 671,Philadelphia,consumer,2023-05-28
+672,Customer 672,San Antonio,home_office,2022-01-13
+673,Customer 673,Philadelphia,corporate,2023-12-20
+674,Customer 674,New York,consumer,2021-12-17
+675,Customer 675,Los Angeles,corporate,2022-04-11
+676,Customer 676,Houston,consumer,2023-11-29
+677,Customer 677,Houston,consumer,2021-05-06
+678,Customer 678,Philadelphia,consumer,2023-10-13
+679,Customer 679,Los Angeles,consumer,2023-10-07
+680,Customer 680,Chicago,corporate,2021-02-19
+681,Customer 681,Houston,corporate,2021-05-26
+682,Customer 682,Chicago,home_office,2022-09-22
+683,Customer 683,Los Angeles,corporate,2022-08-13
+684,Customer 684,Chicago,home_office,2022-08-09
+685,Customer 685,New York,corporate,2023-05-09
+686,Customer 686,San Antonio,corporate,2023-01-10
+687,Customer 687,San Diego,consumer,2021-03-29
+688,Customer 688,San Diego,home_office,2023-09-17
+689,Customer 689,Philadelphia,consumer,2021-01-15
+690,Customer 690,New York,corporate,2023-12-28
+691,Customer 691,Houston,corporate,2021-09-24
+692,Customer 692,Philadelphia,consumer,2021-05-09
+693,Customer 693,Philadelphia,home_office,2023-02-16
+694,Customer 694,San Diego,corporate,2022-11-06
+695,Customer 695,Los Angeles,corporate,2023-09-29
+696,Customer 696,Houston,consumer,2022-05-30
+697,Customer 697,Philadelphia,corporate,2023-05-30
+698,Customer 698,Houston,corporate,2021-05-29
+699,Customer 699,San Antonio,corporate,2023-04-01
+700,Customer 700,Los Angeles,home_office,2021-03-08
+701,Customer 701,Houston,corporate,2021-12-23
+702,Customer 702,Chicago,corporate,2021-11-25
+703,Customer 703,Philadelphia,corporate,2023-12-12
+704,Customer 704,Chicago,consumer,2023-05-31
+705,Customer 705,Los Angeles,corporate,2023-01-09
+706,Customer 706,New York,home_office,2022-02-26
+707,Customer 707,Chicago,corporate,2021-03-14
+708,Customer 708,Philadelphia,corporate,2021-04-26
+709,Customer 709,Philadelphia,home_office,2023-11-30
+710,Customer 710,San Diego,corporate,2022-03-12
+711,Customer 711,Los Angeles,consumer,2023-04-24
+712,Customer 712,San Diego,home_office,2023-05-26
+713,Customer 713,Philadelphia,corporate,2023-10-20
+714,Customer 714,San Antonio,consumer,2021-02-21
+715,Customer 715,Philadelphia,corporate,2021-10-06
+716,Customer 716,San Diego,home_office,2022-05-04
+717,Customer 717,San Diego,consumer,2021-01-25
+718,Customer 718,Los Angeles,home_office,2021-11-18
+719,Customer 719,New York,corporate,2023-07-01
+720,Customer 720,San Antonio,corporate,2021-08-12
+721,Customer 721,Phoenix,consumer,2022-09-11
+722,Customer 722,Philadelphia,consumer,2021-04-30
+723,Customer 723,New York,corporate,2022-04-10
+724,Customer 724,Los Angeles,home_office,2021-09-10
+725,Customer 725,Houston,corporate,2023-05-27
+726,Customer 726,New York,corporate,2022-01-09
+727,Customer 727,Philadelphia,corporate,2023-05-31
+728,Customer 728,New York,home_office,2022-08-28
+729,Customer 729,Chicago,home_office,2023-11-18
+730,Customer 730,San Diego,corporate,2023-04-20
+731,Customer 731,San Diego,consumer,2022-05-31
+732,Customer 732,Philadelphia,home_office,2022-08-20
+733,Customer 733,Chicago,corporate,2021-08-06
+734,Customer 734,San Antonio,corporate,2023-12-07
+735,Customer 735,San Diego,corporate,2021-05-02
+736,Customer 736,Los Angeles,consumer,2023-02-17
+737,Customer 737,San Diego,home_office,2022-06-22
+738,Customer 738,Phoenix,corporate,2021-03-25
+739,Customer 739,San Antonio,home_office,2021-06-01
+740,Customer 740,Phoenix,corporate,2022-11-10
+741,Customer 741,Phoenix,corporate,2021-12-27
+742,Customer 742,Los Angeles,home_office,2021-04-29
+743,Customer 743,Chicago,consumer,2022-06-14
+744,Customer 744,Phoenix,consumer,2023-07-30
+745,Customer 745,San Antonio,home_office,2023-08-12
+746,Customer 746,San Diego,home_office,2023-07-15
+747,Customer 747,Philadelphia,corporate,2022-09-09
+748,Customer 748,San Antonio,corporate,2022-05-23
+749,Customer 749,New York,home_office,2021-02-16
+750,Customer 750,San Diego,home_office,2023-09-13
+751,Customer 751,Los Angeles,home_office,2022-03-01
+752,Customer 752,Phoenix,consumer,2022-12-01
+753,Customer 753,Philadelphia,consumer,2023-02-02
+754,Customer 754,Phoenix,consumer,2021-12-21
+755,Customer 755,Los Angeles,home_office,2022-07-07
+756,Customer 756,San Antonio,home_office,2023-05-10
+757,Customer 757,New York,corporate,2022-08-07
+758,Customer 758,San Diego,consumer,2022-11-02
+759,Customer 759,San Antonio,consumer,2021-10-16
+760,Customer 760,New York,consumer,2023-11-22
+761,Customer 761,Houston,consumer,2023-06-30
+762,Customer 762,Phoenix,home_office,2023-10-24
+763,Customer 763,San Diego,corporate,2022-08-14
+764,Customer 764,San Diego,corporate,2021-05-14
+765,Customer 765,New York,corporate,2023-08-19
+766,Customer 766,Houston,home_office,2022-04-04
+767,Customer 767,Philadelphia,consumer,2022-01-18
+768,Customer 768,Chicago,home_office,2021-04-25
+769,Customer 769,Philadelphia,consumer,2021-05-08
+770,Customer 770,San Diego,home_office,2022-02-21
+771,Customer 771,San Diego,corporate,2021-08-28
+772,Customer 772,Los Angeles,corporate,2022-08-14
+773,Customer 773,New York,corporate,2023-09-12
+774,Customer 774,Houston,corporate,2021-08-28
+775,Customer 775,Chicago,consumer,2022-08-29
+776,Customer 776,Philadelphia,home_office,2022-05-07
+777,Customer 777,New York,consumer,2022-07-15
+778,Customer 778,San Antonio,home_office,2021-06-15
+779,Customer 779,Los Angeles,corporate,2021-05-23
+780,Customer 780,Houston,corporate,2021-01-09
+781,Customer 781,Los Angeles,corporate,2022-04-24
+782,Customer 782,San Diego,home_office,2022-11-22
+783,Customer 783,Los Angeles,corporate,2022-07-14
+784,Customer 784,Chicago,consumer,2022-02-24
+785,Customer 785,San Diego,consumer,2021-06-08
+786,Customer 786,Philadelphia,consumer,2021-07-25
+787,Customer 787,Philadelphia,home_office,2021-05-16
+788,Customer 788,San Antonio,consumer,2021-10-19
+789,Customer 789,San Diego,corporate,2022-11-01
+790,Customer 790,San Diego,home_office,2022-11-29
+791,Customer 791,Houston,corporate,2023-05-16
+792,Customer 792,San Diego,home_office,2023-05-12
+793,Customer 793,Chicago,consumer,2023-03-08
+794,Customer 794,San Antonio,corporate,2022-09-26
+795,Customer 795,Houston,corporate,2021-06-10
+796,Customer 796,Chicago,home_office,2021-02-10
+797,Customer 797,Los Angeles,corporate,2021-05-20
+798,Customer 798,Philadelphia,consumer,2022-07-04
+799,Customer 799,San Antonio,home_office,2023-05-11
+800,Customer 800,Phoenix,corporate,2021-05-25
+801,Customer 801,Philadelphia,home_office,2023-07-17
+802,Customer 802,New York,corporate,2023-07-19
+803,Customer 803,Philadelphia,consumer,2022-05-19
+804,Customer 804,Philadelphia,consumer,2022-08-22
+805,Customer 805,San Diego,consumer,2021-01-20
+806,Customer 806,Chicago,consumer,2022-03-30
+807,Customer 807,San Diego,corporate,2022-10-05
+808,Customer 808,San Diego,consumer,2022-08-26
+809,Customer 809,Phoenix,home_office,2021-05-12
+810,Customer 810,Phoenix,corporate,2023-05-20
+811,Customer 811,San Antonio,consumer,2022-01-13
+812,Customer 812,San Diego,home_office,2023-06-08
+813,Customer 813,Phoenix,corporate,2023-03-21
+814,Customer 814,Houston,home_office,2021-09-21
+815,Customer 815,Houston,corporate,2023-12-01
+816,Customer 816,San Antonio,home_office,2022-08-15
+817,Customer 817,Houston,consumer,2021-09-21
+818,Customer 818,San Antonio,home_office,2021-08-04
+819,Customer 819,New York,home_office,2022-02-22
+820,Customer 820,Phoenix,corporate,2022-04-13
+821,Customer 821,San Diego,corporate,2022-02-21
+822,Customer 822,San Antonio,consumer,2023-02-06
+823,Customer 823,San Antonio,home_office,2021-08-15
+824,Customer 824,Chicago,home_office,2021-04-09
+825,Customer 825,San Diego,home_office,2021-09-17
+826,Customer 826,New York,home_office,2022-11-07
+827,Customer 827,Chicago,consumer,2022-03-05
+828,Customer 828,Phoenix,corporate,2022-10-17
+829,Customer 829,Los Angeles,home_office,2022-04-11
+830,Customer 830,San Diego,consumer,2023-01-23
+831,Customer 831,Los Angeles,consumer,2021-04-30
+832,Customer 832,San Diego,consumer,2022-07-15
+833,Customer 833,New York,consumer,2022-01-27
+834,Customer 834,Chicago,consumer,2022-01-19
+835,Customer 835,San Antonio,corporate,2023-08-29
+836,Customer 836,Chicago,consumer,2023-02-10
+837,Customer 837,Los Angeles,corporate,2023-07-12
+838,Customer 838,San Diego,home_office,2023-08-16
+839,Customer 839,Philadelphia,home_office,2021-10-31
+840,Customer 840,Phoenix,corporate,2022-12-13
+841,Customer 841,San Antonio,corporate,2021-06-16
+842,Customer 842,Los Angeles,home_office,2021-07-30
+843,Customer 843,Phoenix,consumer,2022-04-19
+844,Customer 844,San Antonio,home_office,2021-01-11
+845,Customer 845,Phoenix,consumer,2022-09-07
+846,Customer 846,San Diego,consumer,2022-06-01
+847,Customer 847,New York,corporate,2023-08-22
+848,Customer 848,Los Angeles,corporate,2022-08-14
+849,Customer 849,Houston,home_office,2022-05-27
+850,Customer 850,Philadelphia,home_office,2022-11-15
+851,Customer 851,Houston,corporate,2022-06-04
+852,Customer 852,Los Angeles,home_office,2022-10-31
+853,Customer 853,San Antonio,corporate,2023-10-09
+854,Customer 854,Los Angeles,corporate,2023-07-13
+855,Customer 855,Los Angeles,home_office,2021-07-31
+856,Customer 856,San Diego,consumer,2022-04-12
+857,Customer 857,Chicago,consumer,2022-05-14
+858,Customer 858,Philadelphia,corporate,2023-07-27
+859,Customer 859,New York,home_office,2023-12-17
+860,Customer 860,New York,consumer,2021-11-09
+861,Customer 861,Phoenix,corporate,2023-01-15
+862,Customer 862,New York,corporate,2022-05-04
+863,Customer 863,Philadelphia,home_office,2021-10-03
+864,Customer 864,Phoenix,home_office,2022-09-11
+865,Customer 865,Phoenix,corporate,2022-05-11
+866,Customer 866,San Antonio,consumer,2022-03-29
+867,Customer 867,Chicago,home_office,2023-12-16
+868,Customer 868,Houston,home_office,2023-09-11
+869,Customer 869,San Antonio,home_office,2023-02-02
+870,Customer 870,Chicago,consumer,2023-06-14
+871,Customer 871,Chicago,consumer,2022-01-12
+872,Customer 872,Chicago,corporate,2022-05-22
+873,Customer 873,Los Angeles,home_office,2022-08-08
+874,Customer 874,San Antonio,consumer,2022-03-12
+875,Customer 875,Houston,consumer,2022-09-03
+876,Customer 876,San Diego,home_office,2022-07-22
+877,Customer 877,Chicago,consumer,2021-06-26
+878,Customer 878,Houston,corporate,2023-05-26
+879,Customer 879,San Diego,consumer,2021-11-07
+880,Customer 880,Philadelphia,consumer,2023-07-09
+881,Customer 881,San Diego,corporate,2023-04-28
+882,Customer 882,Philadelphia,home_office,2021-10-07
+883,Customer 883,New York,consumer,2023-11-26
+884,Customer 884,San Diego,corporate,2023-05-05
+885,Customer 885,Philadelphia,home_office,2021-02-11
+886,Customer 886,Chicago,corporate,2022-12-19
+887,Customer 887,Los Angeles,consumer,2021-11-22
+888,Customer 888,San Diego,corporate,2022-11-13
+889,Customer 889,Phoenix,consumer,2022-03-29
+890,Customer 890,Philadelphia,home_office,2023-12-13
+891,Customer 891,San Antonio,home_office,2021-04-18
+892,Customer 892,Philadelphia,corporate,2022-09-28
+893,Customer 893,San Diego,consumer,2023-11-12
+894,Customer 894,Philadelphia,home_office,2023-02-15
+895,Customer 895,Houston,corporate,2021-08-05
+896,Customer 896,San Antonio,home_office,2023-09-11
+897,Customer 897,San Diego,home_office,2022-04-16
+898,Customer 898,Los Angeles,consumer,2022-01-11
+899,Customer 899,Houston,home_office,2022-01-28
+900,Customer 900,San Antonio,home_office,2023-10-21
+901,Customer 901,Phoenix,consumer,2021-08-28
+902,Customer 902,Philadelphia,home_office,2022-10-20
+903,Customer 903,Philadelphia,home_office,2022-08-09
+904,Customer 904,New York,consumer,2021-04-25
+905,Customer 905,San Antonio,consumer,2022-11-29
+906,Customer 906,Philadelphia,home_office,2023-07-18
+907,Customer 907,New York,home_office,2023-01-15
+908,Customer 908,New York,home_office,2023-06-24
+909,Customer 909,San Diego,home_office,2022-09-15
+910,Customer 910,Philadelphia,corporate,2023-04-11
+911,Customer 911,Houston,home_office,2023-02-26
+912,Customer 912,Phoenix,consumer,2023-12-11
+913,Customer 913,Houston,consumer,2022-10-12
+914,Customer 914,Houston,consumer,2023-04-25
+915,Customer 915,Philadelphia,consumer,2021-02-27
+916,Customer 916,Chicago,home_office,2022-07-13
+917,Customer 917,Los Angeles,home_office,2023-12-26
+918,Customer 918,New York,corporate,2023-04-15
+919,Customer 919,Philadelphia,home_office,2023-07-12
+920,Customer 920,San Diego,consumer,2023-09-19
+921,Customer 921,New York,home_office,2021-05-13
+922,Customer 922,Phoenix,corporate,2021-06-19
+923,Customer 923,Chicago,home_office,2022-01-21
+924,Customer 924,Los Angeles,home_office,2023-10-19
+925,Customer 925,Philadelphia,consumer,2023-10-30
+926,Customer 926,Phoenix,corporate,2022-07-06
+927,Customer 927,San Antonio,home_office,2021-09-16
+928,Customer 928,Chicago,home_office,2023-10-03
+929,Customer 929,Houston,corporate,2023-08-10
+930,Customer 930,Chicago,home_office,2021-03-10
+931,Customer 931,Phoenix,corporate,2023-05-25
+932,Customer 932,Philadelphia,corporate,2023-09-30
+933,Customer 933,Chicago,consumer,2023-11-19
+934,Customer 934,Philadelphia,home_office,2023-10-02
+935,Customer 935,San Diego,corporate,2022-09-13
+936,Customer 936,Philadelphia,corporate,2022-05-31
+937,Customer 937,Phoenix,corporate,2022-10-31
+938,Customer 938,Los Angeles,consumer,2021-06-14
+939,Customer 939,San Diego,home_office,2021-01-17
+940,Customer 940,Los Angeles,consumer,2021-06-03
+941,Customer 941,Chicago,consumer,2022-02-06
+942,Customer 942,Houston,corporate,2021-12-11
+943,Customer 943,San Antonio,corporate,2023-03-05
+944,Customer 944,Phoenix,corporate,2023-03-17
+945,Customer 945,Los Angeles,corporate,2023-05-17
+946,Customer 946,San Antonio,consumer,2023-06-21
+947,Customer 947,New York,corporate,2023-12-05
+948,Customer 948,Philadelphia,home_office,2023-06-13
+949,Customer 949,Los Angeles,consumer,2021-12-10
+950,Customer 950,San Diego,corporate,2022-11-24
+951,Customer 951,Phoenix,home_office,2022-08-05
+952,Customer 952,Philadelphia,corporate,2022-08-31
+953,Customer 953,San Antonio,home_office,2022-12-21
+954,Customer 954,Phoenix,corporate,2023-11-22
+955,Customer 955,Los Angeles,corporate,2023-07-04
+956,Customer 956,Houston,consumer,2023-12-09
+957,Customer 957,San Diego,corporate,2023-02-17
+958,Customer 958,New York,home_office,2021-08-23
+959,Customer 959,Phoenix,home_office,2022-06-20
+960,Customer 960,Houston,consumer,2021-02-08
+961,Customer 961,Los Angeles,corporate,2023-01-20
+962,Customer 962,San Diego,consumer,2021-06-12
+963,Customer 963,Philadelphia,corporate,2022-04-04
+964,Customer 964,San Antonio,consumer,2022-10-09
+965,Customer 965,Los Angeles,corporate,2021-05-14
+966,Customer 966,Chicago,corporate,2021-06-30
+967,Customer 967,New York,consumer,2021-08-09
+968,Customer 968,New York,consumer,2022-06-26
+969,Customer 969,Philadelphia,consumer,2022-04-30
+970,Customer 970,San Diego,consumer,2022-06-17
+971,Customer 971,Los Angeles,corporate,2022-12-09
+972,Customer 972,Los Angeles,corporate,2021-11-18
+973,Customer 973,Houston,home_office,2023-03-21
+974,Customer 974,Chicago,corporate,2023-01-21
+975,Customer 975,San Antonio,consumer,2022-06-26
+976,Customer 976,San Diego,consumer,2023-01-10
+977,Customer 977,Phoenix,corporate,2021-06-01
+978,Customer 978,San Antonio,home_office,2022-11-12
+979,Customer 979,Chicago,home_office,2023-12-19
+980,Customer 980,San Antonio,corporate,2022-12-04
+981,Customer 981,Los Angeles,consumer,2022-05-11
+982,Customer 982,San Diego,consumer,2021-04-15
+983,Customer 983,San Antonio,corporate,2022-04-12
+984,Customer 984,Philadelphia,home_office,2021-03-11
+985,Customer 985,New York,corporate,2021-06-28
+986,Customer 986,Phoenix,corporate,2021-02-05
+987,Customer 987,Houston,corporate,2022-06-17
+988,Customer 988,San Diego,corporate,2023-10-04
+989,Customer 989,San Diego,consumer,2021-06-19
+990,Customer 990,Houston,consumer,2023-11-18
+991,Customer 991,Phoenix,corporate,2021-09-13
+992,Customer 992,Los Angeles,home_office,2022-01-14
+993,Customer 993,Phoenix,corporate,2023-03-13
+994,Customer 994,Phoenix,consumer,2021-09-29
+995,Customer 995,New York,consumer,2023-05-08
+996,Customer 996,San Antonio,home_office,2021-09-06
+997,Customer 997,Philadelphia,corporate,2022-05-30
+998,Customer 998,Houston,consumer,2023-05-20
+999,Customer 999,Los Angeles,consumer,2022-10-25
+1000,Customer 1000,San Diego,corporate,2022-12-19

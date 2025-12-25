@@ -2,10 +2,10 @@ from __future__ import annotations
 
 """Protocols and utilities for semantic search backends."""
 
-from dataclasses import dataclass
 import json
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Protocol, Sequence, cast
 

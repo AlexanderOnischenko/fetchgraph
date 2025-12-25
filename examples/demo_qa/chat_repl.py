@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import datetime
 import json
+import readline
 import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional, Sequence
-
-import readline
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.models import TaskProfile

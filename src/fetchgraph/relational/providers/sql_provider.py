@@ -2,12 +2,10 @@ from __future__ import annotations
 
 """SQL-backed relational provider that builds queries directly."""
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, DefaultDict, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from collections import defaultdict
-
-from .base import RelationalDataProvider
 from ..models import (
     AggregationResult,
     AggregationSpec,
@@ -18,13 +16,14 @@ from ..models import (
     LogicalFilter,
     QueryResult,
     RelationalQuery,
-    RowResult,
     RelationDescriptor,
+    RowResult,
     SelectExpr,
     SemanticClause,
     SemanticOnlyResult,
 )
 from ..semantic.backend import SemanticBackend
+from .base import RelationalDataProvider
 
 
 @dataclass(frozen=True)

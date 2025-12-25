@@ -2,14 +2,24 @@ from __future__ import annotations
 
 """Pandas-backed relational provider for in-memory datasets."""
 
-from typing import Any, Dict, Hashable, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
+from difflib import SequenceMatcher
+from typing import (
+    Any,
+    Dict,
+    Hashable,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Set,
+    Tuple,
+    cast,
+)
 
 import pandas as pd  # type: ignore[import]
-from pandas.api import types as pdt
 from pandas._typing import Renamer
-from difflib import SequenceMatcher
+from pandas.api import types as pdt
 
-from .base import RelationalDataProvider
 from ..models import (
     AggregationResult,
     AggregationSpec,
@@ -20,12 +30,13 @@ from ..models import (
     LogicalFilter,
     QueryResult,
     RelationalQuery,
-    RowResult,
     RelationDescriptor,
+    RowResult,
     SemanticClause,
     SemanticOnlyResult,
 )
 from ..semantic.backend import SemanticBackend
+from .base import RelationalDataProvider
 
 
 class PandasRelationalDataProvider(RelationalDataProvider):

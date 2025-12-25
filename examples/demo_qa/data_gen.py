@@ -9,7 +9,12 @@ from typing import Dict, List
 
 import pandas as pd
 
-from fetchgraph.relational.schema import ColumnConfig, EntityConfig, RelationConfig, SchemaConfig
+from fetchgraph.relational.schema import (
+    ColumnConfig,
+    EntityConfig,
+    RelationConfig,
+    SchemaConfig,
+)
 
 
 @dataclass

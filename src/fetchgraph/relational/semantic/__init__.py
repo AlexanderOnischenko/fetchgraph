@@ -1,13 +1,13 @@
 """Semantic search helpers for relational providers."""
 
 from .backend import (
-    EmbeddingModel,
-    SemanticBackend,
+    CsvEmbeddingBuilder,
     CsvSemanticBackend,
     CsvSemanticSource,
-    CsvEmbeddingBuilder,
+    EmbeddingModel,
     PgVectorSemanticBackend,
     PgVectorSemanticSource,
+    SemanticBackend,
     VectorStoreLike,
 )
 

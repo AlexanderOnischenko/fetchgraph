@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, overload
-import warnings
 
 import pandas as pd  # type: ignore[import]
 
 from ..core.protocols import ContextProvider
 from .models import ColumnDescriptor, EntityDescriptor, RelationDescriptor, RelationJoin
+from .providers.pandas_provider import PandasRelationalDataProvider
+from .providers.sql_provider import SqlRelationalDataProvider
 from .semantic.backend import (
+    CsvEmbeddingBuilder,
     CsvSemanticBackend,
     CsvSemanticSource,
-    CsvEmbeddingBuilder,
     EmbeddingModel,
     SemanticBackend,
 )
-from .providers.pandas_provider import PandasRelationalDataProvider
-from .providers.sql_provider import SqlRelationalDataProvider
 
 BackendKind = Literal["pandas", "sql"]
 

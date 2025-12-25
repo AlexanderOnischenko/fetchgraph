@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from ..types import SelectorsDict
-from .base import RelationalDataProvider
 from ..models import (
     AggregationResult,
     AggregationSpec,
@@ -15,12 +13,14 @@ from ..models import (
     GroupBySpec,
     LogicalFilter,
     QueryResult,
-    RelationDescriptor,
     RelationalQuery,
+    RelationDescriptor,
     RowResult,
     SemanticOnlyRequest,
     SemanticOnlyResult,
 )
+from ..types import SelectorsDict
+from .base import RelationalDataProvider
 
 
 class CompositeRelationalProvider(RelationalDataProvider):

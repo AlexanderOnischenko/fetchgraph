@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
 from typing import Any, Dict, Tuple
 from urllib.parse import urlparse
 

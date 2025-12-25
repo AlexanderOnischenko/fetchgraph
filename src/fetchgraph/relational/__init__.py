@@ -1,6 +1,5 @@
 """Relational providers and helpers."""
 
-from .types import SelectorsDict
 from .models import (
     AggregationResult,
     AggregationSpec,
@@ -12,11 +11,11 @@ from .models import (
     GroupBySpec,
     LogicalFilter,
     RelatedEntityData,
-    RelationDescriptor,
-    RelationJoin,
     RelationalQuery,
     RelationalRequest,
     RelationalResponse,
+    RelationDescriptor,
+    RelationJoin,
     RowResult,
     SchemaRequest,
     SchemaResult,
@@ -28,6 +27,7 @@ from .models import (
 )
 from .providers import (
     CompositeRelationalProvider,
+    PandasRelationalDataProvider,
     RelationalDataProvider,
     SqlRelationalDataProvider,
 )
@@ -40,9 +40,7 @@ from .semantic import (
     SemanticBackend,
     VectorStoreLike,
 )
-
-from .providers import PandasRelationalDataProvider
-
+from .types import SelectorsDict
 
 __all__ = (
     "AggregationResult",

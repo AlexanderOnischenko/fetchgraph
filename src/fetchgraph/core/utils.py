@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from importlib import resources
+
 
 def load_pkg_text(rel_path: str) -> str:
     """Read a text resource from package (e.g., 'prompts/plan_generic.md')."""

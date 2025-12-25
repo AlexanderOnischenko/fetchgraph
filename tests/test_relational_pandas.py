@@ -11,13 +11,13 @@ from fetchgraph.relational import (
     EntityDescriptor,
     GroupBySpec,
     LogicalFilter,
+    PandasRelationalDataProvider,
     RelationalQuery,
     RelationDescriptor,
     RelationJoin,
     SelectExpr,
     SemanticClause,
     SemanticMatch,
-    PandasRelationalDataProvider,
 )
 
 

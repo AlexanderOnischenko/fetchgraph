@@ -2,23 +2,23 @@ from __future__ import annotations
 
 """Base relational provider abstraction."""
 
-from typing import Any, List, Optional
 import json
 import re
+from typing import Any, List, Optional
 
 from ...core.models import ProviderInfo
 from ...core.protocols import ContextProvider, SupportsDescribe
-from ..types import SelectorsDict
 from ..models import (
+    EntityDescriptor,
     QueryResult,
     RelationalQuery,
+    RelationDescriptor,
     SchemaRequest,
     SchemaResult,
     SemanticOnlyRequest,
     SemanticOnlyResult,
-    EntityDescriptor,
-    RelationDescriptor,
 )
+from ..types import SelectorsDict
 
 
 class RelationalDataProvider(ContextProvider, SupportsDescribe):

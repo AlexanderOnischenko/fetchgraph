@@ -8,7 +8,11 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
+    from pydantic_settings import (
+        BaseSettings,
+        SettingsConfigDict,
+        TomlConfigSettingsSource,
+    )
 except ImportError as exc:  # pragma: no cover - make missing dependency explicit
     raise ImportError(
         "pydantic-settings is required for demo_qa configuration. "

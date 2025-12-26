@@ -7,7 +7,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Iterable, Mapping, Optional
+from typing import Mapping, Optional
 
 from .llm.factory import build_llm
 from .logging_config import configure_logging
@@ -30,10 +30,14 @@ from .runner import (
 )
 from .runs.case_history import _append_case_history
 from .runs.coverage import _missed_case_ids
-from .runs.effective import _append_effective_diff, _build_effective_diff, _load_effective_results, _update_effective_snapshot
+from .runs.effective import (
+    _append_effective_diff,
+    _build_effective_diff,
+    _load_effective_results,
+    _update_effective_snapshot,
+)
 from .runs.io import write_results
 from .runs.layout import (
-    _latest_markers,
     _load_latest_results,
     _load_latest_run,
     _load_run_meta,
@@ -319,7 +323,6 @@ def handle_batch(args) -> int:
     run_id = uuid.uuid4().hex[:8]
     interrupted = False
     interrupted_at_case_id: str | None = None
-    cases_hash = _hash_file(args.cases)
 
     try:
         settings = load_settings(config_path=args.config, data_dir=args.data)
@@ -328,6 +331,7 @@ def handle_batch(args) -> int:
         return 2
     try:
         cases = load_cases(args.cases)
+        cases_hash = _hash_file(args.cases)
     except Exception as exc:
         print(f"Cases error: {exc}", file=sys.stderr)
         return 2

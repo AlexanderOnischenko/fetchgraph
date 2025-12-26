@@ -89,7 +89,7 @@ def _build_effective_diff(
         else:
             other_changed.append(entry)
     return {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "tag": tag,
         "note": note,
         "run_id": run_id,
@@ -180,7 +180,7 @@ def _update_effective_snapshot(
         "executed_total": executed_total,
         "missed_total": missed_total,
         "counts": summary_counts,
-        "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "built_from_runs": sorted(built_from),
         "effective_results_path": str(effective_results_path),
         "scope": scope,

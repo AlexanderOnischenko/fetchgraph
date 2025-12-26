@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -294,7 +294,8 @@ def generate_and_save(out_dir: Path, *, rows: int = 1000, seed: int | None = Non
     save_dataset(dataset, out_dir)
     schema = default_schema(enable_semantic=enable_semantic)
     save_schema(schema, out_dir / "schema.json")
-    meta = MetaInfo(seed=seed, rows=rows, created_at=datetime.utcnow().isoformat())
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    meta = MetaInfo(seed=seed, rows=rows, created_at=created_at)
     write_meta(out_dir / "meta.json", meta)
 
     # Simple statistics

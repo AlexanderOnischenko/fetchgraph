@@ -290,9 +290,9 @@ def write_junit(compare: DiffReport, out_path: Path) -> None:
     import xml.etree.ElementTree as ET
 
     suite = ET.Element("testsuite", name="demo_qa_compare")
-    bad = compare["new_fail"] + compare["still_fail"]
-    fixed = compare["fixed"]
-    all_ids_list = list(compare.get("all_ids", []) or [])
+    bad: list[DiffCaseChange] = compare["new_fail"] + compare["still_fail"]
+    fixed: list[DiffCaseChange] = compare["fixed"]
+    all_ids_list: list[str] = list(compare.get("all_ids", []) or [])
     all_ids = sorted(all_ids_list)
     cases_total = len(all_ids)
     suite.set("tests", str(cases_total))
@@ -301,10 +301,9 @@ def write_junit(compare: DiffReport, out_path: Path) -> None:
 
     for row in sorted(bad, key=_id_sort_key):
         tc = ET.SubElement(suite, "testcase", name=row["id"])
-        msg = row.get("reason", "") or f"{row.get('from')} → {row.get('to')}"
+        msg: str = row["reason"] or f"{row.get('from')} → {row.get('to')}"
         failure = ET.SubElement(tc, "failure", message=msg)
-        artifacts_val = row.get("artifacts", {})
-        artifacts = artifacts_val if isinstance(artifacts_val, Mapping) else {}
+        artifacts = row.get("artifacts", {})
         if artifacts:
             failure.text = "\n".join(f"{k}: {v}" for k, v in sorted(artifacts.items()))
 

@@ -636,19 +636,24 @@ def diff_runs(
     def _is_bad(res: RunResult | None) -> bool:
         return bool(res and res.status in bad)
 
-    def _entry(case_id: str, base_res: RunResult | None, new_res: RunResult | None) -> dict[str, object]:
+    def _entry(case_id: str, base_res: RunResult | None, new_res: RunResult | None) -> DiffCaseChange:
+        artifacts: dict[str, str]
+        if new_res is None:
+            artifacts = {}
+        else:
+            artifacts = _artifact_links(new_res)
         return {
             "id": case_id,
             "from": base_res.status if base_res else None,
             "to": new_res.status if new_res else "missing",
             "reason": _reason(new_res) if new_res else "missing in new results",
-            "artifacts": _artifact_links(new_res) if new_res else {},
+            "artifacts": artifacts,
         }
 
-    new_fail: list[dict[str, object]] = []
-    fixed: list[dict[str, object]] = []
-    still_fail: list[dict[str, object]] = []
-    changed_status: list[dict[str, str | None]] = []
+    new_fail: list[DiffCaseChange] = []
+    fixed: list[DiffCaseChange] = []
+    still_fail: list[DiffCaseChange] = []
+    changed_status: list[DiffStatusChange] = []
     new_cases: list[str] = []
 
     for case_id in all_ids:
@@ -772,12 +777,34 @@ class EventLogger:
         return EventLogger(path, self.run_id)
 
 
+DiffCaseChange = TypedDict(
+    "DiffCaseChange",
+    {
+        "id": str,
+        "from": str | None,
+        "to": str | None,
+        "reason": str,
+        "artifacts": Mapping[str, str],
+    },
+)
+
+
+DiffStatusChange = TypedDict(
+    "DiffStatusChange",
+    {
+        "id": str,
+        "from": str | None,
+        "to": str | None,
+    },
+)
+
+
 class DiffReport(TypedDict):
     all_ids: list[str]
-    new_fail: list[dict[str, object]]
-    fixed: list[dict[str, object]]
-    still_fail: list[dict[str, object]]
-    changed_status: list[dict[str, str | None]]
+    new_fail: list[DiffCaseChange]
+    fixed: list[DiffCaseChange]
+    still_fail: list[DiffCaseChange]
+    changed_status: list[DiffStatusChange]
     new_cases: list[str]
     base_counts: Dict[str, object]
     new_counts: Dict[str, object]

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Mapping, Optional, cast
 
 from .llm.factory import build_llm
 from .logging_config import configure_logging
@@ -223,6 +223,15 @@ def compare_runs(base_path: Path, new_path: Path, *, fail_on: str, require_asser
     return diff_runs(base.values(), new.values(), fail_on=fail_on, require_assert=require_assert)
 
 
+def _id_sort_key(row: Mapping[str, object]) -> str:
+    identifier = row.get("id")
+    if isinstance(identifier, str):
+        return identifier
+    if identifier is None:
+        return ""
+    return str(identifier)
+
+
 def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
     lines: list[str] = []
     base_counts = compare["base_counts"]
@@ -258,7 +267,7 @@ def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
             return
         lines.append("| id | status | reason | artifacts |")
         lines.append("|---|---|---|---|")
-        for row in sorted(rows, key=lambda r: r.get("id", "")):
+        for row in sorted(rows, key=_id_sort_key):
             artifacts_val = row.get("artifacts", {})
             artifacts = artifacts_val if isinstance(artifacts_val, Mapping) else {}
             links = ", ".join(f"[{k}]({v})" for k, v in sorted(artifacts.items()))
@@ -290,7 +299,7 @@ def write_junit(compare: DiffReport, out_path: Path) -> None:
     suite.set("failures", str(len(bad)))
     suite.set("errors", "0")
 
-    for row in sorted(bad, key=lambda r: r.get("id", "")):
+    for row in sorted(bad, key=_id_sort_key):
         tc = ET.SubElement(suite, "testcase", name=row["id"])
         msg = row.get("reason", "") or f"{row.get('from')} → {row.get('to')}"
         failure = ET.SubElement(tc, "failure", message=msg)
@@ -299,7 +308,7 @@ def write_junit(compare: DiffReport, out_path: Path) -> None:
         if artifacts:
             failure.text = "\n".join(f"{k}: {v}" for k, v in sorted(artifacts.items()))
 
-    for row in sorted(fixed, key=lambda r: r.get("id", "")):
+    for row in sorted(fixed, key=_id_sort_key):
         ET.SubElement(suite, "testcase", name=row["id"])
 
     bad_ids = {row["id"] for row in bad}
@@ -382,9 +391,10 @@ def handle_batch(args) -> int:
     )
     scope_id = _scope_hash(scope)
 
-    baseline_filter_path = Path(args.only_failed_from) if args.only_failed_from else None
+    baseline_filter_path_arg = cast(Optional[Path], args.only_failed_from)
+    baseline_filter_path: Path | None = Path(baseline_filter_path_arg) if baseline_filter_path_arg else None
     only_failed_baseline_kind: str | None = None
-    if args.only_failed_from:
+    if baseline_filter_path_arg:
         only_failed_baseline_kind = "path"
     elif args.tag and args.only_failed:
         effective_results, effective_meta, eff_path = _load_effective_results(artifacts_dir, args.tag)
@@ -415,7 +425,7 @@ def handle_batch(args) -> int:
                 if candidate.exists():
                     baseline_filter_path = candidate
                     only_failed_baseline_kind = "latest"
-    if baseline_filter_path and baseline_for_filter is None:
+    if baseline_filter_path is not None and baseline_for_filter is None:
         try:
             baseline_for_filter = load_results(baseline_filter_path)
         except Exception as exc:
@@ -425,12 +435,13 @@ def handle_batch(args) -> int:
         print("No baseline found for --only-failed.", file=sys.stderr)
         return 2
 
-    compare_path: Path | None = Path(args.compare_to) if args.compare_to else None
+    compare_to_arg = cast(Optional[Path], args.compare_to)
+    compare_path: Path | None = Path(compare_to_arg) if compare_to_arg else None
     if compare_path is None and args.only_failed and baseline_filter_path:
         compare_path = baseline_filter_path
-    if compare_path:
+    if compare_path is not None:
         try:
-            if baseline_filter_path and compare_path.resolve() == baseline_filter_path.resolve():
+            if baseline_filter_path is not None and compare_path.resolve() == baseline_filter_path.resolve():
                 baseline_for_compare = baseline_for_filter
             else:
                 baseline_for_compare = load_results(compare_path)
@@ -466,8 +477,9 @@ def handle_batch(args) -> int:
     missed_baseline_run: Path | None = None
     only_missed_baseline_kind: str | None = None
     if args.only_missed:
-        if args.only_missed_from:
-            missed_baseline_path = args.only_missed_from
+        only_missed_from_arg = cast(Optional[Path], args.only_missed_from)
+        if only_missed_from_arg:
+            missed_baseline_path = only_missed_from_arg
             only_missed_baseline_kind = "path"
             try:
                 missed_baseline_results = load_results(missed_baseline_path)
@@ -503,15 +515,15 @@ def handle_batch(args) -> int:
                 )
                 baseline_planned_ids = set(suite_case_ids)
         else:
-            missed_baseline_path = args.only_missed_from or _load_latest_results(artifacts_dir, args.tag)
-            if args.only_missed_from:
+            missed_baseline_path = only_missed_from_arg or _load_latest_results(artifacts_dir, args.tag)
+            if only_missed_from_arg:
                 only_missed_baseline_kind = "path"
-            elif missed_baseline_path:
+            elif missed_baseline_path is not None:
                 only_missed_baseline_kind = "latest"
             missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
             if missed_baseline_run is None:
                 missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
-            if missed_baseline_path:
+            if missed_baseline_path is not None:
                 try:
                     missed_baseline_results = load_results(missed_baseline_path)
                 except Exception as exc:

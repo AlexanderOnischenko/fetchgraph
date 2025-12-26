@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..runs.case_history import _load_case_history
 
 
 def handle_history_case(args) -> int:
-    artifacts_dir = args.data / ".runs"
+    artifacts_dir = Path(args.artifacts_dir) if args.artifacts_dir else args.data / ".runs"
     path = artifacts_dir / "runs" / "cases" / f"{args.case_id}.jsonl"
     entries = _load_case_history(path)
     if args.tag:

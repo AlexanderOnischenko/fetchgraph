@@ -5,13 +5,14 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from examples.demo_qa.batch import _fingerprint_dir, bad_statuses, is_failure, render_markdown, write_results
 from examples.demo_qa.runs.coverage import _missed_case_ids
 from examples.demo_qa.runs.layout import _latest_markers, _update_latest_markers
-from examples.demo_qa.runner import RunResult, diff_runs
+from examples.demo_qa.runner import DiffReport, RunResult, diff_runs
 
 
 @pytest.mark.parametrize(
@@ -27,7 +28,9 @@ def test_is_failure_matches_bad_statuses(fail_on: str, require_assert: bool) -> 
 
 
 def test_render_markdown_uses_fail_policy() -> None:
-    compare = {
+    compare = cast(
+        DiffReport,
+        {
         "base_counts": {"ok": 0, "mismatch": 2, "error": 1, "failed": 0},
         "new_counts": {"ok": 1, "mismatch": 0, "error": 0, "failed": 0},
         "base_bad_total": 1,
@@ -38,7 +41,8 @@ def test_render_markdown_uses_fail_policy() -> None:
         "fixed": [],
         "still_fail": [],
         "all_ids": [],
-    }
+        },
+    )
     report = render_markdown(compare, None)
     assert "- Base OK: 0, Bad: 1" in report
     assert "- New  OK: 1, Bad: 0" in report

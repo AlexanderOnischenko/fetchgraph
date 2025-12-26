@@ -14,6 +14,7 @@ from .logging_config import configure_logging
 from .provider_factory import build_provider
 from .runner import (
     Case,
+    DiffReport,
     EventLogger,
     RunResult,
     RunTimings,
@@ -51,13 +52,40 @@ def write_summary(out_path: Path, summary: dict) -> Path:
     return summary_path
 
 
+def _coerce_number(value: object | None) -> float | None:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_int(value: object | None) -> int:
+    number = _coerce_number(value)
+    if number is None:
+        return 0
+    return int(number)
+
+
+def _isoformat_utc(dt: datetime.datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _pass_rate(counts: Mapping[str, object]) -> Optional[float]:
-    total = int(counts.get("total", 0) or 0)
-    skipped = int(counts.get("skipped", 0) or 0)
+    total = _coerce_int(counts.get("total"))
+    skipped = _coerce_int(counts.get("skipped"))
     denom = total - skipped
     if denom <= 0:
         return None
-    return (counts.get("ok", 0) or 0) / denom
+    ok = _coerce_number(counts.get("ok"))
+    return None if ok is None else ok / denom
 
 
 def _hash_file(path: Path) -> str:
@@ -185,34 +213,28 @@ def handle_chat(args) -> int:
     return 0
 
 
-def compare_runs(base_path: Path, new_path: Path, *, fail_on: str, require_assert: bool) -> dict[str, object]:
+def compare_runs(base_path: Path, new_path: Path, *, fail_on: str, require_assert: bool) -> DiffReport:
     base = load_results(base_path)
     new = load_results(new_path)
     return diff_runs(base.values(), new.values(), fail_on=fail_on, require_assert=require_assert)
 
 
-def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str:
+def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
     lines: list[str] = []
-    base_counts = compare["base_counts"]  # type: ignore[index]
-    new_counts = compare["new_counts"]  # type: ignore[index]
-    fail_on = compare.get("fail_on", "bad")  # type: ignore[assignment]
-    require_assert = bool(compare.get("require_assert", False))
+    base_counts = compare["base_counts"]
+    new_counts = compare["new_counts"]
+    fail_on = compare.get("fail_on", "bad")
+    require_assert = compare.get("require_assert", False)
 
-    def _bad_total(counts: dict) -> int:
-        bad_from_compare = compare.get("base_bad_total") if counts is base_counts else compare.get("new_bad_total")
-        if isinstance(bad_from_compare, int):
-            return bad_from_compare
-        bad_set = bad_statuses(str(fail_on), require_assert)
+    def _bad_total(counts: Mapping[str, object], *, fallback: int) -> int:
+        bad_set = bad_statuses(str(fail_on), bool(require_assert))
         total = 0
         for status in bad_set:
-            try:
-                total += int(counts.get(status, 0) or 0)
-            except Exception:
-                continue
-        return total
+            total += _coerce_int(counts.get(status))
+        return total or fallback
 
-    base_bad = _bad_total(base_counts)  # type: ignore[arg-type]
-    new_bad = _bad_total(new_counts)  # type: ignore[arg-type]
+    base_bad = _bad_total(base_counts, fallback=compare.get("base_bad_total", 0))
+    new_bad = _bad_total(new_counts, fallback=compare.get("new_bad_total", 0))
     lines.append("# Batch comparison report")
     lines.append("")
     lines.append("## Summary")
@@ -224,7 +246,7 @@ def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str
         lines.append(f"- Median total time: base {base_med:.2f}s → new {new_med:.2f}s (Δ {new_med - base_med:+.2f}s)")
     lines.append("")
 
-    def table(title: str, rows: list[dict]) -> None:
+    def table(title: str, rows: list[Mapping[str, object]]) -> None:
         lines.append(f"## {title}")
         if not rows:
             lines.append("None")
@@ -233,7 +255,8 @@ def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str
         lines.append("| id | status | reason | artifacts |")
         lines.append("|---|---|---|---|")
         for row in sorted(rows, key=lambda r: r.get("id", "")):
-            artifacts = row.get("artifacts", {})
+            artifacts_val = row.get("artifacts", {})
+            artifacts = artifacts_val if isinstance(artifacts_val, Mapping) else {}
             links = ", ".join(f"[{k}]({v})" for k, v in sorted(artifacts.items()))
             lines.append(
                 f"| {row['id']} | {row['from']} → {row['to']} | {row.get('reason','')} | {links or ''} |"
@@ -250,13 +273,13 @@ def render_markdown(compare: dict[str, object], out_path: Optional[Path]) -> str
     return content
 
 
-def write_junit(compare: dict[str, object], out_path: Path) -> None:
+def write_junit(compare: DiffReport, out_path: Path) -> None:
     import xml.etree.ElementTree as ET
 
     suite = ET.Element("testsuite", name="demo_qa_compare")
-    bad = compare["new_fail"] + compare["still_fail"]  # type: ignore[operator]
-    fixed = compare["fixed"]  # type: ignore[assignment]
-    all_ids_list = list(compare.get("all_ids", []) or [])  # type: ignore[arg-type]
+    bad = compare["new_fail"] + compare["still_fail"]
+    fixed = compare["fixed"]
+    all_ids_list = list(compare.get("all_ids", []) or [])
     all_ids = sorted(all_ids_list)
     cases_total = len(all_ids)
     suite.set("tests", str(cases_total))
@@ -267,7 +290,8 @@ def write_junit(compare: dict[str, object], out_path: Path) -> None:
         tc = ET.SubElement(suite, "testcase", name=row["id"])
         msg = row.get("reason", "") or f"{row.get('from')} → {row.get('to')}"
         failure = ET.SubElement(tc, "failure", message=msg)
-        artifacts = row.get("artifacts", {})
+        artifacts_val = row.get("artifacts", {})
+        artifacts = artifacts_val if isinstance(artifacts_val, Mapping) else {}
         if artifacts:
             failure.text = "\n".join(f"{k}: {v}" for k, v in sorted(artifacts.items()))
 
@@ -315,19 +339,23 @@ def _select_cases_for_rerun(
 
 
 def handle_batch(args) -> int:
-    started_at = datetime.datetime.utcnow()
+    started_at = datetime.datetime.now(datetime.timezone.utc)
     run_id = uuid.uuid4().hex[:8]
     interrupted = False
     interrupted_at_case_id: str | None = None
-    cases_hash = _hash_file(args.cases)
+    data_dir = Path(args.data)
+    schema_path = Path(args.schema)
+    cases_path = Path(args.cases)
+    config_path = Path(args.config) if args.config else None
+    cases_hash = _hash_file(cases_path)
 
     try:
-        settings = load_settings(config_path=args.config, data_dir=args.data)
+        settings = load_settings(config_path=config_path, data_dir=data_dir)
     except Exception as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
     try:
-        cases = load_cases(args.cases)
+        cases = load_cases(cases_path)
     except Exception as exc:
         print(f"Cases error: {exc}", file=sys.stderr)
         return 2
@@ -335,9 +363,7 @@ def handle_batch(args) -> int:
     baseline_for_filter: Optional[Mapping[str, RunResult]] = None
     baseline_for_compare: Optional[Mapping[str, RunResult]] = None
 
-    artifacts_dir = args.artifacts_dir
-    if artifacts_dir is None:
-        artifacts_dir = args.data / ".runs"
+    artifacts_dir = Path(args.artifacts_dir) if args.artifacts_dir else data_dir / ".runs"
 
     include_tags = _split_csv(args.include_tags)
     exclude_tags = _split_csv(args.exclude_tags)
@@ -352,9 +378,8 @@ def handle_batch(args) -> int:
     )
     scope_id = _scope_hash(scope)
 
-    baseline_filter_path = args.only_failed_from
+    baseline_filter_path = Path(args.only_failed_from) if args.only_failed_from else None
     only_failed_baseline_kind: str | None = None
-    effective_results_path: Path | None = None
     if args.only_failed_from:
         only_failed_baseline_kind = "path"
     elif args.tag and args.only_failed:
@@ -373,7 +398,6 @@ def handle_batch(args) -> int:
             return 2
         baseline_for_filter = effective_results
         baseline_filter_path = eff_path
-        effective_results_path = eff_path
         only_failed_baseline_kind = "effective"
     elif args.only_failed:
         latest_results = _load_latest_results(artifacts_dir, args.tag)
@@ -397,7 +421,7 @@ def handle_batch(args) -> int:
         print("No baseline found for --only-failed.", file=sys.stderr)
         return 2
 
-    compare_path = args.compare_to
+    compare_path: Path | None = Path(args.compare_to) if args.compare_to else None
     if compare_path is None and args.only_failed and baseline_filter_path:
         compare_path = baseline_filter_path
     if compare_path:
@@ -520,15 +544,15 @@ def handle_batch(args) -> int:
             print("0 missed cases selected.", file=sys.stderr)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}"
-    results_path = args.out or (run_folder / "results.jsonl")
+    run_folder = artifacts_dir / "runs" / f"{timestamp}_{cases_path.stem}"
+    results_path = Path(args.out) if args.out else (run_folder / "results.jsonl")
     artifacts_root = run_folder / "cases"
     results_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path = results_path.with_name("summary.json")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    history_path = args.history or (args.data / ".runs" / "history.jsonl")
+    history_path = Path(args.history) if args.history else (data_dir / ".runs" / "history.jsonl")
 
-    log_dir = args.log_dir or args.data / ".runs" / "logs"
+    log_dir = Path(args.log_dir) if args.log_dir else data_dir / ".runs" / "logs"
     configure_logging(
         level=args.log_level,
         log_dir=log_dir,
@@ -537,7 +561,7 @@ def handle_batch(args) -> int:
         run_id=None,
     )
 
-    provider, _ = build_provider(args.data, args.schema, enable_semantic=args.enable_semantic)
+    provider, _ = build_provider(data_dir, schema_path, enable_semantic=args.enable_semantic)
     llm = build_llm(settings)
     runner = build_agent(llm, provider)
     events_path = None
@@ -595,10 +619,10 @@ def handle_batch(args) -> int:
     write_results(results_path, results)
     counts = summarize(results)
 
-    diff_block: dict | None = None
+    diff_block: DiffReport | None = None
     baseline_path: Path | None = None
     if baseline_for_compare:
-        baseline_path = args.compare_to or baseline_filter_path
+        baseline_path = compare_path or baseline_filter_path
         diff = diff_runs(
             baseline_for_compare.values(),
             results,
@@ -610,10 +634,10 @@ def handle_batch(args) -> int:
         diff_block = diff
 
     policy_bad = bad_statuses(args.fail_on, args.require_assert)
-    bad_count = sum(int(counts.get(status, 0) or 0) for status in policy_bad)
+    bad_count = sum(_coerce_int(counts.get(status)) for status in policy_bad)
     exit_code = 130 if interrupted else (1 if bad_count else 0)
 
-    ended_at = datetime.datetime.utcnow()
+    ended_at = datetime.datetime.now(datetime.timezone.utc)
     duration_ms = int((ended_at - started_at).total_seconds() * 1000)
     executed_results = {res.id: res for res in results}
     planned_total = len(selected_case_ids)
@@ -623,8 +647,8 @@ def handle_batch(args) -> int:
     suite_missed_total = len(_missed_case_ids(suite_case_ids, executed_results))
     summary = {
         "run_id": run_id,
-        "started_at": started_at.isoformat() + "Z",
-        "ended_at": ended_at.isoformat() + "Z",
+        "started_at": _isoformat_utc(started_at),
+        "ended_at": _isoformat_utc(ended_at),
         "duration_ms": duration_ms,
         "counts": counts,
         "summary_by_tag": counts.get("summary_by_tag"),
@@ -676,7 +700,7 @@ def handle_batch(args) -> int:
                 artifacts_dir=artifacts_dir,
                 tag=args.tag,
                 cases_hash=cases_hash,
-                cases_path=args.cases,
+                cases_path=cases_path,
                 suite_case_ids=suite_case_ids,
                 executed_results=results,
                 run_folder=run_folder,
@@ -701,24 +725,24 @@ def handle_batch(args) -> int:
         except Exception as exc:
             print(f"Failed to update effective results for tag {args.tag!r}: {exc}", file=sys.stderr)
 
-    config_hash = _hash_file(args.config) if args.config else None
-    schema_hash = _hash_file(args.schema)
-    data_fingerprint = _fingerprint_dir(args.data, verbose=args.fingerprint_verbose)
+    config_hash = _hash_file(config_path) if config_path else None
+    schema_hash = _hash_file(schema_path)
+    data_fingerprint = _fingerprint_dir(data_dir, verbose=args.fingerprint_verbose)
     git_sha = _git_sha()
     llm_settings = settings.llm
     run_meta = {
         "run_id": run_id,
-        "timestamp": started_at.isoformat() + "Z",
+        "timestamp": _isoformat_utc(started_at),
         "tag": args.tag,
         "note": args.note,
         "inputs": {
-            "cases_path": str(args.cases),
+            "cases_path": str(cases_path),
             "cases_hash": cases_hash,
-            "config_path": str(args.config) if args.config else None,
+            "config_path": str(config_path) if config_path else None,
             "config_hash": config_hash,
-            "schema_path": str(args.schema),
+            "schema_path": str(schema_path),
             "schema_hash": schema_hash,
-            "data_dir": str(args.data),
+            "data_dir": str(data_dir),
         },
         "suite_case_ids": suite_case_ids,
         "selected_case_ids": selected_case_ids,
@@ -763,7 +787,7 @@ def handle_batch(args) -> int:
     prate = _pass_rate(counts)
     history_entry = {
         "run_id": run_id,
-        "timestamp": started_at.isoformat() + "Z",
+        "timestamp": _isoformat_utc(started_at),
         "config_hash": config_hash,
         "schema_hash": schema_hash,
         "cases_hash": cases_hash,
@@ -962,15 +986,17 @@ def _print_stats(entries: list[dict]) -> None:
     print(header)
     prev = None
     for entry in entries:
-        pass_rate = entry.get("pass_rate")
-        median = entry.get("median_total_s")
+        pass_rate = _coerce_number(entry.get("pass_rate"))
+        median = _coerce_number(entry.get("median_total_s"))
         delta_pass = None
         delta_median = None
         if prev:
-            if pass_rate is not None and prev.get("pass_rate") is not None:
-                delta_pass = pass_rate - prev.get("pass_rate")
-            if median is not None and prev.get("median_total_s") is not None:
-                delta_median = median - prev.get("median_total_s")
+            prev_pass_rate = _coerce_number(prev.get("pass_rate"))
+            if pass_rate is not None and prev_pass_rate is not None:
+                delta_pass = pass_rate - prev_pass_rate
+            prev_median = _coerce_number(prev.get("median_total_s"))
+            if median is not None and prev_median is not None:
+                delta_median = median - prev_median
         pr_display = f"{pass_rate*100:.1f}%" if pass_rate is not None else "n/a"
         median_display = f"{median:.2f}" if median is not None else "n/a"
         dp = f"{delta_pass*100:+.1f}pp" if delta_pass is not None else "n/a"
@@ -986,12 +1012,12 @@ def _print_stats(entries: list[dict]) -> None:
 
 
 def handle_stats(args) -> int:
-    history_path: Optional[Path] = args.history
+    history_path: Path | None = args.history
     if history_path is None:
         if not args.data:
             print("Provide --data or --history to locate history.jsonl", file=sys.stderr)
             return 2
-        history_path = args.data / ".runs" / "history.jsonl"
+        history_path = Path(args.data) / ".runs" / "history.jsonl"
     entries = _load_history(history_path)
     if args.group_by == "config_hash":
         grouped: dict[str, list[dict]] = {}
@@ -1007,15 +1033,19 @@ def handle_stats(args) -> int:
 
 
 def handle_compare(args) -> int:
-    if not args.base.exists() or not args.new.exists():
+    base_path = Path(args.base)
+    new_path = Path(args.new)
+    if not base_path.exists() or not new_path.exists():
         print("Base or new results file not found.", file=sys.stderr)
         return 2
-    comparison = compare_runs(args.base, args.new, fail_on=args.fail_on, require_assert=args.require_assert)
-    report = render_markdown(comparison, args.out)
+    comparison = compare_runs(base_path, new_path, fail_on=args.fail_on, require_assert=args.require_assert)
+    out_path = Path(args.out) if args.out is not None else None
+    report = render_markdown(comparison, out_path)
     print(report)
     if args.junit:
-        write_junit(comparison, args.junit)
-        print(f"JUnit written to {args.junit}")
+        junit_path = Path(args.junit)
+        write_junit(comparison, junit_path)
+        print(f"JUnit written to {junit_path}")
     return 0
 
 

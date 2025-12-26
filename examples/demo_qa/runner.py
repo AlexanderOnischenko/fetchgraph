@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, TypedDict
+from typing import Dict, Iterable, List, Mapping, NotRequired, TypedDict
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.models import TaskProfile
@@ -599,14 +599,24 @@ def _median_duration(results: Mapping[str, RunResult]) -> float | None:
     return (durations[mid - 1] + durations[mid]) / 2000
 
 
+def _coerce_int(value: object | None) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
 def _count_bad_from_summary(counts: Mapping[str, object], fail_on: str, require_assert: bool) -> int:
     bad = bad_statuses(fail_on, require_assert)
     total = 0
     for status in bad:
-        try:
-            total += int(counts.get(status, 0) or 0)
-        except Exception:
-            continue
+        total += _coerce_int(counts.get(status, 0))
     return total
 
 
@@ -751,7 +761,8 @@ class EventLogger:
     def emit(self, event: Dict[str, object]) -> None:
         if not self.path:
             return
-        payload = {"timestamp": datetime.datetime.utcnow().isoformat() + "Z", "run_id": self.run_id, **event}
+        now = datetime.datetime.now(datetime.timezone.utc)
+        payload = {"timestamp": now.isoformat().replace("+00:00", "Z"), "run_id": self.run_id, **event}
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
@@ -781,6 +792,7 @@ class DiffReport(TypedDict):
     new_bad_total: int
     fail_on: str
     require_assert: bool
+    baseline_path: NotRequired[str]
 
 
 __all__ = [

@@ -8,13 +8,13 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+    from pydantic_settings.sources import TomlConfigSettingsSource
 except ImportError as exc:  # pragma: no cover - make missing dependency explicit
     raise ImportError(
         "pydantic-settings is required for demo_qa configuration. "
         "Install demo extras via `pip install -e .[demo]` or `pip install -r examples/demo_qa/requirements.txt`."
     ) from exc
-
 
 class LLMSettings(BaseModel):
     base_url: str | None = Field(default=None)
@@ -82,7 +82,7 @@ class DemoQASettings(BaseSettings):
     ):
         sources = [init_settings, env_settings, dotenv_settings]
         if cls._toml_path:
-            sources.append(TomlConfigSettingsSource(settings_cls, cls._toml_path))
+            sources.append(TomlConfigSettingsSource(settings_cls, toml_file=cls._toml_path))
         sources.append(file_secret_settings)
         return tuple(sources)
 
@@ -122,7 +122,7 @@ def load_settings(
     DemoQASettings._toml_path = resolved
     try:
         settings = DemoQASettings(**(overrides or {}))
-    except ValidationError as exc:
+    except ValidationError:
         DemoQASettings._toml_path = None
         raise
     DemoQASettings._toml_path = None

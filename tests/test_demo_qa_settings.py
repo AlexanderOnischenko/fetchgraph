@@ -6,10 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from examples.demo_qa.llm.factory import build_llm
 from examples.demo_qa.llm.openai_adapter import OpenAILLM
 from examples.demo_qa.settings import load_settings

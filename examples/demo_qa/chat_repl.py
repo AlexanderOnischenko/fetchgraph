@@ -99,12 +99,13 @@ def start_repl(
             continue
 
         run_id = uuid.uuid4().hex[:8]
+        run_dir = runs_root / f"{run_id}_{uuid.uuid4().hex[:8]}"
         event_logger = EventLogger(path=None, run_id=run_id)
 
         artifacts: RunArtifacts | None = None
         try:
             case = Case(id=run_id, question=line, tags=[])
-            result = run_one(case, runner, runs_root, plan_only=False, event_logger=event_logger)
+            result = run_one(case, runner, runs_root, plan_only=False, event_logger=event_logger, run_dir=run_dir)
             plan_obj = _load_json(Path(result.artifacts_dir) / "plan.json")
             ctx_obj = _load_json(Path(result.artifacts_dir) / "context.json") or {}
             artifacts = RunArtifacts(
@@ -124,7 +125,7 @@ def start_repl(
             print(result.answer or "")
             print(f"Events: {Path(result.artifacts_dir) / 'events.jsonl'}")
         except Exception as exc:  # pragma: no cover - REPL resilience
-            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=runs_root, question=line)
+            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=run_dir, question=line)
             error_artifacts.error = error_artifacts.error or str(exc)
             last_artifacts = error_artifacts
             save_artifacts(error_artifacts)

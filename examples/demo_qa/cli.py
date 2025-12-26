@@ -153,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     case_hist = history_sub.add_parser("case", help="Show history for a case id")
     case_hist.add_argument("case_id")
     case_hist.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    case_hist.add_argument("--artifacts-dir", type=Path, default=None, help="Base artifacts dir (default: <data>/.runs)")
     case_hist.add_argument("--tag", type=str, default=None, help="Filter by tag")
     case_hist.add_argument("--limit", type=int, default=20, help="Limit rows")
 

@@ -15,6 +15,7 @@ from .provider_factory import build_provider
 from .runner import (
     Case,
     DiffReport,
+    DiffCaseChange,
     EventLogger,
     RunResult,
     RunTimings,

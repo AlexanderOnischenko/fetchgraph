@@ -399,46 +399,64 @@ def load_cases(path: Path) -> List[Case]:
         raise FileNotFoundError(f"Cases file not found: {path}")
     cases: List[Case] = []
     seen_ids: set[str] = set()
-    with path.open("r", encoding="utf-8") as f:
-        for lineno, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
+    text = path.read_text(encoding="utf-8")
+    stripped = text.lstrip()
+
+    def add_case(payload: Mapping[str, object], location: str) -> None:
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"Case on {location} must be an object")
+        if "id" not in payload or "question" not in payload:
+            raise ValueError(f"Case on {location} missing required fields 'id' and 'question'")
+        case_id = str(payload["id"])
+        if case_id in seen_ids:
+            raise ValueError(f"Duplicate case id {case_id!r} on {location}")
+        seen_ids.add(case_id)
+        expected = payload.get("expected")
+        expected_regex = payload.get("expected_regex")
+        expected_contains = payload.get("expected_contains")
+        for field_name, val in [
+            ("expected", expected),
+            ("expected_regex", expected_regex),
+            ("expected_contains", expected_contains),
+        ]:
+            if val is not None and str(val).strip() == "":
+                raise ValueError(f"{field_name} must not be empty on {location}")
+        if expected_regex is not None:
             try:
-                payload = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON on line {lineno}: {exc}") from exc
-            if "id" not in payload or "question" not in payload:
-                raise ValueError(f"Case on line {lineno} missing required fields 'id' and 'question'")
-            case_id = str(payload["id"])
-            if case_id in seen_ids:
-                raise ValueError(f"Duplicate case id {case_id!r} on line {lineno}")
-            seen_ids.add(case_id)
-            expected = payload.get("expected")
-            expected_regex = payload.get("expected_regex")
-            expected_contains = payload.get("expected_contains")
-            for field_name, val in [
-                ("expected", expected),
-                ("expected_regex", expected_regex),
-                ("expected_contains", expected_contains),
-            ]:
-                if val is not None and str(val).strip() == "":
-                    raise ValueError(f"{field_name} must not be empty on line {lineno}")
-            if expected_regex is not None:
-                try:
-                    re.compile(expected_regex)
-                except re.error as exc:
-                    raise ValueError(f"Invalid expected_regex on line {lineno}: {exc}") from exc
-            case = Case(
-                id=case_id,
-                question=str(payload["question"]),
-                expected=expected,
-                expected_regex=expected_regex,
-                expected_contains=expected_contains,
-                tags=list(payload.get("tags", []) or []),
-                skip=bool(payload.get("skip", False)),
-            )
-            cases.append(case)
+                re.compile(expected_regex)
+            except re.error as exc:
+                raise ValueError(f"Invalid expected_regex on {location}: {exc}") from exc
+        case = Case(
+            id=case_id,
+            question=str(payload["question"]),
+            expected=expected,
+            expected_regex=expected_regex,
+            expected_contains=expected_contains,
+            tags=list(payload.get("tags", []) or []),
+            skip=bool(payload.get("skip", False)),
+        )
+        cases.append(case)
+
+    if stripped.startswith("["):
+        try:
+            payloads = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON array: {exc}") from exc
+        if not isinstance(payloads, list):
+            raise ValueError("Cases JSON must be an array of objects")
+        for index, payload in enumerate(payloads, start=1):
+            add_case(payload, f"array index {index}")
+        return cases
+
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON on line {lineno}: {exc}") from exc
+        add_case(payload, f"line {lineno}")
     return cases
 
 

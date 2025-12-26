@@ -37,7 +37,7 @@ def _append_case_history(
     history_dir = artifacts_dir / "runs" / "cases"
     history_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "run_id": run_id,
         "tag": tag,
         "note": note,

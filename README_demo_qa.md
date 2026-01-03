@@ -100,6 +100,8 @@ python -m examples.demo_qa.cli batch \
 * `python -m examples.demo_qa.cli report tag --data <DATA_DIR> --tag <TAG>` — сводка по “effective” результатам тега.
 * `python -m examples.demo_qa.cli report run --data <DATA_DIR> --run runs/latest` — сводка по конкретному run.
 * `python -m examples.demo_qa.cli history case <id> --data <DATA_DIR> [--tag <TAG>]` — история по кейсу.
+* `python -m examples.demo_qa.cli compare --base <PATH> --new <PATH> [--out ... --junit ...]` — сравнить два результата по путям.
+* `python -m examples.demo_qa.cli compare --data <DATA_DIR> --base-tag <TAG1> --new-tag <TAG2> [...]` — сравнить “effective snapshot” двух тегов без явных путей (работает и для неполных прогонов).
 
 ### Удобные алиасы (bash/zsh)
 
@@ -131,6 +133,8 @@ dq-stats()   { dq stats  --data "$DQ_DATA" "$@"; }
 dq-report()  { dq report tag --data "$DQ_DATA" --tag "$DQ_TAG" "$@"; }
 dq-run()     { dq report run --data "$DQ_DATA" --run "${1:-runs/latest}"; }
 dq-hist()    { dq history case "$1" --data "$DQ_DATA" --tag "$DQ_TAG" "${@:2}"; }
+dq-compare() { dq compare --base "$1" --new "$2" "${@:3}"; }
+dq-compare-tag() { dq compare --data "$DQ_DATA" --base-tag "${1:-baseline}" --new-tag "${2:-baseline_v2}" "${@:3}"; }
 
 # Дебаг кейса
 dq-case()    { dq case run "$1" --cases "$DQ_CASES" --data "$DQ_DATA" --schema "$DQ_SCHEMA" "${@:2}"; }

@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--quiet", action="store_true", help="Print only summary and exit code")
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")
     batch_p.add_argument("--show-artifacts", action="store_true", help="Show artifact paths for failures")
-    batch_p.add_argument("--history", type=Path, default=None, help="Path to history.jsonl (default: <data>/.runs/history.jsonl)")
+    batch_p.add_argument("--history", type=Path, default=None, help="Path to history.jsonl (default: <artifacts-dir>/history.jsonl)")
     batch_p.add_argument("--include-tags", type=str, default=None, help="Comma-separated tags to include")
     batch_p.add_argument("--exclude-tags", type=str, default=None, help="Comma-separated tags to exclude")
     batch_p.add_argument("--include-ids", type=Path, default=None, help="Path to file with ids to include (one per line)")

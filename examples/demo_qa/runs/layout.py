@@ -62,7 +62,7 @@ def _load_latest_run(artifacts_dir: Path, tag: str | None = None, *, kind: str =
     return None
 
 
-def _resolve_results_path_for_run(run_path: Path | None) -> Optional[Path]:
+def _resolve_results_path_for_run(run_path: Path | None, *, require_complete: bool = False) -> Optional[Path]:
     if run_path is None:
         return None
     summary_path = run_path / "summary.json"
@@ -70,12 +70,14 @@ def _resolve_results_path_for_run(run_path: Path | None) -> Optional[Path]:
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             results_path = summary.get("results_path")
+            if require_complete and summary.get("results_complete") is False:
+                return None
             if results_path:
                 return Path(results_path)
         except Exception:
             pass
     candidate = run_path / "results.jsonl"
-    if candidate.exists():
+    if candidate.exists() and not require_complete:
         return candidate
     return None
 
@@ -86,7 +88,7 @@ def _load_latest_results(artifacts_dir: Path, tag: str | None = None) -> Optiona
     if resolved:
         return resolved
     latest_run = _load_latest_run(artifacts_dir, tag, kind="complete")
-    return _resolve_results_path_for_run(latest_run)
+    return _resolve_results_path_for_run(latest_run, require_complete=True)
 
 
 def _load_latest_any_results(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
@@ -137,8 +139,8 @@ def _update_latest_markers(
     for markers in marker_sets:
         markers.complete.parent.mkdir(parents=True, exist_ok=True)
         markers.any_run.write_text(str(run_folder), encoding="utf-8")
-        markers.legacy_run.write_text(str(run_folder), encoding="utf-8")
         if results_complete:
+            markers.legacy_run.write_text(str(run_folder), encoding="utf-8")
             markers.complete.write_text(str(run_folder), encoding="utf-8")
             markers.results.write_text(str(results_path), encoding="utf-8")
 

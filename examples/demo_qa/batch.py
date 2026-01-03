@@ -1399,15 +1399,18 @@ def _resolve_effective_results_for_tag(
         results_path, meta_path = _effective_paths(artifacts_dir, tag)
         if results_path.exists() and meta_path.exists():
             return results_path, artifacts_dir, attempted
-        attempted.append(results_path.parent)
+        attempted.append(artifacts_dir)
     return None, None, attempted
 
 
 def _render_missing_effective_error(tag: str, attempted: list[Path]) -> str:
     message = f"No effective snapshot found for tag {tag!r}. Run a tagged batch to create it."
     if attempted:
-        locations = ", ".join(str(path) for path in attempted)
-        message = f"{message} Looked in: {locations}."
+        details = []
+        for dir_path in attempted:
+            res_path, meta_path = _effective_paths(dir_path, tag)
+            details.append(f"{dir_path} (effective: {res_path}, {meta_path})")
+        message = f"{message} Looked in: {', '.join(details)}."
     return message
 
 
@@ -1445,8 +1448,11 @@ def handle_compare(args) -> int:
             print(_render_missing_effective_error(args.new_tag, attempted), file=sys.stderr)
             return 2
 
-    if base_path is None or new_path is None:
-        print("Provide --base/--new paths or --base-tag/--new-tag tags to compare.", file=sys.stderr)
+    if base_path is None and not args.base_tag:
+        print("Provide either --base or --base-tag.", file=sys.stderr)
+        return 2
+    if new_path is None and not args.new_tag:
+        print("Provide either --new or --new-tag.", file=sys.stderr)
         return 2
 
     if not base_path.exists() or not new_path.exists():

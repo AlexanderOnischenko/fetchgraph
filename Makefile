@@ -57,8 +57,8 @@ DIFF_OUT ?= $(DATA)/.runs/diff.md
 JUNIT    ?= $(DATA)/.runs/diff.junit.xml
 BASE_TAG ?= baseline
 NEW_TAG  ?= baseline_v2
-COMPARE_TAG_OUT ?= diff.md
-COMPARE_TAG_JUNIT ?= diff.junit.xml
+COMPARE_TAG_OUT ?= $(DATA)/.runs/diff.tags.md
+COMPARE_TAG_JUNIT ?= $(DATA)/.runs/diff.tags.junit.xml
 
 MAX_FAILS ?= 5
 

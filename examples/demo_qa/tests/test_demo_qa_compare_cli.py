@@ -103,3 +103,16 @@ def test_compare_requires_data_for_tag(capsys: pytest.CaptureFixture[str]) -> No
 
     assert exit_code == 2
     assert "--data is required" in captured
+
+
+def test_compare_rejects_mixed_base_args(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    base = tmp_path / "base.jsonl"
+    new = tmp_path / "new.jsonl"
+    base.write_text("{}", encoding="utf-8")
+    new.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        build_parser().parse_args(["compare", "--base", str(base), "--base-tag", "tag", "--new", str(new)])
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr().err
+    assert "argument --base-tag: not allowed with argument --base" in captured

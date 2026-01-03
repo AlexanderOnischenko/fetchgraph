@@ -13,6 +13,7 @@ from examples.demo_qa.batch import (
     _fingerprint_dir,
     _only_failed_selection,
     _only_missed_selection,
+    _planned_pool_from_meta,
     bad_statuses,
     is_failure,
     render_markdown,
@@ -174,17 +175,13 @@ def test_only_missed_uses_planned_pool_from_baseline_meta(tmp_path: Path) -> Non
     artifacts_dir = tmp_path
     run_dir = artifacts_dir / "runs" / "r1"
     run_dir.mkdir(parents=True)
-    baseline_results = {"a": _mk_result("a", "ok")}
     results_path = run_dir / "results.jsonl"
     results_path.write_text("", encoding="utf-8")
     meta = {"planned_case_ids": ["a", "b"], "selected_case_ids": ["a", "b"], "scope_hash": "s"}
     (run_dir / "run_meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
-    overlay = {"c": _mk_result("c", "ok")}
-    planned_pool = {"a", "b"}
-    missed, _ = _only_missed_selection(planned_pool, baseline_results, overlay)
-
-    assert missed == {"b"}
+    planned_pool = _planned_pool_from_meta(None, results_path, ["x", "y"])
+    assert planned_pool == {"a", "b"}
 
 
 def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:

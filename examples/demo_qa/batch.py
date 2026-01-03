@@ -216,6 +216,24 @@ def _only_missed_selection(
     return missed_final, breakdown
 
 
+def _planned_pool_from_meta(
+    effective_meta: Mapping[str, object] | None, baseline_results_path: Path | None, suite_case_ids: Iterable[str]
+) -> set[str]:
+    planned: set[str] | None = None
+    if effective_meta:
+        planned_from_eff = effective_meta.get("planned_case_ids")
+        if isinstance(planned_from_eff, list):
+            planned = {str(cid) for cid in planned_from_eff}
+    if planned is None and baseline_results_path is not None:
+        run_dir = _run_dir_from_results_path(baseline_results_path)
+        meta = _load_run_meta(run_dir)
+        if isinstance(meta, dict):
+            planned_from_meta = meta.get("planned_case_ids") or meta.get("selected_case_ids")
+            if isinstance(planned_from_meta, list):
+                planned = {str(cid) for cid in planned_from_meta}
+    return planned or set(suite_case_ids)
+
+
 def _fingerprint_dir(data_dir: Path, *, verbose: bool = False) -> Mapping[str, object]:
     entries: list[dict] = []
     total_bytes = 0
@@ -612,6 +630,7 @@ def handle_batch(args) -> int:
 
     only_missed_baseline_kind: str | None = None
     missed_planned_ids: set[str] | None = None
+    missed_effective_meta: Mapping[str, object] | None = None
     if args.only_missed:
         only_missed_from_arg = cast(Optional[Path], args.only_missed_from)
         if only_missed_from_arg:
@@ -634,9 +653,7 @@ def handle_batch(args) -> int:
             missed_baseline_path = eff_path
             missed_baseline_results = effective_results
             only_missed_baseline_kind = "effective"
-            planned_ids_meta = effective_meta.get("planned_case_ids") if isinstance(effective_meta, dict) else None
-            if isinstance(planned_ids_meta, list):
-                missed_planned_ids = {str(cid) for cid in planned_ids_meta}
+            missed_effective_meta = effective_meta
         else:
             missed_baseline_path = only_missed_from_arg or _load_latest_results(artifacts_dir, args.tag)
             if only_missed_from_arg:
@@ -649,17 +666,10 @@ def handle_batch(args) -> int:
             except Exception as exc:
                 print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
                 return 2
-        if missed_baseline_path is not None and missed_planned_ids is None:
-            missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
-            baseline_meta = _load_run_meta(missed_baseline_run)
-            if isinstance(baseline_meta, dict):
-                planned_from_meta = baseline_meta.get("planned_case_ids") or baseline_meta.get("selected_case_ids")
-                if isinstance(planned_from_meta, list):
-                    missed_planned_ids = {str(cid) for cid in planned_from_meta}
         if args.only_missed and missed_baseline_results is None:
             print("No baseline found for --only-missed.", file=sys.stderr)
             return 2
-        selected_case_ids = missed_planned_ids or set(suite_case_ids)
+        selected_case_ids = _planned_pool_from_meta(missed_effective_meta, missed_baseline_path, suite_case_ids)
         missed_ids, missed_breakdown = _only_missed_selection(
             selected_case_ids,
             missed_baseline_results,

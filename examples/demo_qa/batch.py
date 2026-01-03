@@ -137,7 +137,11 @@ def _consecutive_passes(
     count = 1
     history_path = artifacts_dir / "runs" / "cases" / f"{case_id}.jsonl"
     entries = list(reversed(_load_case_history(history_path)))
+    skip_first = True  # overlay_result already counted; skip the most recent history entry
     for entry in entries:
+        if skip_first:
+            skip_first = False
+            continue
         if tag is not None and entry.get("tag") != tag:
             continue
         # Old history entries may not contain scope_hash; treat missing as compatible for migration unless strict_scope_history is set.
@@ -607,6 +611,7 @@ def handle_batch(args) -> int:
         print(f"Final only-failed selection: {len(selection_ids)}", file=sys.stderr)
 
     only_missed_baseline_kind: str | None = None
+    missed_planned_ids: set[str] | None = None
     if args.only_missed:
         only_missed_from_arg = cast(Optional[Path], args.only_missed_from)
         if only_missed_from_arg:
@@ -629,6 +634,9 @@ def handle_batch(args) -> int:
             missed_baseline_path = eff_path
             missed_baseline_results = effective_results
             only_missed_baseline_kind = "effective"
+            planned_ids_meta = effective_meta.get("planned_case_ids") if isinstance(effective_meta, dict) else None
+            if isinstance(planned_ids_meta, list):
+                missed_planned_ids = {str(cid) for cid in planned_ids_meta}
         else:
             missed_baseline_path = only_missed_from_arg or _load_latest_results(artifacts_dir, args.tag)
             if only_missed_from_arg:
@@ -641,10 +649,17 @@ def handle_batch(args) -> int:
             except Exception as exc:
                 print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
                 return 2
+        if missed_baseline_path is not None and missed_planned_ids is None:
+            missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
+            baseline_meta = _load_run_meta(missed_baseline_run)
+            if isinstance(baseline_meta, dict):
+                planned_from_meta = baseline_meta.get("planned_case_ids") or baseline_meta.get("selected_case_ids")
+                if isinstance(planned_from_meta, list):
+                    missed_planned_ids = {str(cid) for cid in planned_from_meta}
         if args.only_missed and missed_baseline_results is None:
             print("No baseline found for --only-missed.", file=sys.stderr)
             return 2
-        selected_case_ids = suite_case_ids
+        selected_case_ids = missed_planned_ids or set(suite_case_ids)
         missed_ids, missed_breakdown = _only_missed_selection(
             selected_case_ids,
             missed_baseline_results,

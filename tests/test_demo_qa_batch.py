@@ -144,6 +144,49 @@ def test_only_missed_selection_uses_overlay_executed() -> None:
     assert breakdown["overlay_executed"] == {"c"}
 
 
+def test_anti_flake_requires_two_passes_without_double_count(tmp_path: Path) -> None:
+    artifacts_dir = tmp_path
+    case_id = "x1"
+    history_dir = artifacts_dir / "runs" / "cases"
+    history_dir.mkdir(parents=True)
+    history_file = history_dir / f"{case_id}.jsonl"
+    # most recent in history = overlay run we already count
+    history_file.write_text(
+        json.dumps({"status": "ok", "scope_hash": "s"}, ensure_ascii=False) + "\n"
+        + json.dumps({"status": "failed", "scope_hash": "s"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    overlay_res = _mk_result(case_id, "ok")
+    healed = _consecutive_passes(
+        case_id,
+        overlay_res,
+        artifacts_dir,
+        scope_hash="s",
+        passes_required=2,
+        fail_on="bad",
+        require_assert=False,
+        strict_scope_history=True,
+    )
+    assert healed is False
+
+
+def test_only_missed_uses_planned_pool_from_baseline_meta(tmp_path: Path) -> None:
+    artifacts_dir = tmp_path
+    run_dir = artifacts_dir / "runs" / "r1"
+    run_dir.mkdir(parents=True)
+    baseline_results = {"a": _mk_result("a", "ok")}
+    results_path = run_dir / "results.jsonl"
+    results_path.write_text("", encoding="utf-8")
+    meta = {"planned_case_ids": ["a", "b"], "selected_case_ids": ["a", "b"], "scope_hash": "s"}
+    (run_dir / "run_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    overlay = {"c": _mk_result("c", "ok")}
+    planned_pool = {"a", "b"}
+    missed, _ = _only_missed_selection(planned_pool, baseline_results, overlay)
+
+    assert missed == {"b"}
+
+
 def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:
     artifacts_dir = tmp_path / "data" / ".runs"
     run_dir = artifacts_dir / "runs" / "20240101_cases"

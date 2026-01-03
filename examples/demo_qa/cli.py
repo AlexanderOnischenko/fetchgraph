@@ -171,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     stats_p.add_argument("--history", type=Path, default=None, help="Path to history.jsonl (default: <data>/.runs/history.jsonl)")
     stats_p.add_argument("--last", type=int, default=10, help="How many recent runs to show")
     stats_p.add_argument("--group-by", choices=["config_hash"], default=None, help="Group stats by config hash")
+    stats_p.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for stats table")
 
     compare_p = sub.add_parser("compare", help="Compare two batch result files")
     compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (for tag-based compare)")

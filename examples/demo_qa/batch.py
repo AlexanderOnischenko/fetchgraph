@@ -535,8 +535,12 @@ def handle_batch(args) -> int:
             print(f"Failed to read baseline for --compare-to: {exc}", file=sys.stderr)
             return 2
 
-    overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
-    overlay_results_path = _load_latest_any_results(artifacts_dir, args.tag)
+    overlay_run_path = None
+    overlay_results_path = None
+    overlay_disabled = args.no_overlay
+    if not overlay_disabled:
+        overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
+        overlay_results_path = _load_latest_any_results(artifacts_dir, args.tag)
     if overlay_results_path and not args.no_overlay:
         try:
             overlay_results = load_results(overlay_results_path)
@@ -586,10 +590,14 @@ def handle_batch(args) -> int:
             f"Baseline: run_id={baseline_label or 'n/a'} status={baseline_status or 'n/a'} complete={baseline_complete} scope={scope_display}",
             file=sys.stderr,
         )
-        print(
-            f"Overlay: run_id={overlay_label or 'n/a'} status={overlay_status or 'n/a'} complete={overlay_complete} scope={scope_display}",
-            file=sys.stderr,
+        overlay_line = (
+            "Overlay: disabled (--no-overlay)"
+            if args.no_overlay
+            else f"Overlay: run_id={overlay_label or 'n/a'} status={overlay_status or 'n/a'} complete={overlay_complete} scope={scope_display}"
         )
+        if overlay_results_path is None and not args.no_overlay:
+            overlay_line = "Overlay: none (no latest_any run)"
+        print(overlay_line, file=sys.stderr)
         print(f"Baseline failures: {len(baseline_fails)}", file=sys.stderr)
         print(f"Healed by overlay: {len(healed)}", file=sys.stderr)
         print(f"New failures in overlay: {len(new_failures)}", file=sys.stderr)

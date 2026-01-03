@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Dict
 
-import json
-
-from fetchgraph.relational.schema import ColumnConfig, EntityConfig, RelationConfig, SchemaConfig
+from fetchgraph.relational.schema import (
+    ColumnConfig,
+    EntityConfig,
+    RelationConfig,
+    SchemaConfig,
+)
 
 
 def _entity_from_dict(data: Dict[str, Any]) -> EntityConfig:

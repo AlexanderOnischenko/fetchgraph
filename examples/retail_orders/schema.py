@@ -11,7 +11,6 @@ from fetchgraph.relational.schema import (
     build_pandas_provider_from_schema,
 )
 
-
 RETAIL_SCHEMA = SchemaConfig(
     name="retail_orders",
     label="Интернет-магазин: клиенты, заказы и товары",

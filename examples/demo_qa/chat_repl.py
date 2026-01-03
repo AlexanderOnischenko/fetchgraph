@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from .provider_factory import build_provider
-from .runner import Case, EventLogger, RunArtifacts, build_agent, run_one, save_artifacts
+from .runner import (
+    Case,
+    EventLogger,
+    RunArtifacts,
+    build_agent,
+    run_one,
+    save_artifacts,
+)
 
 
 def _load_json(path: Path) -> object | None:

@@ -8,8 +8,8 @@ from typing import Mapping, Optional
 from ..runner import RunResult, bad_statuses, load_results, summarize
 from ..utils import dump_json
 from .coverage import _missed_case_ids
-from .layout import _effective_paths
 from .io import write_results
+from .layout import _effective_paths
 
 
 def _load_effective_results(artifacts_dir: Path, tag: str) -> tuple[dict[str, RunResult], Optional[dict], Path]:

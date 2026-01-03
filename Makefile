@@ -48,6 +48,8 @@ NOTE  ?=
 CASE  ?=
 LIMIT ?= 50
 CHANGES ?= 10
+NEW_TAG ?=
+PATTERN ?=
 
 ONLY_FAILED_FROM ?=
 ONLY_MISSED_FROM ?=
@@ -90,7 +92,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag case-run case-open compare compare-tag
+        stats history-case report-tag report-tag-changes tags case-run case-open compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -128,11 +130,13 @@ help:
 	@echo "  make batch-fail-fast      - быстрый smoke (остановиться на первом фейле)"
 	@echo "  make batch-max-fails MAX_FAILS=5 - остановиться после N фейлов"
 	@echo "  make stats                - stats по последним 10 прогонов"
+	@echo "  make tags                 - список тегов (effective snapshots)"
 	@echo ""
 	@echo "Диагностика / анализ:"
 	@echo "  make history-case CASE=case_42 [TAG=...] [LIMIT=50] - история по кейсу"
 	@echo "  make report-tag TAG=...    - сводка по тегу (effective snapshot)"
 	@echo "  make report-tag-changes TAG=... [CHANGES=10] - сводка + последние изменения effective snapshot"
+	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
 	@echo ""
@@ -284,6 +288,9 @@ batch-missed-tag: ensure-runs-dir
 # stats (последние 10)
 stats: check
 	@$(CLI) stats --data "$(DATA)" --last 10
+
+tags: check
+	@$(CLI) tags list --data "$(DATA)" $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) $(if $(strip $(LIMIT)),--limit $(LIMIT),)
 
 # 8) История по кейсу (TAG опционален)
 history-case: check

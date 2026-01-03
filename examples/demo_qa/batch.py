@@ -1474,40 +1474,136 @@ def _load_history(history_path: Path) -> list[dict]:
     return entries
 
 
-def _print_stats(entries: list[dict]) -> None:
+def _format_history_timestamp(entry: dict) -> str:
+    for key in ["started_at", "finished_at", "ended_at", "timestamp"]:
+        ts = entry.get(key)
+        if ts:
+            return str(ts)
+    return ""
+
+
+def _truncate(text: str, width: int) -> str:
+    if width <= 0:
+        return ""
+    if len(text) <= width:
+        return text
+    if width == 1:
+        return text[:1]
+    return text[: width - 1] + "…"
+
+
+def _status_color(status: str) -> str | None:
+    status_upper = status.upper()
+    if status_upper in {"SUCCESS", "OK"}:
+        return "green"
+    if status_upper in {"FAILED", "ERROR"}:
+        return "red"
+    if status_upper in {"INTERRUPTED", "CANCELLED", "CANCELED", "TIMEOUT"}:
+        return "yellow"
+    return None
+
+
+def _metric_color(value: float | int | None, *, invert: bool = False) -> str | None:
+    if value is None:
+        return None
+    positive = (value >= 0.9) if not invert else (value == 0)
+    if positive:
+        return "green"
+    if value >= (0.6 if not invert else 1):
+        return "yellow"
+    return "red"
+
+
+def _format_percentage(value: float | None) -> str:
+    return f"{value*100:.1f}%" if value is not None else "n/a"
+
+
+def _print_stats(entries: list[dict], *, use_color: bool) -> None:
     if not entries:
         print("No history entries found.")
         return
-    header = (
-        f"{'run_id':<10} {'ok':>4} {'mis':>4} {'fail':>4} {'err':>4} {'skip':>5} "
-        f"{'pass%':>7} {'median_s':>10} {'Δpass':>8} {'Δmedian':>9} {'policy':>8} {'reqA':>5}"
-    )
-    print(header)
-    prev = None
+
+    columns = [
+        {"key": "timestamp", "header": "timestamp", "align": "<", "max": 25, "color": None},
+        {"key": "run_id", "header": "run_id", "align": "<", "max": 14, "color": None},
+        {"key": "status", "header": "status", "align": "<", "max": 12, "color": _status_color},
+        {"key": "tag", "header": "tag", "align": "<", "max": 14, "color": None},
+        {"key": "note", "header": "note", "align": "<", "max": 70, "color": None},
+        {"key": "bad", "header": "bad", "align": ">", "max": None, "color": lambda v: "red" if v.strip().isdigit() and int(v) > 0 else None},
+        {"key": "pass_rate", "header": "pass%", "align": ">", "max": None, "color": None},
+        {"key": "coverage", "header": "cov%", "align": ">", "max": None, "color": None},
+    ]
+
+    rows: list[dict] = []
     for entry in entries:
+        timestamp = _format_history_timestamp(entry)
+        run_id = str(entry.get("run_id", ""))
+        status = entry.get("run_status") or ("INTERRUPTED" if entry.get("interrupted") else "")
+        tag = entry.get("tag") or ""
+        note = entry.get("note") or ""
+        bad_count = _coerce_int(entry.get("fail_count")) if entry.get("fail_count") is not None else None
         pass_rate = _coerce_number(entry.get("pass_rate"))
-        median = _coerce_number(entry.get("median_total_s"))
-        delta_pass = None
-        delta_median = None
-        if prev:
-            prev_pass_rate = _coerce_number(prev.get("pass_rate"))
-            if pass_rate is not None and prev_pass_rate is not None:
-                delta_pass = pass_rate - prev_pass_rate
-            prev_median = _coerce_number(prev.get("median_total_s"))
-            if median is not None and prev_median is not None:
-                delta_median = median - prev_median
-        pr_display = f"{pass_rate*100:.1f}%" if pass_rate is not None else "n/a"
-        median_display = f"{median:.2f}" if median is not None else "n/a"
-        dp = f"{delta_pass*100:+.1f}pp" if delta_pass is not None else "n/a"
-        dm = f"{delta_median:+.2f}" if delta_median is not None else "n/a"
-        print(
-            f"{entry.get('run_id',''):<10} "
-            f"{entry.get('ok',0):>4} {entry.get('mismatch',0):>4} {entry.get('failed',0):>4} "
-            f"{entry.get('error',0):>4} {entry.get('skipped',0):>5} "
-            f"{pr_display:>7} {median_display:>10} {dp:>8} {dm:>9} "
-            f"{entry.get('fail_on',''):>8} {str(entry.get('require_assert', False)):>5}"
+        planned = _coerce_number(entry.get("planned_total"))
+        executed = _coerce_number(entry.get("executed_total"))
+        coverage = (executed / planned) if planned else None
+
+        rows.append(
+            {
+                "timestamp": timestamp,
+                "run_id": run_id,
+                "status": status or "UNKNOWN",
+                "tag": tag,
+                "note": note,
+                "bad": "n/a" if bad_count is None else str(bad_count),
+                "bad_raw": bad_count,
+                "pass_rate": _format_percentage(pass_rate),
+                "pass_rate_raw": pass_rate,
+                "coverage": _format_percentage(coverage),
+                "coverage_raw": coverage,
+            }
         )
-        prev = entry
+
+    widths: dict[str, int] = {}
+    for col in columns:
+        max_width = col.get("max")
+        col_key = col["key"]
+        widths[col_key] = len(col["header"])
+        for row in rows:
+            value = row[col_key]
+            if max_width:
+                value = _truncate(value, max_width)
+            widths[col_key] = max(widths[col_key], len(value))
+
+    header_parts = []
+    for col in columns:
+        col_key = col["key"]
+        header_parts.append(f"{col['header']:{col['align']}{widths[col_key]}}")
+    print("  ".join(header_parts))
+
+    for row in rows:
+        parts: list[str] = []
+        for col in columns:
+            col_key = col["key"]
+            raw_value = row.get(f"{col_key}_raw", None)
+            value = row[col_key]
+            if col.get("max"):
+                value = _truncate(value, col["max"])
+            formatted = f"{value:{col['align']}{widths[col_key]}}"
+            color_func = col.get("color")
+            color_name = None
+            if callable(color_func):
+                if col_key in {"pass_rate", "coverage"}:
+                    color_name = _metric_color(raw_value)
+                elif col_key == "bad":
+                    color_name = color_func(formatted)
+                else:
+                    color_name = color_func(formatted.strip())  # type: ignore[arg-type]
+            elif col_key in {"pass_rate", "coverage"}:
+                color_name = _metric_color(raw_value)
+            if col_key == "bad" and color_name is None and isinstance(raw_value, (int, float)) and raw_value == 0:
+                color_name = "green"
+            parts.append(_color(formatted, color_name, use_color=use_color))
+        print("  ".join(parts))
 
 
 def handle_stats(args) -> int:
@@ -1518,6 +1614,8 @@ def handle_stats(args) -> int:
             return 2
         history_path = Path(args.data) / ".runs" / "history.jsonl"
     entries = _load_history(history_path)
+    color_mode = getattr(args, "color", "auto")
+    use_color = _should_use_color(color_mode, stream=sys.stdout)
     if args.group_by == "config_hash":
         grouped: dict[str, list[dict]] = {}
         for e in entries:
@@ -1525,9 +1623,9 @@ def handle_stats(args) -> int:
             grouped.setdefault(key, []).append(e)
         for key, vals in grouped.items():
             print(f"\nconfig_hash={key}")
-            _print_stats(vals[-args.last :])
+            _print_stats(vals[-args.last :], use_color=use_color)
     else:
-        _print_stats(entries[-args.last :])
+        _print_stats(entries[-args.last :], use_color=use_color)
     return 0
 
 

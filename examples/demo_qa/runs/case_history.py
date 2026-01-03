@@ -9,7 +9,6 @@ from typing import Iterable, Mapping, Optional
 from ..runner import RunResult
 from .layout import _load_run_meta
 
-
 logger = logging.getLogger(__name__)
 
 

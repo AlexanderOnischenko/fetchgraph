@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import cast
 
-from examples.demo_qa.runner import Case, RunResult, _match_expected, diff_runs, summarize
+from examples.demo_qa.runner import (
+    Case,
+    RunResult,
+    _match_expected,
+    diff_runs,
+    summarize,
+)
 
 
 def test_match_expected_unchecked_when_no_expectations() -> None:

@@ -544,13 +544,13 @@ def handle_batch(args) -> int:
     if not overlay_disabled:
         overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
         overlay_results_path = _load_latest_any_results(artifacts_dir, args.tag)
-    if overlay_results_path and not args.no_overlay:
-        try:
-            overlay_results = load_results(overlay_results_path)
-        except Exception as exc:
-            print(f"Failed to read overlay results from latest run: {exc}", file=sys.stderr)
-            overlay_results_path = None
-            overlay_results = None
+        if overlay_results_path:
+            try:
+                overlay_results = load_results(overlay_results_path)
+            except Exception as exc:
+                print(f"Failed to read overlay results from latest run: {exc}", file=sys.stderr)
+                overlay_results_path = None
+                overlay_results = None
 
     filtered_cases = _select_cases_for_rerun(
         cases,

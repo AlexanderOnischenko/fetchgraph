@@ -5,10 +5,12 @@ import json
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
+import examples.demo_qa.batch as batch
 from examples.demo_qa.batch import (
     _consecutive_passes,
     _fingerprint_dir,
@@ -21,7 +23,8 @@ from examples.demo_qa.batch import (
     render_markdown,
     write_results,
 )
-from examples.demo_qa.runner import DiffReport, RunResult, diff_runs
+from examples.demo_qa.cli import build_parser
+from examples.demo_qa.runner import DiffReport, RunResult, RunTimings, diff_runs
 from examples.demo_qa.runs.coverage import _missed_case_ids
 from examples.demo_qa.runs.layout import _latest_markers, _update_latest_markers
 
@@ -436,3 +439,118 @@ def test_format_healed_explain_includes_key_lines() -> None:
     lines = _format_healed_explain(healed, healed_details, anti_flake_passes=2, limit=2)
     assert any("Healed because last 2 results are PASS for case a" in line for line in lines)
     assert any("run_id=r2" in line and "status=ok" in line for line in lines)
+
+
+def _stubbed_run_one(case, runner, artifacts_root, *, plan_only=False, event_logger=None):
+    run_dir = artifacts_root / f"{case.id}_stub"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return RunResult(
+        id=case.id,
+        question=case.question,
+        status="ok",
+        checked=case.has_asserts,
+        reason=None,
+        details=None,
+        artifacts_dir=str(run_dir),
+        duration_ms=1,
+        tags=list(case.tags),
+        answer="ok",
+        error=None,
+        plan_path=str(run_dir / "plan.json"),
+        timings=RunTimings(),
+        expected_check=None,
+    )
+
+
+def _prepare_batch_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text("{}", encoding="utf-8")
+    cases_path = tmp_path / "cases.jsonl"
+    cases_path.write_text('{"id":"c1","question":"Q?"}\n', encoding="utf-8")
+    artifacts_dir = tmp_path / "artifacts"
+    return data_dir, schema_path, cases_path, artifacts_dir
+
+
+def _run_batch_and_meta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    cli_config: Path | None = None,
+    env_api_key: str | None = None,
+) -> dict:
+    data_dir, schema_path, cases_path, artifacts_dir = _prepare_batch_inputs(tmp_path)
+
+    monkeypatch.setattr(
+        batch,
+        "build_provider",
+        lambda data_dir, schema_path, enable_semantic=False, embedding_model=None: (SimpleNamespace(name="dummy"), None),
+    )
+    monkeypatch.setattr(batch, "build_llm", lambda settings: SimpleNamespace())
+    monkeypatch.setattr(batch, "build_agent", lambda llm, provider: SimpleNamespace())
+    monkeypatch.setattr(batch, "run_one", _stubbed_run_one)
+    monkeypatch.setattr(batch, "configure_logging", lambda **kwargs: None)
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    if env_api_key is not None:
+        monkeypatch.setenv("OPENAI_API_KEY", env_api_key)
+
+    args_list = [
+        "batch",
+        "--data",
+        str(data_dir),
+        "--schema",
+        str(schema_path),
+        "--cases",
+        str(cases_path),
+        "--artifacts-dir",
+        str(artifacts_dir),
+        "--events",
+        "off",
+        "--quiet",
+    ]
+    if cli_config is not None:
+        args_list.extend(["--config", str(cli_config)])
+    args = build_parser().parse_args(args_list)
+    exit_code = batch.handle_batch(args)
+    assert exit_code == 0
+
+    run_meta_path = next((artifacts_dir / "runs").rglob("run_meta.json"))
+    return json.loads(run_meta_path.read_text(encoding="utf-8"))
+
+
+def test_default_config_is_discovered_and_hashed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data_dir, _, _, _ = _prepare_batch_inputs(tmp_path)
+    default_config = data_dir / "demo_qa.toml"
+    default_config.write_text('[llm]\napi_key="sk-default"\n', encoding="utf-8")
+
+    run_meta = _run_batch_and_meta(tmp_path, monkeypatch, env_api_key=None)
+
+    assert run_meta["inputs"]["config_path"] == str(default_config)
+    assert run_meta["inputs"]["config_hash"] == batch._hash_file(default_config)
+
+
+def test_explicit_config_path_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data_dir, _, _, _ = _prepare_batch_inputs(tmp_path)
+    # Default config exists but should be ignored when CLI is provided.
+    default_config = data_dir / "demo_qa.toml"
+    default_config.write_text('[llm]\napi_key="sk-default"\n', encoding="utf-8")
+    explicit_config = tmp_path / "custom.toml"
+    explicit_config.write_text('[llm]\napi_key="sk-explicit"\n', encoding="utf-8")
+
+    run_meta = _run_batch_and_meta(tmp_path, monkeypatch, cli_config=explicit_config, env_api_key=None)
+
+    assert run_meta["inputs"]["config_path"] == str(explicit_config)
+    assert run_meta["inputs"]["config_hash"] == batch._hash_file(explicit_config)
+
+
+def test_packaged_default_config_used_when_no_cli_or_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    run_meta = _run_batch_and_meta(tmp_path, monkeypatch, env_api_key=None)
+
+    config_path = run_meta["inputs"]["config_path"]
+    assert config_path is not None
+
+    expected_default = Path(batch.__file__).resolve().parent / "demo_qa.toml"
+    assert Path(config_path) == expected_default
+    assert run_meta["inputs"]["config_hash"] == batch._hash_file(expected_default)

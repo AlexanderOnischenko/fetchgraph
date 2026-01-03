@@ -17,6 +17,7 @@ python -m examples.demo_qa.cli gen --out demo_data --rows 1000 --seed 42
 ### Файл demo_qa.toml
 См. шаблон `examples/demo_qa/demo_qa.toml.example`.
 Автопоиск: `--config`, затем `<DATA_DIR>/demo_qa.toml`, затем `examples/demo_qa/demo_qa.toml`.
+`llm.api_key` можно опустить: при инициализации LLM используется `OPENAI_API_KEY`, а при его отсутствии — строка `"unused"`.
 
 ### .env.demo_qa
 Пример:
@@ -30,6 +31,7 @@ DEMO_QA_LLM__BASE_URL=http://localhost:8000/v1
 export DEMO_QA_LLM__API_KEY=sk-...
 export DEMO_QA_LLM__BASE_URL=http://localhost:8000/v1
 ```
+Если не задавать `DEMO_QA_LLM__API_KEY` и не выставлять `OPENAI_API_KEY`, LLM-клиент подставит `"unused"` и не упадёт.
 
 ### Зависимости демо
 * Требуется Python 3.11+ (используется стандартный `tomllib`).
@@ -44,7 +46,7 @@ pip install -r examples/demo_qa/requirements.txt
 
 ### OpenAI / совместимый прокси
 1. Скопируйте `examples/demo_qa/demo_qa.toml.example` в удобное место и укажите
-   `llm.api_key` (можно `env:OPENAI_API_KEY` или любое значение, если прокси не проверяет ключ),
+   при необходимости `llm.api_key` (можно `env:OPENAI_API_KEY`; если не указать, возьмётся `OPENAI_API_KEY` или `"unused"`),
    `base_url` (формат `http://host:port/v1`), модели и температуры.
 2. Запустите чат с указанием конфига:
 ```bash

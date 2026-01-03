@@ -147,6 +147,62 @@ def test_only_missed_selection_uses_overlay_executed() -> None:
     assert breakdown["overlay_executed"] == {"c"}
 
 
+def test_only_missed_ignores_overlay_when_scope_mismatches() -> None:
+    baseline = {"A": _mk_result("A", "ok")}
+    overlay = {"B": _mk_result("B", "ok")}
+
+    missed, breakdown = _only_missed_selection(
+        ["A", "B", "C"],
+        baseline,
+        overlay,
+        overlay_scope_hash="overlay_scope",
+        selection_scope_hash="current_scope",
+    )
+
+    assert missed == {"B", "C"}
+    assert breakdown["missed_base"] == {"B", "C"}
+    assert breakdown["overlay_executed"] == set()
+    assert breakdown["overlay_scope_hash"] == "overlay_scope"
+    assert breakdown["overlay_scope_matches_current"] is False
+    assert breakdown["overlay_ignored_reason"] == "scope_mismatch"
+
+
+def test_only_missed_applies_overlay_when_scope_matches() -> None:
+    baseline = {"A": _mk_result("A", "ok")}
+    overlay = {"B": _mk_result("B", "ok")}
+
+    missed, breakdown = _only_missed_selection(
+        ["A", "B", "C"],
+        baseline,
+        overlay,
+        overlay_scope_hash="scope_current",
+        selection_scope_hash="scope_current",
+    )
+
+    assert missed == {"C"}
+    assert breakdown["missed_base"] == {"B", "C"}
+    assert breakdown["overlay_executed"] == {"B"}
+    assert breakdown["overlay_scope_hash"] == "scope_current"
+    assert breakdown["overlay_scope_matches_current"] is True
+    assert "overlay_ignored_reason" not in breakdown
+
+
+def test_only_missed_exposes_tag_match_flag_even_when_overlay_tag_missing() -> None:
+    baseline = {"A": _mk_result("A", "ok")}
+    overlay = {"B": _mk_result("B", "ok")}
+
+    _, breakdown = _only_missed_selection(
+        ["A", "B"],
+        baseline,
+        overlay,
+        selection_tag="current-tag",
+    )
+
+    assert breakdown["overlay_executed"] == {"B"}
+    assert "overlay_tag_matches_current" in breakdown
+    assert breakdown["overlay_tag_matches_current"] is None
+
+
 def test_only_failed_strict_scope_ignores_overlay_pass(tmp_path: Path) -> None:
     baseline = {"A": _mk_result("A", "failed")}
     overlay = {"A": _mk_result("A", "ok")}

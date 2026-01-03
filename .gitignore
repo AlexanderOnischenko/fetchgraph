@@ -5,6 +5,5 @@ dist/
 build/
 .pytest_cache/
 **/demo_qa.toml
-!examples/demo_qa/demo_qa.toml
 .env.demo_qa
 _demo_data/*/.runs/*

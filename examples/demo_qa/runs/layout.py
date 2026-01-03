@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
+
+
+class LatestMarkers(NamedTuple):
+    complete: Path
+    results: Path
+    any_run: Path
+    legacy_run: Path
 
 
 def _sanitize_tag(tag: str) -> str:
@@ -15,40 +22,82 @@ def _effective_paths(artifacts_dir: Path, tag: str) -> tuple[Path, Path]:
     return base / "effective_results.jsonl", base / "effective_meta.json"
 
 
-def _latest_markers(artifacts_dir: Path, tag: str | None) -> tuple[Path, Path]:
+def _latest_markers(artifacts_dir: Path, tag: str | None) -> LatestMarkers:
     runs_dir = artifacts_dir / "runs"
     if tag:
         slug = _sanitize_tag(tag)
-        return runs_dir / f"tag-latest-{slug}.txt", runs_dir / f"tag-latest-results-{slug}.txt"
-    return runs_dir / "latest.txt", runs_dir / "latest_results.txt"
+        return LatestMarkers(
+            runs_dir / f"tag-latest-complete-{slug}.txt",
+            runs_dir / f"tag-latest-results-{slug}.txt",
+            runs_dir / f"tag-latest-any-{slug}.txt",
+            runs_dir / f"tag-latest-{slug}.txt",
+        )
+    return LatestMarkers(
+        runs_dir / "latest_complete.txt",
+        runs_dir / "latest_results.txt",
+        runs_dir / "latest_any.txt",
+        runs_dir / "latest.txt",
+    )
 
 
-def _load_latest_run(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
-    latest_file, _ = _latest_markers(artifacts_dir, tag)
-    if latest_file.exists():
-        content = latest_file.read_text(encoding="utf-8").strip()
+def _read_marker(path: Path) -> Optional[Path]:
+    if path.exists():
+        content = path.read_text(encoding="utf-8").strip()
         if content:
             return Path(content)
     return None
 
 
+def _load_latest_run(artifacts_dir: Path, tag: str | None = None, *, kind: str = "complete") -> Optional[Path]:
+    markers = _latest_markers(artifacts_dir, tag)
+    candidates: list[Path] = []
+    if kind == "any":
+        candidates.append(markers.any_run)
+    candidates.append(markers.complete)
+    candidates.append(markers.legacy_run)
+    for marker in candidates:
+        resolved = _read_marker(marker)
+        if resolved:
+            return resolved
+    return None
+
+
+def _resolve_results_path_for_run(run_path: Path | None, *, require_complete: bool = False) -> Optional[Path]:
+    if run_path is None:
+        return None
+    summary_path = run_path / "summary.json"
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            results_path = summary.get("results_path")
+            if require_complete and summary.get("results_complete") is False:
+                return None
+            if results_path:
+                return Path(results_path)
+        except Exception:
+            pass
+    candidate = run_path / "results.jsonl"
+    if candidate.exists() and not require_complete:
+        return candidate
+    return None
+
+
 def _load_latest_results(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
-    _, latest_file = _latest_markers(artifacts_dir, tag)
-    if latest_file.exists():
-        content = latest_file.read_text(encoding="utf-8").strip()
-        if content:
-            return Path(content)
-    latest_run = _load_latest_run(artifacts_dir, tag)
-    if latest_run:
-        summary_path = latest_run / "summary.json"
-        if summary_path.exists():
-            try:
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                results_path = summary.get("results_path")
-                if results_path:
-                    return Path(results_path)
-            except Exception:
-                pass
+    markers = _latest_markers(artifacts_dir, tag)
+    resolved = _read_marker(markers.results)
+    if resolved:
+        return resolved
+    latest_run = _load_latest_run(artifacts_dir, tag, kind="complete")
+    return _resolve_results_path_for_run(latest_run, require_complete=True)
+
+
+def _load_latest_any_results(artifacts_dir: Path, tag: str | None = None) -> Optional[Path]:
+    latest_run = _load_latest_run(artifacts_dir, tag, kind="any")
+    if latest_run is None:
+        return None
+    results = _resolve_results_path_for_run(latest_run)
+    if results:
+        return results
     return None
 
 
@@ -80,22 +129,31 @@ def _run_dir_from_results_path(results_path: Path | None) -> Optional[Path]:
     return run_dir
 
 
-def _update_latest_markers(run_folder: Path, results_path: Path, artifacts_dir: Path, tag: str | None) -> None:
-    marker_pairs = {_latest_markers(artifacts_dir, None)}
+def _update_latest_markers(
+    run_folder: Path, results_path: Path, artifacts_dir: Path, tag: str | None, *, results_complete: bool
+) -> None:
+    marker_sets = {_latest_markers(artifacts_dir, None)}
     if tag:
-        marker_pairs.add(_latest_markers(artifacts_dir, tag))
-    for latest_path, latest_results_path in marker_pairs:
-        latest_path.parent.mkdir(parents=True, exist_ok=True)
-        latest_path.write_text(str(run_folder), encoding="utf-8")
-        latest_results_path.write_text(str(results_path), encoding="utf-8")
+        marker_sets.add(_latest_markers(artifacts_dir, tag))
+    for markers in marker_sets:
+        for path in [markers.complete, markers.results, markers.any_run, markers.legacy_run]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        markers.any_run.write_text(str(run_folder), encoding="utf-8")
+        if results_complete:
+            markers.legacy_run.write_text(str(run_folder), encoding="utf-8")
+            markers.complete.write_text(str(run_folder), encoding="utf-8")
+            markers.results.write_text(str(results_path), encoding="utf-8")
 
 
 __all__ = [
+    "LatestMarkers",
     "_effective_paths",
+    "_load_latest_any_results",
     "_latest_markers",
     "_load_latest_results",
     "_load_latest_run",
     "_load_run_meta",
+    "_resolve_results_path_for_run",
     "_run_dir_from_results_path",
     "_sanitize_tag",
     "_update_latest_markers",

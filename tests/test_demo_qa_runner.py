@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from examples.demo_qa.runner import Case, RunResult, _match_expected, diff_runs, summarize
+from typing import cast
+
+from examples.demo_qa.runner import (
+    Case,
+    RunResult,
+    _match_expected,
+    diff_runs,
+    summarize,
+)
 
 
 def test_match_expected_unchecked_when_no_expectations() -> None:
@@ -9,7 +17,7 @@ def test_match_expected_unchecked_when_no_expectations() -> None:
 
 
 def test_match_expected_coerces_non_string_expected_values() -> None:
-    case = Case(id="c1", question="What is foo?", expected=42)
+    case = Case(id="c1", question="What is foo?", expected=cast(str, 42))
 
     mismatch = _match_expected(case, "43")
     assert mismatch is not None

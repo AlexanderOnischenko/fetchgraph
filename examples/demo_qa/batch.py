@@ -7,15 +7,15 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Mapping, Optional, cast
+from typing import Iterable, Mapping, Optional, cast
 
 from .llm.factory import build_llm
 from .logging_config import configure_logging
 from .provider_factory import build_provider
 from .runner import (
     Case,
-    DiffReport,
     DiffCaseChange,
+    DiffReport,
     EventLogger,
     RunResult,
     RunTimings,
@@ -30,7 +30,7 @@ from .runner import (
     save_status,
     summarize,
 )
-from .runs.case_history import _append_case_history
+from .runs.case_history import _append_case_history, _iter_case_entries_newest_first
 from .runs.coverage import _missed_case_ids
 from .runs.effective import (
     _append_effective_diff,
@@ -40,6 +40,7 @@ from .runs.effective import (
 )
 from .runs.io import write_results
 from .runs.layout import (
+    _load_latest_any_results,
     _load_latest_results,
     _load_latest_run,
     _load_run_meta,
@@ -116,6 +117,259 @@ def _load_ids(path: Optional[Path]) -> set[str] | None:
     return ids
 
 
+def _consecutive_passes(
+    case_id: str,
+    overlay_entry: Mapping[str, object] | None,
+    history_path: Path | None,
+    *,
+    tag: str | None = None,
+    scope_hash: str = "",
+    passes_required: int = 1,
+    fail_on: str = "bad",
+    require_assert: bool = False,
+    strict_scope_history: bool = False,
+    max_entries: int | None = None,
+) -> tuple[bool, list[dict]]:
+    bad = bad_statuses(fail_on, require_assert)
+    if overlay_entry is None:
+        return False, []
+    if passes_required <= 1:
+        return (overlay_entry.get("status") not in bad, [dict(overlay_entry)])
+    if history_path is None:
+        return False, [dict(overlay_entry)]
+    entries: list[dict] = []
+    passes_needed = max(passes_required, 1)
+    iterator = _iter_case_entries_newest_first(
+        history_path,
+        case_id,
+        tag,
+        scope_hash or None,
+        strict_scope=strict_scope_history,
+        fail_on=fail_on,
+        require_assert=require_assert,
+        overlay_entry=dict(overlay_entry) if overlay_entry else None,
+        max_entries=max_entries or (passes_needed + 5),
+    )
+    consecutive = 0
+    for entry in iterator:
+        entries.append(entry)
+        status = str(entry.get("status", ""))
+        if status in bad:
+            return False, entries
+        consecutive += 1
+        if consecutive >= passes_needed:
+            return True, entries
+    return False, entries
+
+
+def _only_failed_selection(
+    baseline_results: Mapping[str, RunResult] | None,
+    overlay_results: Mapping[str, RunResult] | None,
+    *,
+    fail_on: str = "bad",
+    require_assert: bool = False,
+    artifacts_dir: Path | None = None,
+    tag: str | None = None,
+    scope_hash: str = "",
+    anti_flake_passes: int = 1,
+    strict_scope_history: bool = False,
+    overlay_run_meta: Mapping[str, object] | None = None,
+    overlay_run_path: Path | None = None,
+    explain_selection: bool = False,
+    explain_limit: int = 20,
+) -> tuple[set[str], dict[str, object]]:
+    baseline = baseline_results or {}
+    overlay = overlay_results or {}
+    bad = bad_statuses(fail_on, require_assert)
+    baseline_bad = {cid for cid, res in baseline.items() if res.status in bad}
+    overlay_bad = {cid for cid, res in overlay.items() if res.status in bad}
+    overlay_run_id = cast(Optional[str], overlay_run_meta.get("run_id") if isinstance(overlay_run_meta, Mapping) else None)
+    overlay_scope_hash = cast(Optional[str], overlay_run_meta.get("scope_hash") if isinstance(overlay_run_meta, Mapping) else None)
+    overlay_tag = cast(Optional[str], overlay_run_meta.get("tag") if isinstance(overlay_run_meta, Mapping) else None)
+    overlay_ts: Optional[object] = None
+    if isinstance(overlay_run_meta, Mapping):
+        overlay_ts = (
+            overlay_run_meta.get("ended_at")
+            or overlay_run_meta.get("started_at")
+            or overlay_run_meta.get("ts")
+            or overlay_run_meta.get("timestamp")
+        )
+    if overlay_ts is None and overlay_run_path and overlay_run_path.exists():
+        try:
+            overlay_ts = overlay_run_path.stat().st_mtime
+        except OSError:
+            overlay_ts = None
+
+    current_scope_hash = scope_hash or None
+    overlay_scope_matches_current = True
+    if strict_scope_history and current_scope_hash:
+        overlay_scope_matches_current = overlay_scope_hash == current_scope_hash
+
+    explain_lines: list[str] = []
+    if explain_selection:
+        explain_lines.append(
+            f"current_scope_hash={current_scope_hash} overlay_scope_hash={overlay_scope_hash} "
+            f"overlay_scope_matches_current={overlay_scope_matches_current}"
+        )
+        if overlay_tag is None and tag is not None:
+            explain_lines.append(f"Overlay tag missing; using current tag={tag} for overlay entries")
+        elif overlay_tag is not None and tag is not None and overlay_tag != tag:
+            explain_lines.append(
+                f"Overlay tag differs from current selection; using overlay tag={overlay_tag} (current tag={tag})"
+            )
+    overlay_entries: dict[str, dict] = {}
+    for cid, res in overlay.items():
+        entry = {
+            "run_id": overlay_run_id or (str(overlay_run_path) if overlay_run_path else "overlay"),
+            "ts": overlay_ts,
+            "timestamp": overlay_ts,
+            "status": res.status,
+            "scope_hash": overlay_scope_hash,
+            "tag": overlay_tag if overlay_tag is not None else tag,
+            "run_dir": str(overlay_run_path) if overlay_run_path else None,
+        }
+        overlay_entries[cid] = {k: v for k, v in entry.items() if v is not None}
+
+    overlay_good: set[str] = set()
+    healed_details: dict[str, list[dict]] = {}
+    scope_mismatch_warned = False
+    for cid, res in overlay.items():
+        overlay_entry_for_history = overlay_entries.get(cid) if overlay_scope_matches_current else None
+        ok, history_entries = _consecutive_passes(
+            cid,
+            overlay_entry_for_history,
+            artifacts_dir / "runs" / "cases" / f"{cid}.jsonl" if artifacts_dir else None,
+            tag=tag,
+            scope_hash=scope_hash,
+            passes_required=anti_flake_passes,
+            fail_on=fail_on,
+            require_assert=require_assert,
+            strict_scope_history=strict_scope_history,
+        )
+        if explain_selection and strict_scope_history and not overlay_scope_matches_current:
+            if res.status not in bad:
+                explain_lines.append(
+                    f"Overlay PASS for case {cid} ignored due to strict scope mismatch "
+                    f"(overlay_scope_hash={overlay_scope_hash}, current_scope_hash={current_scope_hash})"
+                )
+            elif not scope_mismatch_warned:
+                explain_lines.append(
+                    f"Overlay scope mismatch; overlay failures still counted (overlay_scope_hash={overlay_scope_hash}, "
+                    f"current_scope_hash={current_scope_hash})"
+                )
+                scope_mismatch_warned = True
+        if ok:
+            overlay_good.add(cid)
+            if explain_selection:
+                healed_details[cid] = history_entries
+
+    healed = baseline_bad & overlay_good
+    selection = (baseline_bad - healed) | overlay_bad
+    breakdown = {
+        "baseline_failures": baseline_bad,
+        "healed": healed,
+        "new_failures": overlay_bad,
+    }
+    if explain_selection and healed_details:
+        limit = max(1, explain_limit)
+        breakdown["healed_details"] = {cid: healed_details[cid] for cid in list(sorted(healed_details))[:limit]}
+    if explain_selection and explain_lines:
+        breakdown["explain"] = explain_lines
+    return selection, breakdown
+
+
+def _format_healed_explain(
+    healed: Iterable[str],
+    healed_details: Mapping[str, list[dict]] | None,
+    *,
+    anti_flake_passes: int,
+    limit: int,
+) -> list[str]:
+    details = healed_details or {}
+    max_entries = max(1, limit)
+    lines: list[str] = []
+    healed_list = sorted(set(healed))
+    for cid in healed_list[:max_entries]:
+        entries = details.get(cid, [])
+        lines.append(f"Healed because last {anti_flake_passes} results are PASS for case {cid}")
+        for entry in entries[:anti_flake_passes]:
+            rid = entry.get("run_id")
+            ts = entry.get("ts") or entry.get("timestamp")
+            status = entry.get("status")
+            lines.append(f"  - run_id={rid} ts={ts} status={status}")
+    if len(healed_list) > max_entries:
+        lines.append(f"... {len(healed_list) - max_entries} more healed cases not shown (limit={max_entries})")
+    return lines
+
+
+def _only_missed_selection(
+    selected_case_ids: Iterable[str],
+    baseline_results: Mapping[str, RunResult] | None,
+    overlay_results: Mapping[str, RunResult] | None,
+    *,
+    overlay_scope_hash: str | None = None,
+    selection_scope_hash: str | None = None,
+    overlay_tag: str | None = None,
+    selection_tag: str | None = None,
+    overlay_disabled_reason: str | None = None,
+    overlay_ignored_reason: str | None = None,
+) -> tuple[set[str], dict[str, object]]:
+    selected = set(selected_case_ids)
+    baseline_ids = set(baseline_results.keys()) if baseline_results else set()
+    overlay_scope_matches_current: bool | None = None
+    overlay_tag_matches_current: bool | None = None
+    overlay_results_for_calc: Mapping[str, RunResult] | None = None
+    ignored_reason = overlay_ignored_reason or overlay_disabled_reason
+    if overlay_results is not None and overlay_disabled_reason is None:
+        overlay_scope_matches_current = (
+            overlay_scope_hash == selection_scope_hash if overlay_scope_hash is not None and selection_scope_hash is not None else None
+        )
+        overlay_tag_matches_current = (
+            overlay_tag == selection_tag if overlay_tag is not None and selection_tag is not None else None
+        )
+        overlay_results_for_calc = overlay_results
+        if overlay_scope_matches_current is False:
+            overlay_results_for_calc = None
+            ignored_reason = "scope_mismatch"
+        elif overlay_tag_matches_current is False:
+            overlay_results_for_calc = None
+            ignored_reason = "tag_mismatch"
+    overlay_executed = set(overlay_results_for_calc.keys()) if overlay_results_for_calc else set()
+    missed_base = selected - baseline_ids
+    missed_final = missed_base - overlay_executed
+    breakdown: dict[str, object] = {
+        "missed_base": missed_base,
+        "overlay_executed": overlay_executed,
+        "overlay_scope_hash": overlay_scope_hash,
+        "overlay_scope_matches_current": overlay_scope_matches_current,
+    }
+    if overlay_tag is not None:
+        breakdown["overlay_tag"] = overlay_tag
+    if selection_tag is not None:
+        breakdown["overlay_tag_matches_current"] = overlay_tag_matches_current
+    if ignored_reason:
+        breakdown["overlay_ignored_reason"] = ignored_reason
+    return missed_final, breakdown
+
+
+def _planned_pool_from_meta(
+    effective_meta: Mapping[str, object] | None, baseline_results_path: Path | None, suite_case_ids: Iterable[str]
+) -> set[str]:
+    planned: set[str] | None = None
+    if effective_meta:
+        planned_from_eff = effective_meta.get("planned_case_ids")
+        if isinstance(planned_from_eff, list):
+            planned = {str(cid) for cid in planned_from_eff}
+    if planned is None and baseline_results_path is not None:
+        run_dir = _run_dir_from_results_path(baseline_results_path)
+        meta = _load_run_meta(run_dir)
+        if isinstance(meta, dict):
+            planned_from_meta = meta.get("planned_case_ids") or meta.get("selected_case_ids")
+            if isinstance(planned_from_meta, list):
+                planned = {str(cid) for cid in planned_from_meta}
+    return planned or set(suite_case_ids)
+
+
 def _fingerprint_dir(data_dir: Path, *, verbose: bool = False) -> Mapping[str, object]:
     entries: list[dict] = []
     total_bytes = 0
@@ -170,7 +424,7 @@ def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
 def _resolve_run_path(path: Path | None, artifacts_dir: Path) -> Optional[Path]:
     if path is not None:
         return path
-    return _load_latest_run(artifacts_dir)
+    return _load_latest_run(artifacts_dir, kind="any")
 
 
 def handle_chat(args) -> int:
@@ -322,10 +576,7 @@ def write_junit(compare: DiffReport, out_path: Path) -> None:
 
 def _select_cases_for_rerun(
     cases: list[Case],
-    baseline_for_filter: Optional[Mapping[str, RunResult]],
     *,
-    require_assert: bool,
-    fail_on: str,
     include_tags: set[str] | None,
     exclude_tags: set[str] | None,
     include_ids: set[str] | None,
@@ -343,12 +594,7 @@ def _select_cases_for_rerun(
         if exclude_ids and case.id in exclude_ids:
             continue
         filtered.append(case)
-    if not baseline_for_filter:
-        return filtered
-    target_ids = {
-        case_id for case_id, res in baseline_for_filter.items() if res.status in bad_statuses(fail_on, require_assert)
-    }
-    return [case for case in filtered if case.id in target_ids]
+    return filtered
 
 
 def handle_batch(args) -> int:
@@ -373,8 +619,13 @@ def handle_batch(args) -> int:
         print(f"Cases error: {exc}", file=sys.stderr)
         return 2
 
-    baseline_for_filter: Optional[Mapping[str, RunResult]] = None
     baseline_for_compare: Optional[Mapping[str, RunResult]] = None
+    failed_baseline_results: Optional[Mapping[str, RunResult]] = None
+    missed_baseline_results: Optional[Mapping[str, RunResult]] = None
+    missed_baseline_path: Path | None = None
+    overlay_results: Optional[Mapping[str, RunResult]] = None
+    overlay_results_path: Path | None = None
+    overlay_run_path: Path | None = None
 
     artifacts_dir = Path(args.artifacts_dir) if args.artifacts_dir else data_dir / ".runs"
 
@@ -396,6 +647,10 @@ def handle_batch(args) -> int:
     only_failed_baseline_kind: str | None = None
     if baseline_filter_path_arg:
         only_failed_baseline_kind = "path"
+        print(
+            "Using explicit baseline from --only-failed-from; overlay (latest any run) will still be considered unless --no-overlay is set.",
+            file=sys.stderr,
+        )
     elif args.tag and args.only_failed:
         effective_results, effective_meta, eff_path = _load_effective_results(artifacts_dir, args.tag)
         if not effective_results:
@@ -410,28 +665,20 @@ def handle_batch(args) -> int:
         if effective_meta and effective_meta.get("scope_hash") not in (None, scope_id):
             print("Effective results scope does not match current selection; refusing to merge.", file=sys.stderr)
             return 2
-        baseline_for_filter = effective_results
+        failed_baseline_results = effective_results
         baseline_filter_path = eff_path
         only_failed_baseline_kind = "effective"
     elif args.only_failed:
-        latest_results = _load_latest_results(artifacts_dir, args.tag)
-        if latest_results:
-            baseline_filter_path = latest_results
-            only_failed_baseline_kind = "latest"
-        else:
-            latest_run = _load_latest_run(artifacts_dir, args.tag)
-            if latest_run:
-                candidate = latest_run / "results.jsonl"
-                if candidate.exists():
-                    baseline_filter_path = candidate
-                    only_failed_baseline_kind = "latest"
-    if baseline_filter_path is not None and baseline_for_filter is None:
+        baseline_filter_path = _load_latest_results(artifacts_dir, args.tag)
+        if baseline_filter_path:
+            only_failed_baseline_kind = "latest_complete"
+    if baseline_filter_path is not None and failed_baseline_results is None:
         try:
-            baseline_for_filter = load_results(baseline_filter_path)
+            failed_baseline_results = load_results(baseline_filter_path)
         except Exception as exc:
             print(f"Failed to read baseline for --only-failed-from: {exc}", file=sys.stderr)
             return 2
-    if args.only_failed and baseline_for_filter is None:
+    if args.only_failed and failed_baseline_results is None:
         print("No baseline found for --only-failed.", file=sys.stderr)
         return 2
 
@@ -442,50 +689,104 @@ def handle_batch(args) -> int:
     if compare_path is not None:
         try:
             if baseline_filter_path is not None and compare_path.resolve() == baseline_filter_path.resolve():
-                baseline_for_compare = baseline_for_filter
+                baseline_for_compare = failed_baseline_results
             else:
                 baseline_for_compare = load_results(compare_path)
         except Exception as exc:
             print(f"Failed to read baseline for --compare-to: {exc}", file=sys.stderr)
             return 2
 
+    overlay_run_path = None
+    overlay_results_path = None
+    overlay_disabled = args.no_overlay
+    overlay_run_meta: Optional[Mapping[str, object]] = None
+    if not overlay_disabled:
+        overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
+        overlay_results_path = _load_latest_any_results(artifacts_dir, args.tag)
+        if overlay_results_path:
+            try:
+                overlay_results = load_results(overlay_results_path)
+            except Exception as exc:
+                print(f"Failed to read overlay results from latest run: {exc}", file=sys.stderr)
+                overlay_results_path = None
+                overlay_results = None
+        if overlay_run_path:
+            overlay_run_meta = _load_run_meta(overlay_run_path)
+
     filtered_cases = _select_cases_for_rerun(
         cases,
-        None,
-        require_assert=args.require_assert,
-        fail_on=args.fail_on,
         include_tags=include_tags,
         exclude_tags=exclude_tags,
         include_ids=include_ids,
         exclude_ids=exclude_ids,
     )
     suite_case_ids = [case.id for case in filtered_cases]
-    cases = _select_cases_for_rerun(
-        filtered_cases,
-        baseline_for_filter,
-        require_assert=args.require_assert,
-        fail_on=args.fail_on,
-        include_tags=include_tags,
-        exclude_tags=exclude_tags,
-        include_ids=include_ids,
-        exclude_ids=exclude_ids,
-    )
+    cases = filtered_cases
+    failed_selection_ids: set[str] | None = None
 
-    baseline_planned_ids: set[str] | None = None
-    missed_baseline_results: Optional[Mapping[str, RunResult]] = None
-    missed_baseline_path: Path | None = None
-    missed_baseline_run: Path | None = None
+    if args.only_failed:
+        selection_ids, breakdown = _only_failed_selection(
+            failed_baseline_results,
+            overlay_results if not args.no_overlay else None,
+            fail_on=args.fail_on,
+            require_assert=args.require_assert,
+            artifacts_dir=artifacts_dir,
+            tag=args.tag,
+            scope_hash=scope_id,
+            anti_flake_passes=max(1, int(args.anti_flake_passes)),
+            strict_scope_history=args.strict_scope_history,
+            overlay_run_meta=overlay_run_meta,
+            overlay_run_path=overlay_run_path,
+            explain_selection=args.explain_selection,
+            explain_limit=args.explain_limit,
+        )
+        cases = [case for case in cases if case.id in selection_ids]
+        failed_selection_ids = selection_ids
+        healed = breakdown.get("healed", set())
+        baseline_fails = breakdown.get("baseline_failures", set())
+        new_failures = breakdown.get("new_failures", set())
+        baseline_meta = _load_run_meta(_run_dir_from_results_path(baseline_filter_path))
+        baseline_label = baseline_meta.get("run_id") if isinstance(baseline_meta, dict) else None
+        baseline_status = baseline_meta.get("run_status") if isinstance(baseline_meta, dict) else None
+        overlay_meta = overlay_run_meta if overlay_run_meta is not None else _load_run_meta(overlay_run_path)
+        overlay_label = overlay_meta.get("run_id") if isinstance(overlay_meta, dict) else None
+        overlay_status = overlay_meta.get("run_status") if isinstance(overlay_meta, dict) else None
+        baseline_complete = baseline_meta.get("results_complete") if isinstance(baseline_meta, dict) else None
+        overlay_complete = overlay_meta.get("results_complete") if isinstance(overlay_meta, dict) else None
+        scope_display = scope_id or "n/a"
+        print(
+            f"Baseline: run_id={baseline_label or 'n/a'} status={baseline_status or 'n/a'} complete={baseline_complete} scope={scope_display}",
+            file=sys.stderr,
+        )
+        overlay_line = (
+            "Overlay: disabled (--no-overlay)"
+            if args.no_overlay
+            else f"Overlay: run_id={overlay_label or 'n/a'} status={overlay_status or 'n/a'} complete={overlay_complete} scope={scope_display}"
+        )
+        if overlay_results_path is None and not args.no_overlay:
+            overlay_line = "Overlay: none (no latest_any run)"
+        print(overlay_line, file=sys.stderr)
+        print(f"Baseline failures: {len(baseline_fails)}", file=sys.stderr)
+        print(f"Healed by overlay: {len(healed)}", file=sys.stderr)
+        print(f"New failures in overlay: {len(new_failures)}", file=sys.stderr)
+        print(f"Final only-failed selection: {len(selection_ids)}", file=sys.stderr)
+        if args.explain_selection and healed:
+            healed_lines = _format_healed_explain(
+                healed,
+                breakdown.get("healed_details"),
+                anti_flake_passes=args.anti_flake_passes,
+                limit=args.explain_limit,
+            )
+            for line in healed_lines:
+                print(line, file=sys.stderr)
+
     only_missed_baseline_kind: str | None = None
+    missed_effective_meta: Mapping[str, object] | None = None
     if args.only_missed:
         only_missed_from_arg = cast(Optional[Path], args.only_missed_from)
         if only_missed_from_arg:
             missed_baseline_path = only_missed_from_arg
             only_missed_baseline_kind = "path"
-            try:
-                missed_baseline_results = load_results(missed_baseline_path)
-            except Exception as exc:
-                print(f"Failed to read baseline for --only-missed-from: {exc}", file=sys.stderr)
-                return 2
         elif args.tag:
             effective_results, effective_meta, eff_path = _load_effective_results(artifacts_dir, args.tag)
             if not effective_results:
@@ -503,61 +804,51 @@ def handle_batch(args) -> int:
             missed_baseline_path = eff_path
             missed_baseline_results = effective_results
             only_missed_baseline_kind = "effective"
-            baseline_planned_ids = (
-                {str(cid) for cid in effective_meta.get("planned_case_ids", [])}
-                if isinstance(effective_meta, dict)
-                else None
-            )
-            if not baseline_planned_ids:
-                print(
-                    "Effective results missing planned_case_ids; computing missed relative to current filtered cases.",
-                    file=sys.stderr,
-                )
-                baseline_planned_ids = set(suite_case_ids)
+            missed_effective_meta = effective_meta
         else:
             missed_baseline_path = only_missed_from_arg or _load_latest_results(artifacts_dir, args.tag)
             if only_missed_from_arg:
                 only_missed_baseline_kind = "path"
             elif missed_baseline_path is not None:
-                only_missed_baseline_kind = "latest"
-            missed_baseline_run = _run_dir_from_results_path(missed_baseline_path)
-            if missed_baseline_run is None:
-                missed_baseline_run = _load_latest_run(artifacts_dir, args.tag)
-            if missed_baseline_path is not None:
-                try:
-                    missed_baseline_results = load_results(missed_baseline_path)
-                except Exception as exc:
-                    print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
-                    return 2
-            else:
-                print(
-                    "No baseline found for --only-missed. Provide --only-missed-from or run a tagged batch first.",
-                    file=sys.stderr,
-                )
+                only_missed_baseline_kind = "latest_complete"
+        if missed_baseline_path is not None and missed_baseline_results is None:
+            try:
+                missed_baseline_results = load_results(missed_baseline_path)
+            except Exception as exc:
+                print(f"Failed to read baseline for --only-missed: {exc}", file=sys.stderr)
                 return 2
-            baseline_meta = _load_run_meta(missed_baseline_run)
-            if isinstance(baseline_meta, dict):
-                planned_from_meta = baseline_meta.get("planned_case_ids")
-                if isinstance(planned_from_meta, list):
-                    baseline_planned_ids = {str(cid) for cid in planned_from_meta}
-                else:
-                    print(
-                        "Baseline run meta missing planned_case_ids; computing missed relative to current filtered cases.",
-                        file=sys.stderr,
-                    )
-                    baseline_planned_ids = set(suite_case_ids)
         if args.only_missed and missed_baseline_results is None:
             print("No baseline found for --only-missed.", file=sys.stderr)
             return 2
-
-    selected_case_ids = [case.id for case in cases]
-    if args.only_missed:
-        planned_pool = baseline_planned_ids or set(selected_case_ids)
-        missed_ids = _missed_case_ids(planned_pool, missed_baseline_results)
-        cases = [case for case in cases if case.id in missed_ids]
-        selected_case_ids = [case.id for case in cases]
+        overlay_scope_hash = cast(Optional[str], overlay_run_meta.get("scope_hash") if isinstance(overlay_run_meta, Mapping) else None)
+        overlay_tag = cast(Optional[str], overlay_run_meta.get("tag") if isinstance(overlay_run_meta, Mapping) else None)
+        selected_case_ids = _planned_pool_from_meta(missed_effective_meta, missed_baseline_path, suite_case_ids)
+        missed_ids, missed_breakdown = _only_missed_selection(
+            selected_case_ids,
+            missed_baseline_results,
+            overlay_results if not args.no_overlay else None,
+            overlay_scope_hash=overlay_scope_hash,
+            selection_scope_hash=scope_id,
+            overlay_tag=overlay_tag,
+            selection_tag=args.tag,
+            overlay_disabled_reason="no_overlay" if args.no_overlay else None,
+        )
+        target_ids = missed_ids
+        if args.only_failed and failed_selection_ids is not None:
+            target_ids = target_ids & failed_selection_ids
+            print(
+                f"Combining --only-failed and --only-missed via intersection: {len(target_ids)} cases remain (missed={len(missed_ids)}).",
+                file=sys.stderr,
+            )
+        cases = [case for case in filtered_cases if case.id in target_ids]
+        print(f"Baseline (missed) results: {missed_baseline_path}", file=sys.stderr)
+        print(f"Overlay executed: {len(missed_breakdown.get('overlay_executed', set()))}", file=sys.stderr)
+        print(f"Missed in baseline: {len(missed_breakdown.get('missed_base', set()))}", file=sys.stderr)
+        print(f"Final only-missed selection: {len(target_ids)}", file=sys.stderr)
         if not cases:
             print("0 missed cases selected.", file=sys.stderr)
+
+    selected_case_ids = [case.id for case in cases]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_folder = artifacts_dir / "runs" / f"{timestamp}_{cases_path.stem}"
@@ -661,6 +952,15 @@ def handle_batch(args) -> int:
     missed_total = len(_missed_case_ids(selected_case_ids, executed_results))
     suite_planned_total = len(suite_case_ids)
     suite_missed_total = len(_missed_case_ids(suite_case_ids, executed_results))
+    results_complete = (planned_total == executed_total) and not interrupted
+    if interrupted:
+        run_status = "INTERRUPTED"
+    elif not results_complete:
+        run_status = "ERROR"
+    elif bad_count:
+        run_status = "FAILED"
+    else:
+        run_status = "SUCCESS"
     summary = {
         "run_id": run_id,
         "started_at": _isoformat_utc(started_at),
@@ -681,6 +981,10 @@ def handle_batch(args) -> int:
         "interrupted_at_case_id": interrupted_at_case_id,
         "tag": args.tag,
         "note": args.note,
+        "run_status": run_status,
+        "results_complete": results_complete,
+        "total_selected": planned_total,
+        "total_executed": executed_total,
     }
     if diff_block:
         summary["diff"] = diff_block
@@ -704,10 +1008,12 @@ def handle_batch(args) -> int:
                 "planned_total": planned_total,
                 "executed_total": executed_total,
                 "missed_total": missed_total,
+                "run_status": run_status,
+                "results_complete": results_complete,
             }
         )
 
-    _update_latest_markers(run_folder, results_path, artifacts_dir, args.tag)
+    _update_latest_markers(run_folder, results_path, artifacts_dir, args.tag, results_complete=results_complete)
     effective_path = None
     effective_meta_path = None
     if args.tag:
@@ -763,6 +1069,12 @@ def handle_batch(args) -> int:
         "suite_case_ids": suite_case_ids,
         "selected_case_ids": selected_case_ids,
         "planned_total": planned_total,
+        "executed_total": executed_total,
+        "run_status": run_status,
+        "results_complete": results_complete,
+        "exit_code": exit_code,
+        "total_selected": planned_total,
+        "total_executed": executed_total,
         "selected_filters": {
             "include_tags": sorted(include_tags) if include_tags else None,
             "exclude_tags": sorted(exclude_tags) if exclude_tags else None,
@@ -774,6 +1086,7 @@ def handle_batch(args) -> int:
             "only_missed": args.only_missed,
             "only_missed_from": str(missed_baseline_path) if missed_baseline_path else None,
             "only_missed_baseline_kind": only_missed_baseline_kind,
+            "overlay_results_path": str(overlay_results_path) if overlay_results_path else None,
             "baseline_tag": args.tag,
             "effective_path": str(effective_path) if effective_path else None,
             "scope_hash": scope_id,
@@ -781,6 +1094,11 @@ def handle_batch(args) -> int:
             "plan_only": args.plan_only,
             "fail_fast": args.fail_fast,
             "max_fails": args.max_fails,
+            "no_overlay": args.no_overlay,
+            "anti_flake_passes": args.anti_flake_passes,
+            "strict_scope_history": args.strict_scope_history,
+            "explain_selection": args.explain_selection,
+            "explain_limit": args.explain_limit,
         },
         "interrupted": interrupted,
         "interrupted_at_case_id": interrupted_at_case_id,
@@ -826,12 +1144,17 @@ def handle_batch(args) -> int:
         "fail_count": bad_count,
         "planned_total": planned_total,
         "executed_total": executed_total,
+        "total_selected": planned_total,
+        "total_executed": executed_total,
         "missed_total": missed_total,
         "suite_planned_total": suite_planned_total,
         "suite_missed_total": suite_missed_total,
         "interrupted": interrupted,
         "interrupted_at_case_id": interrupted_at_case_id,
         "scope_hash": scope_id,
+        "run_status": run_status,
+        "results_complete": results_complete,
+        "exit_code": exit_code,
     }
     for res in results:
         _append_case_history(
@@ -847,6 +1170,7 @@ def handle_batch(args) -> int:
             git_sha=git_sha,
             run_dir=run_folder,
             results_path=results_path,
+            run_ts=_isoformat_utc(ended_at),
         )
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:
@@ -921,7 +1245,8 @@ def handle_case_run(args) -> int:
 
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}"
+    run_id = uuid.uuid4().hex[:8]
+    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}_{run_id}"
     artifacts_root = run_folder / "cases"
     results_path = run_folder / "results.jsonl"
 
@@ -935,31 +1260,41 @@ def handle_case_run(args) -> int:
     result = run_one(cases[args.case_id], runner, artifacts_root, plan_only=args.plan_only)
     write_results(results_path, [result])
     counts = summarize([result])
+    bad = bad_statuses("bad", False)
+    bad_count = sum(_coerce_int(counts.get(status)) for status in bad)
+    run_status = "FAILED" if bad_count else "SUCCESS"
+    exit_code = 1 if bad_count else 0
     summary = {
-        "run_id": run_folder.name,
+        "run_id": run_id,
         "timestamp": timestamp + "Z",
         "counts": counts,
         "results_path": str(results_path),
         "fail_on": "bad",
         "require_assert": False,
+        "run_status": run_status,
+        "results_complete": True,
+        "total_selected": 1,
+        "total_executed": 1,
+        "exit_code": exit_code,
+        "run_dir": str(run_folder),
     }
     summary_path = write_summary(results_path, summary)
-    save_dir = run_folder.parent
-    save_dir.mkdir(parents=True, exist_ok=True)
-    (save_dir / "latest.txt").write_text(str(run_folder), encoding="utf-8")
-    (save_dir / "latest_results.txt").write_text(str(results_path), encoding="utf-8")
+    _update_latest_markers(run_folder, results_path, artifacts_dir, None, results_complete=True)
 
     print(format_status_line(result))
     print(f"Artifacts: {result.artifacts_dir}")
     print(f"Summary: {summary_path}")
-    return 0
+    return exit_code
 
 
 def handle_case_open(args) -> int:
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
     run_path = _resolve_run_path(args.run, artifacts_dir)
     if not run_path:
-        print("No run found. Provide --run or ensure runs/latest.txt exists.", file=sys.stderr)
+        print(
+            "No run found. Provide --run or ensure latest markers exist (latest_any/latest_complete); run a batch first.",
+            file=sys.stderr,
+        )
         return 2
     case_dir = _find_case_artifact(run_path, args.case_id)
     if not case_dir:

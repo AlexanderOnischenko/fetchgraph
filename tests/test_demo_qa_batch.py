@@ -551,6 +551,6 @@ def test_packaged_default_config_used_when_no_cli_or_data_dir(tmp_path: Path, mo
     config_path = run_meta["inputs"]["config_path"]
     assert config_path is not None
 
-    expected_default = Path(batch.__file__).resolve().parent / "demo_qa.toml.example"
+    expected_default = Path(batch.__file__).resolve().parent / "demo_qa.toml"
     assert Path(config_path) == expected_default
     assert run_meta["inputs"]["config_hash"] == batch._hash_file(expected_default)

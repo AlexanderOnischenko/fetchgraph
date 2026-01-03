@@ -112,9 +112,6 @@ def resolve_config_path(config: Path | None, data_dir: Path | None) -> Path | No
     default = root / "demo_qa.toml"
     if default.exists():
         return default
-    example = root / "demo_qa.toml.example"
-    if example.exists():
-        return example
     return None
 
 

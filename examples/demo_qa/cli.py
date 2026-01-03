@@ -163,8 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
     stats_p.add_argument("--group-by", choices=["config_hash"], default=None, help="Group stats by config hash")
 
     compare_p = sub.add_parser("compare", help="Compare two batch result files")
-    compare_p.add_argument("--base", type=Path, required=True, help="Path to baseline results.jsonl")
-    compare_p.add_argument("--new", type=Path, required=True, help="Path to new results.jsonl")
+    compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (for tag-based compare)")
+    compare_p.add_argument("--base", type=Path, required=False, help="Path to baseline results.jsonl")
+    compare_p.add_argument("--new", type=Path, required=False, help="Path to new results.jsonl")
+    compare_p.add_argument("--base-tag", type=str, default=None, help="Use effective snapshot for this tag as baseline")
+    compare_p.add_argument("--new-tag", type=str, default=None, help="Use effective snapshot for this tag as new results")
     compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
     compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
     compare_p.add_argument(

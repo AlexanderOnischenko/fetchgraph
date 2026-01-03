@@ -55,6 +55,10 @@ BASE     ?=
 NEW      ?=
 DIFF_OUT ?= $(DATA)/.runs/diff.md
 JUNIT    ?= $(DATA)/.runs/diff.junit.xml
+BASE_TAG ?= baseline
+NEW_TAG  ?= baseline_v2
+COMPARE_TAG_OUT ?= diff.md
+COMPARE_TAG_JUNIT ?= diff.junit.xml
 
 MAX_FAILS ?= 5
 
@@ -85,7 +89,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         chat \
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-fail-fast batch-max-fails \
-        stats history-case report-tag case-run case-open compare
+        stats history-case report-tag case-run case-open compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -130,6 +134,7 @@ help:
 	@echo ""
 	@echo "Сравнение результатов:"
 	@echo "  make compare BASE=... NEW=... [DIFF_OUT=...] [JUNIT=...]"
+	@echo "  make compare-tag BASE_TAG=... NEW_TAG=... [OUT=...] [JUNIT=...]"
 	@echo ""
 	@echo "LLM конфиг:"
 	@echo "  make llm-init             - создать $(LLM_TOML) из $(LLM_TOML_EXAMPLE)"
@@ -296,4 +301,16 @@ compare: check
 	  --base "$(BASE)" \
 	  --new  "$(NEW)" \
 	  --out  "$(DIFF_OUT)" \
+	  --junit "$(JUNIT)"
+
+compare-tag: OUT := $(COMPARE_TAG_OUT)
+compare-tag: JUNIT := $(COMPARE_TAG_JUNIT)
+compare-tag: check
+	@test -n "$(strip $(DATA))" || (echo "Нужно задать DATA=... (где лежит .runs)" && exit 1)
+	@mkdir -p "$(DATA)/.runs"
+	@$(CLI) compare \
+	  --data "$(DATA)" \
+	  --base-tag "$(BASE_TAG)" \
+	  --new-tag "$(NEW_TAG)" \
+	  --out  "$(OUT)" \
 	  --junit "$(JUNIT)"

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from ..runner import bad_statuses
+from ..term import color, fmt_num, fmt_pct, render_table, should_use_color, truncate
 
 
 @dataclass
@@ -17,13 +18,13 @@ class TagInfo:
     name: str
     updated_at: str
     updated_sort: float
-    planned: str
-    executed: str
-    missed: str
-    bad: str
-    pass_rate: str
-    last_run_id: str
+    planned: int | None
+    executed: int | None
+    missed: int | None
+    bad: int | None
+    pass_rate: float | None
     note: str
+    effective_meta_path: Path
 
 
 def _parse_ts(value: str | None) -> Optional[float]:
@@ -96,22 +97,17 @@ def _collect_tag_info(tag_dir: Path) -> Optional[TagInfo]:
     planned = meta.get("planned_total")
     executed = meta.get("executed_total")
     missed = meta.get("missed_total")
-    planned_str = str(planned) if planned is not None else "n/a"
-    executed_str = str(executed) if executed is not None else "n/a"
-    missed_str = str(missed) if missed is not None else "n/a"
 
     fail_on = meta.get("fail_on", "bad")
     require_assert = bool(meta.get("require_assert", False))
     bad_status = bad_statuses(str(fail_on), require_assert)
-    bad_total = sum(counts.get(status, 0) or 0 for status in bad_status)
-    bad_str = str(bad_total) if counts else "n/a"
+    bad_total = sum(counts.get(status, 0) or 0 for status in bad_status) if counts else None
 
     ok = counts.get("ok", 0) or 0
     skipped = counts.get("skipped", 0) or 0
     total = counts.get("total", 0) or 0
     non_skipped = total - skipped
     pass_rate = (ok / non_skipped) if non_skipped else None
-    pass_rate_str = _format_pct(pass_rate)
 
     updated_at = meta.get("updated_at") or ""
     updated_sort = _parse_ts(updated_at)
@@ -124,53 +120,63 @@ def _collect_tag_info(tag_dir: Path) -> Optional[TagInfo]:
         )
 
     built_from = meta.get("built_from_runs") or []
-    last_run_id = "n/a"
     note = meta.get("note") or ""
     if built_from:
         last_path = Path(sorted(str(p) for p in built_from)[-1])
-        run_id, run_note = _load_run_note(last_path)
-        last_run_id = run_id or "n/a"
+        _, run_note = _load_run_note(last_path)
         note = note or run_note
 
     return TagInfo(
         name=tag_dir.name,
         updated_at=updated_at or "n/a",
         updated_sort=updated_sort or 0,
-        planned=planned_str,
-        executed=executed_str,
-        missed=missed_str,
-        bad=bad_str,
-        pass_rate=pass_rate_str,
-        last_run_id=last_run_id,
+        planned=planned if isinstance(planned, int) else None,
+        executed=executed if isinstance(executed, int) else None,
+        missed=missed if isinstance(missed, int) else None,
+        bad=bad_total if isinstance(bad_total, int) else bad_total,
+        pass_rate=pass_rate,
         note=note or "",
+        effective_meta_path=meta_path,
     )
 
 
-def _format_table(rows: Iterable[TagInfo]) -> list[str]:
-    headers = ["tag", "updated_at", "plan/exe/miss", "bad", "pass_rate", "last_run_id", "note"]
-    data = []
+def _pass_rate_color(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value >= 0.9:
+        return "green"
+    if value >= 0.6:
+        return "yellow"
+    return "red"
+
+
+def _format_table(rows: Iterable[TagInfo], *, use_color: bool) -> str:
+    headers = ["tag", "updated_at", "executed/planned", "missed", "bad", "pass_rate", "note"]
+    table_rows: list[list[str]] = []
     for row in rows:
-        data.append(
+        bad_display = fmt_num(row.bad)
+        bad_color = "red" if (isinstance(row.bad, (int, float)) and row.bad > 0) else "green" if row.bad == 0 else None
+        pass_rate_display = fmt_pct(row.pass_rate)
+        pass_rate_color = _pass_rate_color(row.pass_rate)
+        executed_display = f"{fmt_num(row.executed)}/{fmt_num(row.planned)}"
+        note_display = truncate(row.note, 80)
+        table_rows.append(
             [
                 row.name,
-                row.updated_at,
-                f"{row.planned}/{row.executed}/{row.missed}",
-                row.bad,
-                row.pass_rate,
-                row.last_run_id,
-                row.note,
+                truncate(row.updated_at, 25),
+                executed_display,
+                fmt_num(row.missed),
+                color(bad_display, bad_color, use_color=use_color),
+                color(pass_rate_display, pass_rate_color, use_color=use_color),
+                note_display,
             ]
         )
-    widths = [len(h) for h in headers]
-    for row in data:
-        for idx, cell in enumerate(row):
-            widths[idx] = max(widths[idx], len(cell))
-    lines = []
-    header_line = "  ".join(h.ljust(widths[idx]) for idx, h in enumerate(headers))
-    lines.append(header_line)
-    for row in data:
-        lines.append("  ".join(str(cell).ljust(widths[idx]) for idx, cell in enumerate(row)))
-    return lines
+    return render_table(
+        headers,
+        table_rows,
+        align_right={2, 3, 4, 5},
+        col_max={1: 25, 6: 80},
+    )
 
 
 def handle_tags_list(args) -> int:
@@ -209,8 +215,29 @@ def handle_tags_list(args) -> int:
         except Exception:
             pass
 
-    for line in _format_table(tag_infos):
-        print(line)
+    format_mode = getattr(args, "format", "table")
+    color_mode = getattr(args, "color", "auto")
+    use_color = should_use_color(color_mode, stream=sys.stdout)
+
+    if format_mode == "json":
+        payload = [
+            {
+                "tag": info.name,
+                "updated_at": info.updated_at,
+                "planned": info.planned,
+                "executed": info.executed,
+                "missed": info.missed,
+                "bad": info.bad,
+                "pass_rate": info.pass_rate,
+                "note": info.note,
+                "effective_meta_path": str(info.effective_meta_path),
+            }
+            for info in tag_infos
+        ]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    print(_format_table(tag_infos, use_color=use_color))
     return 0
 
 

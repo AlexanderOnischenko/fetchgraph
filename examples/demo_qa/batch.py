@@ -51,6 +51,7 @@ from .runs.layout import (
 from .runs.scope import _scope_hash, _scope_payload
 from .settings import load_settings
 from .utils import dump_json
+from .term import color as term_color, fmt_num, fmt_pct, render_table as render_text_table, should_use_color, truncate
 
 
 def write_summary(out_path: Path, summary: dict) -> Path:
@@ -542,33 +543,15 @@ def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
     return content
 
 
-ANSI = {
-    "reset": "\x1b[0m",
-    "red": "\x1b[31m",
-    "green": "\x1b[32m",
-    "yellow": "\x1b[33m",
-    "gray": "\x1b[90m",
-}
-
-
-def _color(text: str, color: str, *, use_color: bool) -> str:
-    if not use_color:
-        return text
-    prefix = ANSI.get(color)
-    if not prefix:
-        return text
-    return f"{prefix}{text}{ANSI['reset']}"
-
-
 def _format_delta(value: int | float | None, *, positive_good: bool, use_color: bool) -> str:
     if value is None:
         return "n/a"
     sign = "+" if value >= 0 else ""
     text = f"{sign}{value}"
     if value == 0:
-        return _color(text, "gray", use_color=use_color)
+        return term_color(text, "gray", use_color=use_color)
     is_improvement = (value > 0 and positive_good) or (value < 0 and not positive_good)
-    return _color(text, "green" if is_improvement else "red", use_color=use_color)
+    return term_color(text, "green" if is_improvement else "red", use_color=use_color)
 
 
 def _top_list(label: str, entries: list[DiffCaseChange], *, use_color: bool) -> list[str]:
@@ -628,7 +611,7 @@ def render_table(compare: DiffReport, *, use_color: bool) -> str:
     lines.append("Coverage:")
     lines.append(f"  base_total_cases={base_total} new_total_cases={new_total}")
     lines.append(
-        f"  only_in_base={_color(str(base_only_count), 'yellow', use_color=use_color)} only_in_new={_color(str(new_only_count), 'yellow', use_color=use_color)}"
+        f"  only_in_base={term_color(str(base_only_count), 'yellow', use_color=use_color)} only_in_new={term_color(str(new_only_count), 'yellow', use_color=use_color)}"
     )
     lines.append("")
     lines.extend(_top_list("Top regressions:", compare["new_fail"], use_color=use_color))
@@ -1482,16 +1465,6 @@ def _format_history_timestamp(entry: dict) -> str:
     return ""
 
 
-def _truncate(text: str, width: int) -> str:
-    if width <= 0:
-        return ""
-    if len(text) <= width:
-        return text
-    if width == 1:
-        return text[:1]
-    return text[: width - 1] + "…"
-
-
 def _status_color(status: str) -> str | None:
     status_upper = status.upper()
     if status_upper in {"SUCCESS", "OK"}:
@@ -1512,10 +1485,6 @@ def _metric_color(value: float | int | None, *, invert: bool = False) -> str | N
     if value >= (0.6 if not invert else 1):
         return "yellow"
     return "red"
-
-
-def _format_percentage(value: float | None) -> str:
-    return f"{value*100:.1f}%" if value is not None else "n/a"
 
 
 def _build_stat_row(entry: Mapping[str, object]) -> dict[str, object]:
@@ -1551,77 +1520,36 @@ def _print_stats(entries: list[dict], *, use_color: bool) -> None:
         print("No history entries found.")
         return
 
-    columns = [
-        {"key": "timestamp", "header": "timestamp", "align": "<", "max": 25, "color": None},
-        {"key": "run_id", "header": "run_id", "align": "<", "max": 14, "color": None},
-        {"key": "status", "header": "status", "align": "<", "max": 12, "color": _status_color},
-        {"key": "tag", "header": "tag", "align": "<", "max": 14, "color": None},
-        {"key": "note", "header": "note", "align": "<", "max": 70, "color": None},
-        {"key": "bad", "header": "bad", "align": ">", "max": None, "color": lambda v: "red" if v.strip().isdigit() and int(v) > 0 else None},
-        {"key": "pass_rate", "header": "pass%", "align": ">", "max": None, "color": None},
-        {"key": "coverage", "header": "cov%", "align": ">", "max": None, "color": None},
-    ]
-
-    rows: list[dict] = []
+    headers = ["timestamp", "run_id", "status", "tag", "note", "bad", "pass%", "cov%"]
+    rows: list[list[str]] = []
     for entry in entries:
         stat = _build_stat_row(entry)
+        bad_value = stat["bad"]
+        bad_display = fmt_num(bad_value)
+        bad_color = "red" if isinstance(bad_value, (int, float)) and bad_value > 0 else "green" if bad_value == 0 else None
+        pass_rate_display = fmt_pct(stat["pass_rate"])
+        coverage_display = fmt_pct(stat["coverage"])
+        status_color = _status_color(str(stat["status"]))
         rows.append(
-            {
-                "timestamp": stat["timestamp"],
-                "run_id": stat["run_id"],
-                "status": stat["status"],
-                "tag": stat["tag"],
-                "note": stat["note"],
-                "bad": "n/a" if stat["bad"] is None else str(stat["bad"]),
-                "bad_raw": stat["bad"],
-                "pass_rate": _format_percentage(stat["pass_rate"]),
-                "pass_rate_raw": stat["pass_rate"],
-                "coverage": _format_percentage(stat["coverage"]),
-                "coverage_raw": stat["coverage"],
-            }
+            [
+                truncate(stat["timestamp"], 25),
+                truncate(stat["run_id"], 14),
+                term_color(str(stat["status"]), status_color, use_color=use_color),
+                truncate(stat["tag"], 14),
+                truncate(stat["note"], 70),
+                term_color(bad_display, bad_color, use_color=use_color),
+                term_color(pass_rate_display, _metric_color(stat["pass_rate"]), use_color=use_color),
+                term_color(coverage_display, _metric_color(stat["coverage"]), use_color=use_color),
+            ]
         )
-
-    widths: dict[str, int] = {}
-    for col in columns:
-        max_width = col.get("max")
-        col_key = col["key"]
-        widths[col_key] = len(col["header"])
-        for row in rows:
-            value = row[col_key]
-            if max_width:
-                value = _truncate(value, max_width)
-            widths[col_key] = max(widths[col_key], len(value))
-
-    header_parts = []
-    for col in columns:
-        col_key = col["key"]
-        header_parts.append(f"{col['header']:{col['align']}{widths[col_key]}}")
-    print("  ".join(header_parts))
-
-    for row in rows:
-        parts: list[str] = []
-        for col in columns:
-            col_key = col["key"]
-            raw_value = row.get(f"{col_key}_raw", None)
-            value = row[col_key]
-            if col.get("max"):
-                value = _truncate(value, col["max"])
-            formatted = f"{value:{col['align']}{widths[col_key]}}"
-            color_func = col.get("color")
-            color_name = None
-            if callable(color_func):
-                if col_key in {"pass_rate", "coverage"}:
-                    color_name = _metric_color(raw_value)
-                elif col_key == "bad":
-                    color_name = color_func(formatted)
-                else:
-                    color_name = color_func(formatted.strip())  # type: ignore[arg-type]
-            elif col_key in {"pass_rate", "coverage"}:
-                color_name = _metric_color(raw_value)
-            if col_key == "bad" and color_name is None and isinstance(raw_value, (int, float)) and raw_value == 0:
-                color_name = "green"
-            parts.append(_color(formatted, color_name, use_color=use_color))
-        print("  ".join(parts))
+    print(
+        render_text_table(
+            headers,
+            rows,
+            align_right={5, 6, 7},
+            col_max={0: 25, 1: 14, 3: 14, 4: 70},
+        )
+    )
 
 
 def _render_stats_json(entries: list[dict], *, include_config_hash: bool) -> str:
@@ -1657,7 +1585,7 @@ def handle_stats(args) -> int:
     entries = _load_history(history_path)
     format_mode = getattr(args, "format", "table")
     color_mode = getattr(args, "color", "auto")
-    use_color = _should_use_color(color_mode, stream=sys.stdout)
+    use_color = should_use_color(color_mode, stream=sys.stdout)
     include_config_hash = bool(args.group_by == "config_hash")
     if format_mode == "json":
         rows: list[dict] = []
@@ -1715,16 +1643,6 @@ def _render_missing_effective_error(tag: str, attempted: list[Path]) -> str:
     return message
 
 
-def _should_use_color(mode: str, *, stream, force_plain: bool = False) -> bool:
-    if force_plain:
-        return False
-    if mode == "always":
-        return True
-    if mode == "never":
-        return False
-    return bool(getattr(stream, "isatty", lambda: False)())
-
-
 def handle_compare(args) -> int:
     if args.base and args.base_tag:
         print("Use either --base or --base-tag (not both).", file=sys.stderr)
@@ -1773,7 +1691,7 @@ def handle_compare(args) -> int:
     out_path = Path(args.out) if args.out is not None else None
     format_mode = getattr(args, "format", "md")
     color_mode = getattr(args, "color", "auto")
-    stdout_color = _should_use_color(color_mode, stream=sys.stdout, force_plain=bool(out_path))
+    stdout_color = False if out_path else should_use_color(color_mode, stream=sys.stdout)
 
     report = ""
     file_report = None

@@ -63,7 +63,15 @@ def test_tags_list_outputs_columns_and_filters(tmp_path: Path, capsys) -> None:
         },
     )
 
-    args = SimpleNamespace(data=tmp_path, tags_command="list", pattern="a*", limit=None, sort="name")
+    args = SimpleNamespace(
+        data=tmp_path,
+        tags_command="list",
+        pattern="a*",
+        limit=None,
+        sort="name",
+        format="table",
+        color="never",
+    )
     exit_code = handle_tags_list(args)
     out = capsys.readouterr().out
 
@@ -71,11 +79,52 @@ def test_tags_list_outputs_columns_and_filters(tmp_path: Path, capsys) -> None:
     lines = [line for line in out.splitlines() if line.strip()]
     assert len(lines) == 2  # header + one row due to pattern
     header = lines[0]
-    assert "tag" in header and "updated_at" in header and "plan/exe/miss" in header
+    assert "tag" in header and "updated_at" in header and "executed/planned" in header
     row = lines[1]
     assert "alpha" in row
-    assert "10/8/2" in row
+    assert "8/10" in row
+    assert "2" in row
     assert "80.0%" in row
-    assert "r1" in row
     assert "hello note" in row
     assert "beta" not in out
+    assert "\x1b[" not in out
+
+
+def test_tags_list_json_and_regex_pattern(tmp_path: Path, capsys) -> None:
+    _install_fake_pydantic_settings()
+    tags_module = importlib.import_module("examples.demo_qa.commands.tags")
+    handle_tags_list = tags_module.handle_tags_list
+
+    artifacts = tmp_path / ".runs"
+    tag_a = artifacts / "runs" / "tags" / "alpha"
+    tag_b = artifacts / "runs" / "tags" / "beta"
+
+    _write_meta(
+        tag_a / "effective_meta.json",
+        {"tag": "alpha", "updated_at": "2024-01-02T00:00:00Z", "counts": {"ok": 1, "total": 1, "skipped": 0}},
+    )
+    _write_meta(
+        tag_b / "effective_meta.json",
+        {"tag": "beta", "updated_at": "2024-01-01T00:00:00Z", "counts": {"ok": 2, "total": 2, "skipped": 0}},
+    )
+
+    args = SimpleNamespace(
+        data=tmp_path,
+        tags_command="list",
+        pattern="re:^b",
+        limit=None,
+        sort="name",
+        format="json",
+        color="auto",
+    )
+    exit_code = handle_tags_list(args)
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    payload = json.loads(out)
+    assert len(payload) == 1
+    row = payload[0]
+    assert row["tag"] == "beta"
+    assert row["pass_rate"] == 1
+    assert row["planned"] is None or row["planned"] == "-"
+    assert "\x1b[" not in out

@@ -179,9 +179,11 @@ def build_parser() -> argparse.ArgumentParser:
     tags_sub = tags_p.add_subparsers(dest="tags_command", required=True)
     tags_list = tags_sub.add_parser("list", help="List known tags")
     tags_list.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
-    tags_list.add_argument("--pattern", type=str, default=None, help="Glob or regex to filter tag names")
+    tags_list.add_argument("--pattern", type=str, default=None, help="Glob or re:<regex> to filter tag names")
     tags_list.add_argument("--limit", type=int, default=None, help="Maximum number of tags to display")
     tags_list.add_argument("--sort", choices=["name", "updated"], default="updated", help="Sort order")
+    tags_list.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
+    tags_list.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for table output")
 
     compare_p = sub.add_parser("compare", help="Compare two batch result files")
     compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (for tag-based compare)")

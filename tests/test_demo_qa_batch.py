@@ -11,8 +11,8 @@ import pytest
 
 from examples.demo_qa.batch import (
     _consecutive_passes,
-    _format_healed_explain,
     _fingerprint_dir,
+    _format_healed_explain,
     _only_failed_selection,
     _only_missed_selection,
     _planned_pool_from_meta,
@@ -21,9 +21,9 @@ from examples.demo_qa.batch import (
     render_markdown,
     write_results,
 )
+from examples.demo_qa.runner import DiffReport, RunResult, diff_runs
 from examples.demo_qa.runs.coverage import _missed_case_ids
 from examples.demo_qa.runs.layout import _latest_markers, _update_latest_markers
-from examples.demo_qa.runner import DiffReport, RunResult, diff_runs
 
 
 @pytest.mark.parametrize(

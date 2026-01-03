@@ -14,8 +14,8 @@ from .logging_config import configure_logging
 from .provider_factory import build_provider
 from .runner import (
     Case,
-    DiffReport,
     DiffCaseChange,
+    DiffReport,
     EventLogger,
     RunResult,
     RunTimings,
@@ -40,8 +40,8 @@ from .runs.effective import (
 )
 from .runs.io import write_results
 from .runs.layout import (
-    _load_latest_results,
     _load_latest_any_results,
+    _load_latest_results,
     _load_latest_run,
     _load_run_meta,
     _run_dir_from_results_path,

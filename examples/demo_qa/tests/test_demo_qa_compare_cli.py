@@ -93,3 +93,13 @@ def test_compare_reports_missing_effective_snapshot(tmp_path: Path, capsys: pyte
 
     assert exit_code == 2
     assert "No effective snapshot found" in captured
+
+
+def test_compare_requires_data_for_tag(capsys: pytest.CaptureFixture[str]) -> None:
+    args = build_parser().parse_args(["compare", "--base-tag", "a", "--new-tag", "b"])
+
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr().err
+
+    assert exit_code == 2
+    assert "--data is required" in captured

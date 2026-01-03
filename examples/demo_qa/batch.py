@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
-import os
 import subprocess
 import sys
 import uuid
@@ -1385,28 +1384,6 @@ def handle_stats(args) -> int:
     return 0
 
 
-def _candidate_artifacts_dirs(data_arg: Path | None) -> list[Path]:
-    bases: list[Path] = []
-    if data_arg is not None:
-        bases.append(data_arg)
-    env_data = os.environ.get("DATA")
-    if env_data:
-        bases.append(Path(env_data))
-    env_dq_data = os.environ.get("DQ_DATA")
-    if env_dq_data:
-        bases.append(Path(env_dq_data))
-    if not bases:
-        bases.append(Path.cwd())
-    artifacts_dirs: list[Path] = []
-    seen: set[Path] = set()
-    for base in bases:
-        candidate = base / ".runs"
-        if candidate not in seen:
-            seen.add(candidate)
-            artifacts_dirs.append(candidate)
-    return artifacts_dirs
-
-
 def _resolve_effective_results_for_tag(
     tag: str, *, candidates: Iterable[Path], preferred: Path | None = None
 ) -> tuple[Optional[Path], Optional[Path], list[Path]]:
@@ -1445,21 +1422,24 @@ def handle_compare(args) -> int:
     base_path: Path | None = Path(args.base) if args.base else None
     new_path: Path | None = Path(args.new) if args.new else None
 
-    artifacts_candidates: list[Path] = []
-    preferred_artifacts: Path | None = None
-    if args.base_tag or args.new_tag:
-        artifacts_candidates = _candidate_artifacts_dirs(args.data)
-
     if args.base_tag:
-        base_path, preferred_artifacts, attempted = _resolve_effective_results_for_tag(
-            args.base_tag, candidates=artifacts_candidates
+        if not args.data:
+            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
+            return 2
+        artifacts_dir = Path(args.data) / ".runs"
+        base_path, artifacts_dir, attempted = _resolve_effective_results_for_tag(
+            args.base_tag, candidates=[artifacts_dir]
         )
         if base_path is None:
             print(_render_missing_effective_error(args.base_tag, attempted), file=sys.stderr)
             return 2
     if args.new_tag:
+        if not args.data:
+            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
+            return 2
+        artifacts_dir = Path(args.data) / ".runs"
         new_path, _, attempted = _resolve_effective_results_for_tag(
-            args.new_tag, candidates=artifacts_candidates, preferred=preferred_artifacts
+            args.new_tag, candidates=[artifacts_dir]
         )
         if new_path is None:
             print(_render_missing_effective_error(args.new_tag, attempted), file=sys.stderr)

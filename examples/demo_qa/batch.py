@@ -140,7 +140,7 @@ def _consecutive_passes(
     for entry in entries:
         if tag is not None and entry.get("tag") != tag:
             continue
-        # Old history entries may not contain scope_hash; treat missing as compatible for migration unless strict.
+        # Old history entries may not contain scope_hash; treat missing as compatible for migration unless strict_scope_history is set.
         if scope_hash:
             entry_scope = entry.get("scope_hash")
             if entry_scope != scope_hash and (strict_scope_history or entry_scope is not None):

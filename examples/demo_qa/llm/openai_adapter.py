@@ -24,13 +24,14 @@ class OpenAILLM(LLMInvoke):
         synth_temperature: float = 0.2,
         timeout_s: float | None = None,
         retries: int | None = None,
+        require_api_key: bool = True,
     ):
         try:
             import openai
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise RuntimeError("openai package is required for OpenAILLM") from exc
 
-        resolved_key = self._resolve_api_key(api_key)
+        resolved_key = self._resolve_api_key(api_key, require_api_key)
         validated_base = self._validate_base_url(base_url)
         normalized_base = validated_base.rstrip("/") if validated_base else None
 
@@ -45,16 +46,23 @@ class OpenAILLM(LLMInvoke):
             endpoint = f"{normalized_base}/chat/completions"
             self.logger.info("OpenAILLM using endpoint %s", endpoint)
 
-    def _resolve_api_key(self, api_key: str | None) -> str:
-        if api_key is None:
+    def _resolve_api_key(self, api_key: str | None, require_api_key: bool) -> str | None:
+        if api_key:
+            if api_key.startswith("env:"):
+                env_var = api_key.split(":", 1)[1]
+                value = os.getenv(env_var)
+                if value:
+                    return value
+                if require_api_key:
+                    raise RuntimeError(
+                        f"Environment variable {env_var} referenced in config but not set."
+                    )
+                return None
+            return api_key
+
+        if require_api_key:
             raise RuntimeError("OpenAI provider selected but llm.api_key is missing.")
-        if api_key.startswith("env:"):
-            env_var = api_key.split(":", 1)[1]
-            value = os.getenv(env_var)
-            if not value:
-                raise RuntimeError(f"Environment variable {env_var} referenced in config but not set.")
-            return value
-        return api_key
+        return None
 
     def _validate_base_url(self, base_url: str | None) -> str | None:
         if base_url in (None, ""):

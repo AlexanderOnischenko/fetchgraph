@@ -18,6 +18,10 @@ python -m examples.demo_qa.cli gen --out demo_data --rows 1000 --seed 42
 См. шаблон `examples/demo_qa/demo_qa.toml.example`.
 Автопоиск: `--config`, затем `<DATA_DIR>/demo_qa.toml`, затем `examples/demo_qa/demo_qa.toml`.
 
+Флаг `llm.require_api_key` управляет тем, нужно ли ошибаться при отсутствии ключа и добавлять заголовок
+`Authorization`. По умолчанию он `true` (безопасное поведение для реального OpenAI), для локального прокси
+можно поставить `false`, тогда ключ не требуется и не отправляется.
+
 ### .env.demo_qa
 Пример:
 ```

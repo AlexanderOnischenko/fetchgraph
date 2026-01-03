@@ -211,3 +211,65 @@ def test_no_options_uses_base_client(monkeypatch):
         "messages": [{"role": "user", "content": "question"}],
         "temperature": 0.2,
     }
+
+
+def test_build_llm_without_key_when_not_required(tmp_path, monkeypatch):
+    config_path = tmp_path / "demo_qa.toml"
+    write_toml(
+        config_path,
+        """
+[llm]
+base_url = "http://localhost:8000/v1"
+plan_model = "demo-plan"
+synth_model = "demo-synth"
+require_api_key = false
+""",
+    )
+
+    created = {}
+
+    class FakeOpenAI:
+        def __init__(self, api_key=None, base_url=None, **kwargs):
+            created["init"] = {"api_key": api_key, "base_url": base_url}
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: _store_and_return(kwargs)
+                )
+            )
+
+    def _store_and_return(kwargs):
+        created["chat_kwargs"] = kwargs
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    settings, resolved = load_settings(config_path=config_path)
+    assert resolved == config_path
+
+    llm = build_llm(settings)
+    result = llm("hello", sender="generic_plan")
+
+    assert result == "ok"
+    assert created["init"] == {"api_key": None, "base_url": "http://localhost:8000/v1"}
+    assert created["chat_kwargs"] == {
+        "model": "demo-plan",
+        "messages": [{"role": "user", "content": "hello"}],
+        "temperature": 0.0,
+    }
+
+
+def test_openai_raises_when_key_required(monkeypatch):
+    class DummyOpenAI:
+        def __init__(self, *_, **__):
+            pass
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=DummyOpenAI))
+
+    with pytest.raises(RuntimeError):
+        OpenAILLM(
+            api_key=None,
+            base_url=None,
+            plan_model="demo-plan",
+            synth_model="demo-synth",
+            require_api_key=True,
+        )

@@ -16,6 +16,7 @@ def build_llm(settings: DemoQASettings) -> LLMInvoke:
         synth_temperature=settings.llm.synth_temperature,
         timeout_s=settings.llm.timeout_s,
         retries=settings.llm.retries,
+        require_api_key=settings.llm.require_api_key,
     )
 
 

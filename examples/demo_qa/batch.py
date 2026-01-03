@@ -306,13 +306,24 @@ def _only_missed_selection(
     selected_case_ids: Iterable[str],
     baseline_results: Mapping[str, RunResult] | None,
     overlay_results: Mapping[str, RunResult] | None,
+    *,
+    overlay_scope_hash: str | None = None,
+    overlay_scope_matches_current: bool | None = None,
+    overlay_ignored_reason: str | None = None,
 ) -> tuple[set[str], dict[str, object]]:
     selected = set(selected_case_ids)
     baseline_ids = set(baseline_results.keys()) if baseline_results else set()
     overlay_executed = set(overlay_results.keys()) if overlay_results else set()
     missed_base = selected - baseline_ids
     missed_final = missed_base - overlay_executed
-    breakdown = {"missed_base": missed_base, "overlay_executed": overlay_executed}
+    breakdown: dict[str, object] = {
+        "missed_base": missed_base,
+        "overlay_executed": overlay_executed,
+        "overlay_scope_hash": overlay_scope_hash,
+        "overlay_scope_matches_current": overlay_scope_matches_current if overlay_scope_matches_current is not None else False,
+    }
+    if overlay_ignored_reason:
+        breakdown["overlay_ignored_reason"] = overlay_ignored_reason
     return missed_final, breakdown
 
 
@@ -784,11 +795,32 @@ def handle_batch(args) -> int:
         if args.only_missed and missed_baseline_results is None:
             print("No baseline found for --only-missed.", file=sys.stderr)
             return 2
+        overlay_scope_hash = cast(Optional[str], overlay_run_meta.get("scope_hash") if isinstance(overlay_run_meta, Mapping) else None)
+        overlay_tag = cast(Optional[str], overlay_run_meta.get("tag") if isinstance(overlay_run_meta, Mapping) else None)
+        overlay_scope_matches_current: bool | None = None
+        overlay_ignored_reason: str | None = None
+        overlay_results_for_missed: Mapping[str, RunResult] | None = overlay_results if not args.no_overlay else None
+        if overlay_results_for_missed is not None:
+            overlay_scope_matches_current = overlay_scope_hash == scope_id
+            if not overlay_scope_matches_current:
+                overlay_results_for_missed = None
+                overlay_ignored_reason = "scope_mismatch"
+            elif args.tag and overlay_tag is not None and overlay_tag != args.tag:
+                overlay_results_for_missed = None
+                overlay_scope_matches_current = False
+                overlay_ignored_reason = "tag_mismatch"
+            else:
+                overlay_scope_matches_current = True
+        elif overlay_scope_hash is not None:
+            overlay_scope_matches_current = overlay_scope_hash == scope_id
         selected_case_ids = _planned_pool_from_meta(missed_effective_meta, missed_baseline_path, suite_case_ids)
         missed_ids, missed_breakdown = _only_missed_selection(
             selected_case_ids,
             missed_baseline_results,
-            overlay_results if not args.no_overlay else None,
+            overlay_results_for_missed,
+            overlay_scope_hash=overlay_scope_hash,
+            overlay_scope_matches_current=overlay_scope_matches_current,
+            overlay_ignored_reason=overlay_ignored_reason,
         )
         target_ids = missed_ids
         if args.only_failed and failed_selection_ids is not None:

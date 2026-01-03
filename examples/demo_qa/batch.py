@@ -40,6 +40,7 @@ from .runs.effective import (
 )
 from .runs.io import write_results
 from .runs.layout import (
+    _effective_paths,
     _load_latest_any_results,
     _load_latest_results,
     _load_latest_run,
@@ -50,6 +51,7 @@ from .runs.layout import (
 from .runs.scope import _scope_hash, _scope_payload
 from .settings import load_settings
 from .utils import dump_json
+from .term import color as term_color, fmt_num, fmt_pct, render_table as render_text_table, should_use_color, truncate
 
 
 def write_summary(out_path: Path, summary: dict) -> Path:
@@ -541,6 +543,108 @@ def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
     return content
 
 
+def _format_delta(value: int | float | None, *, positive_good: bool, use_color: bool) -> str:
+    if value is None:
+        return "n/a"
+    sign = "+" if value >= 0 else ""
+    text = f"{sign}{value}"
+    if value == 0:
+        return term_color(text, "gray", use_color=use_color)
+    is_improvement = (value > 0 and positive_good) or (value < 0 and not positive_good)
+    return term_color(text, "green" if is_improvement else "red", use_color=use_color)
+
+
+def _top_list(label: str, entries: list[DiffCaseChange], *, use_color: bool) -> list[str]:
+    lines = [label]
+    if not entries:
+        lines.append("  none")
+        return lines
+    for entry in entries[:10]:
+        status = f"{entry.get('from')} -> {entry.get('to')}"
+        reason = entry.get("reason") or ""
+        lines.append(f"  - {entry.get('id')}: {status} ({reason})")
+    return lines
+
+
+def render_table(compare: DiffReport, *, use_color: bool) -> str:
+    base_counts = compare["base_counts"]
+    new_counts = compare["new_counts"]
+    counts_delta = compare.get("counts_delta", {})
+    base_total = compare.get("base_total_cases", base_counts.get("total", 0))
+    new_total = compare.get("new_total_cases", new_counts.get("total", 0))
+    delta_bad = compare.get("new_bad_total", 0) - compare.get("base_bad_total", 0)
+    base_med = compare.get("base_median")
+    new_med = compare.get("new_median")
+    med_delta = compare.get("median_delta")
+    base_avg = compare.get("base_avg")
+    new_avg = compare.get("new_avg")
+    avg_delta = compare.get("avg_delta")
+    lines: list[str] = []
+    lines.append("Summary:")
+    lines.append(
+        f"  Base: ok={base_counts.get('ok',0)} mismatch={base_counts.get('mismatch',0)} error={base_counts.get('error',0)} failed={base_counts.get('failed',0)} unchecked={base_counts.get('unchecked',0)} total={base_total}"
+    )
+    lines.append(
+        f"  New : ok={new_counts.get('ok',0)} mismatch={new_counts.get('mismatch',0)} error={new_counts.get('error',0)} failed={new_counts.get('failed',0)} unchecked={new_counts.get('unchecked',0)} total={new_total}"
+    )
+    lines.append(
+        "  Δ    : "
+        f"ok={_format_delta(counts_delta.get('ok'), positive_good=True, use_color=use_color)} "
+        f"bad={_format_delta(delta_bad, positive_good=False, use_color=use_color)} "
+        f"error={_format_delta(counts_delta.get('error'), positive_good=False, use_color=use_color)} "
+        f"mismatch={_format_delta(counts_delta.get('mismatch'), positive_good=False, use_color=use_color)} "
+        f"failed={_format_delta(counts_delta.get('failed'), positive_good=False, use_color=use_color)} "
+        f"unchecked={_format_delta(counts_delta.get('unchecked'), positive_good=False, use_color=use_color)} "
+        f"total={_format_delta(counts_delta.get('total'), positive_good=True, use_color=use_color)}"
+    )
+    if base_med is not None or new_med is not None:
+        lines.append(
+            f"  Median total time: base={base_med if base_med is not None else 'n/a'}s new={new_med if new_med is not None else 'n/a'}s Δ={_format_delta(med_delta, positive_good=False, use_color=use_color)}"
+        )
+    if base_avg is not None or new_avg is not None:
+        lines.append(
+            f"  Avg total time:    base={base_avg if base_avg is not None else 'n/a'}s new={new_avg if new_avg is not None else 'n/a'}s Δ={_format_delta(avg_delta, positive_good=False, use_color=use_color)}"
+        )
+    lines.append("")
+    base_only_count = compare.get("base_only_count", 0)
+    new_only_count = compare.get("new_only_count", 0)
+    lines.append("Coverage:")
+    lines.append(f"  base_total_cases={base_total} new_total_cases={new_total}")
+    lines.append(
+        f"  only_in_base={term_color(str(base_only_count), 'yellow', use_color=use_color)} only_in_new={term_color(str(new_only_count), 'yellow', use_color=use_color)}"
+    )
+    lines.append("")
+    lines.extend(_top_list("Top regressions:", compare["new_fail"], use_color=use_color))
+    lines.append("")
+    lines.extend(_top_list("Top fixes:", compare["fixed"], use_color=use_color))
+    return "\n".join(lines)
+
+
+def render_json(compare: DiffReport) -> str:
+    summary = {
+        "base": compare.get("base_counts"),
+        "new": compare.get("new_counts"),
+        "deltas": {
+            "counts": compare.get("counts_delta"),
+            "bad": compare.get("new_bad_total", 0) - compare.get("base_bad_total", 0),
+        },
+        "coverage": {
+            "base_total_cases": compare.get("base_total_cases"),
+            "new_total_cases": compare.get("new_total_cases"),
+            "only_in_base": compare.get("base_only_count"),
+            "only_in_new": compare.get("new_only_count"),
+        },
+    }
+    payload = {
+        "summary": summary,
+        "top_regressions": compare.get("new_fail", [])[:10],
+        "top_fixes": compare.get("fixed", [])[:10],
+        "fail_on": compare.get("fail_on"),
+        "require_assert": compare.get("require_assert"),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 def write_junit(compare: DiffReport, out_path: Path) -> None:
     import xml.etree.ElementTree as ET
 
@@ -598,6 +702,28 @@ def _select_cases_for_rerun(
 
 
 def handle_batch(args) -> int:
+    only_failed_effective = bool(getattr(args, "only_failed_effective", False))
+    only_missed_effective = bool(getattr(args, "only_missed_effective", False))
+    if only_failed_effective and args.only_failed:
+        print("Use either --only-failed or --only-failed-effective (not both).", file=sys.stderr)
+        return 2
+    if only_missed_effective and args.only_missed:
+        print("Use either --only-missed or --only-missed-effective (not both).", file=sys.stderr)
+        return 2
+    if only_failed_effective and args.only_failed_from:
+        print("--only-failed-effective is not compatible with --only-failed-from.", file=sys.stderr)
+        return 2
+    if only_missed_effective and args.only_missed_from:
+        print("--only-missed-effective is not compatible with --only-missed-from.", file=sys.stderr)
+        return 2
+    if (only_failed_effective or only_missed_effective) and not args.tag:
+        print("--tag is required when using --only-failed-effective/--only-missed-effective.", file=sys.stderr)
+        return 2
+    if only_failed_effective:
+        args.only_failed = True
+    if only_missed_effective:
+        args.only_missed = True
+
     started_at = datetime.datetime.now(datetime.timezone.utc)
     run_id = uuid.uuid4().hex[:8]
     interrupted = False
@@ -698,7 +824,10 @@ def handle_batch(args) -> int:
 
     overlay_run_path = None
     overlay_results_path = None
-    overlay_disabled = args.no_overlay
+    overlay_disabled = args.no_overlay or only_failed_effective or only_missed_effective
+    overlay_disabled_reason = "no_overlay" if args.no_overlay else None
+    if overlay_disabled and overlay_disabled_reason is None:
+        overlay_disabled_reason = "effective_only"
     overlay_run_meta: Optional[Mapping[str, object]] = None
     if not overlay_disabled:
         overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
@@ -760,10 +889,12 @@ def handle_batch(args) -> int:
         )
         overlay_line = (
             "Overlay: disabled (--no-overlay)"
-            if args.no_overlay
+            if overlay_disabled_reason == "no_overlay"
+            else "Overlay: disabled (effective-only selection)"
+            if overlay_disabled
             else f"Overlay: run_id={overlay_label or 'n/a'} status={overlay_status or 'n/a'} complete={overlay_complete} scope={scope_display}"
         )
-        if overlay_results_path is None and not args.no_overlay:
+        if overlay_results_path is None and not overlay_disabled and not args.no_overlay:
             overlay_line = "Overlay: none (no latest_any run)"
         print(overlay_line, file=sys.stderr)
         print(f"Baseline failures: {len(baseline_fails)}", file=sys.stderr)
@@ -1326,40 +1457,122 @@ def _load_history(history_path: Path) -> list[dict]:
     return entries
 
 
-def _print_stats(entries: list[dict]) -> None:
+def _format_history_timestamp(entry: dict) -> str:
+    for key in ["started_at", "finished_at", "ended_at", "timestamp"]:
+        ts = entry.get(key)
+        if ts:
+            return str(ts)
+    return ""
+
+
+def _status_color(status: str) -> str | None:
+    status_upper = status.upper()
+    if status_upper in {"SUCCESS", "OK"}:
+        return "green"
+    if status_upper in {"FAILED", "ERROR"}:
+        return "red"
+    if status_upper in {"INTERRUPTED", "CANCELLED", "CANCELED", "TIMEOUT"}:
+        return "yellow"
+    return None
+
+
+def _metric_color(value: float | int | None, *, invert: bool = False) -> str | None:
+    if value is None:
+        return None
+    positive = (value >= 0.9) if not invert else (value == 0)
+    if positive:
+        return "green"
+    if value >= (0.6 if not invert else 1):
+        return "yellow"
+    return "red"
+
+
+def _build_stat_row(entry: Mapping[str, object]) -> dict[str, object]:
+    timestamp = _format_history_timestamp(entry)
+    run_id = str(entry.get("run_id", ""))
+    status = entry.get("run_status") or ("INTERRUPTED" if entry.get("interrupted") else "")
+    tag = entry.get("tag") or ""
+    note = entry.get("note") or ""
+    bad_count = _coerce_int(entry.get("fail_count")) if entry.get("fail_count") is not None else None
+    pass_rate = _coerce_number(entry.get("pass_rate"))
+    planned = _coerce_number(entry.get("planned_total"))
+    executed = _coerce_number(entry.get("executed_total"))
+    coverage = (executed / planned) if planned else None
+    missed = _coerce_number(entry.get("missed_total"))
+    return {
+        "timestamp": timestamp,
+        "run_id": run_id,
+        "status": (status or "UNKNOWN"),
+        "tag": tag,
+        "note": note,
+        "bad": bad_count,
+        "pass_rate": pass_rate,
+        "coverage": coverage,
+        "planned": planned,
+        "executed": executed,
+        "missed": missed,
+        "config_hash": entry.get("config_hash"),
+    }
+
+
+def _print_stats(entries: list[dict], *, use_color: bool) -> None:
     if not entries:
         print("No history entries found.")
         return
-    header = (
-        f"{'run_id':<10} {'ok':>4} {'mis':>4} {'fail':>4} {'err':>4} {'skip':>5} "
-        f"{'pass%':>7} {'median_s':>10} {'Δpass':>8} {'Δmedian':>9} {'policy':>8} {'reqA':>5}"
-    )
-    print(header)
-    prev = None
+
+    headers = ["timestamp", "run_id", "status", "tag", "note", "bad", "pass%", "cov%"]
+    rows: list[list[str]] = []
     for entry in entries:
-        pass_rate = _coerce_number(entry.get("pass_rate"))
-        median = _coerce_number(entry.get("median_total_s"))
-        delta_pass = None
-        delta_median = None
-        if prev:
-            prev_pass_rate = _coerce_number(prev.get("pass_rate"))
-            if pass_rate is not None and prev_pass_rate is not None:
-                delta_pass = pass_rate - prev_pass_rate
-            prev_median = _coerce_number(prev.get("median_total_s"))
-            if median is not None and prev_median is not None:
-                delta_median = median - prev_median
-        pr_display = f"{pass_rate*100:.1f}%" if pass_rate is not None else "n/a"
-        median_display = f"{median:.2f}" if median is not None else "n/a"
-        dp = f"{delta_pass*100:+.1f}pp" if delta_pass is not None else "n/a"
-        dm = f"{delta_median:+.2f}" if delta_median is not None else "n/a"
-        print(
-            f"{entry.get('run_id',''):<10} "
-            f"{entry.get('ok',0):>4} {entry.get('mismatch',0):>4} {entry.get('failed',0):>4} "
-            f"{entry.get('error',0):>4} {entry.get('skipped',0):>5} "
-            f"{pr_display:>7} {median_display:>10} {dp:>8} {dm:>9} "
-            f"{entry.get('fail_on',''):>8} {str(entry.get('require_assert', False)):>5}"
+        stat = _build_stat_row(entry)
+        bad_value = stat["bad"]
+        bad_display = fmt_num(bad_value)
+        bad_color = "red" if isinstance(bad_value, (int, float)) and bad_value > 0 else "green" if bad_value == 0 else None
+        pass_rate_display = fmt_pct(stat["pass_rate"])
+        coverage_display = fmt_pct(stat["coverage"])
+        status_color = _status_color(str(stat["status"]))
+        rows.append(
+            [
+                truncate(stat["timestamp"], 25),
+                truncate(stat["run_id"], 14),
+                term_color(str(stat["status"]), status_color, use_color=use_color),
+                truncate(stat["tag"], 14),
+                truncate(stat["note"], 70),
+                term_color(bad_display, bad_color, use_color=use_color),
+                term_color(pass_rate_display, _metric_color(stat["pass_rate"]), use_color=use_color),
+                term_color(coverage_display, _metric_color(stat["coverage"]), use_color=use_color),
+            ]
         )
-        prev = entry
+    print(
+        render_text_table(
+            headers,
+            rows,
+            align_right={5, 6, 7},
+            col_max={0: 25, 1: 14, 3: 14, 4: 70},
+        )
+    )
+
+
+def _render_stats_json(entries: list[dict], *, include_config_hash: bool) -> str:
+    rows: list[dict[str, object | None]] = []
+    for entry in entries:
+        stat = _build_stat_row(entry)
+        row: dict[str, object | None] = {
+            "timestamp": stat["timestamp"],
+            "run_id": stat["run_id"],
+            "status": stat["status"],
+            "tag": stat["tag"],
+            "note": stat["note"],
+            "bad": stat["bad"],
+            "pass_rate": stat["pass_rate"],
+            "coverage": stat["coverage"],
+            "planned": stat["planned"],
+            "executed": stat["executed"],
+            "missed": stat["missed"],
+        }
+        if include_config_hash:
+            row["config_hash"] = stat.get("config_hash")
+        rows.append(row)
+    return json.dumps(rows, ensure_ascii=False, indent=2)
 
 
 def handle_stats(args) -> int:
@@ -1370,28 +1583,133 @@ def handle_stats(args) -> int:
             return 2
         history_path = Path(args.data) / ".runs" / "history.jsonl"
     entries = _load_history(history_path)
-    if args.group_by == "config_hash":
-        grouped: dict[str, list[dict]] = {}
-        for e in entries:
-            key = e.get("config_hash") or "unknown"
-            grouped.setdefault(key, []).append(e)
-        for key, vals in grouped.items():
-            print(f"\nconfig_hash={key}")
-            _print_stats(vals[-args.last :])
+    format_mode = getattr(args, "format", "table")
+    color_mode = getattr(args, "color", "auto")
+    use_color = should_use_color(color_mode, stream=sys.stdout)
+    include_config_hash = bool(args.group_by == "config_hash")
+    if format_mode == "json":
+        rows: list[dict] = []
+        if args.group_by == "config_hash":
+            grouped: dict[str, list[dict]] = {}
+            for e in entries:
+                key = e.get("config_hash") or "unknown"
+                grouped.setdefault(key, []).append(e)
+            for vals in grouped.values():
+                rows.extend(vals[-args.last :])
+        else:
+            rows = entries[-args.last :]
+        print(_render_stats_json(rows, include_config_hash=include_config_hash))
     else:
-        _print_stats(entries[-args.last :])
+        if args.group_by == "config_hash":
+            grouped = {}
+            for e in entries:
+                key = e.get("config_hash") or "unknown"
+                grouped.setdefault(key, []).append(e)
+            for key, vals in grouped.items():
+                print(f"\nconfig_hash={key}")
+                _print_stats(vals[-args.last :], use_color=use_color)
+        else:
+            _print_stats(entries[-args.last :], use_color=use_color)
     return 0
 
 
+def _resolve_effective_results_for_tag(
+    tag: str, *, candidates: Iterable[Path], preferred: Path | None = None
+) -> tuple[Optional[Path], Optional[Path], list[Path]]:
+    attempted: list[Path] = []
+    ordered: list[Path] = []
+    if preferred is not None:
+        ordered.append(preferred)
+    for candidate in candidates:
+        if preferred is not None and candidate == preferred:
+            continue
+        ordered.append(candidate)
+    for artifacts_dir in ordered:
+        results_path, meta_path = _effective_paths(artifacts_dir, tag)
+        if results_path.exists() and meta_path.exists():
+            return results_path, artifacts_dir, attempted
+        attempted.append(artifacts_dir)
+    return None, None, attempted
+
+
+def _render_missing_effective_error(tag: str, attempted: list[Path]) -> str:
+    message = f"No effective snapshot found for tag {tag!r}. Run a tagged batch to create it."
+    if attempted:
+        details = []
+        for dir_path in attempted:
+            res_path, meta_path = _effective_paths(dir_path, tag)
+            details.append(f"{dir_path} (effective: {res_path}, {meta_path})")
+        message = f"{message} Looked in: {', '.join(details)}."
+    return message
+
+
 def handle_compare(args) -> int:
-    base_path = Path(args.base)
-    new_path = Path(args.new)
+    if args.base and args.base_tag:
+        print("Use either --base or --base-tag (not both).", file=sys.stderr)
+        return 2
+    if args.new and args.new_tag:
+        print("Use either --new or --new-tag (not both).", file=sys.stderr)
+        return 2
+
+    base_path: Path | None = Path(args.base) if args.base else None
+    new_path: Path | None = Path(args.new) if args.new else None
+
+    if args.base_tag:
+        if not args.data:
+            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
+            return 2
+        artifacts_dir = Path(args.data) / ".runs"
+        base_path, artifacts_dir, attempted = _resolve_effective_results_for_tag(
+            args.base_tag, candidates=[artifacts_dir]
+        )
+        if base_path is None:
+            print(_render_missing_effective_error(args.base_tag, attempted), file=sys.stderr)
+            return 2
+    if args.new_tag:
+        if not args.data:
+            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
+            return 2
+        artifacts_dir = Path(args.data) / ".runs"
+        new_path, _, attempted = _resolve_effective_results_for_tag(
+            args.new_tag, candidates=[artifacts_dir]
+        )
+        if new_path is None:
+            print(_render_missing_effective_error(args.new_tag, attempted), file=sys.stderr)
+            return 2
+
+    if base_path is None and not args.base_tag:
+        print("Provide either --base or --base-tag.", file=sys.stderr)
+        return 2
+    if new_path is None and not args.new_tag:
+        print("Provide either --new or --new-tag.", file=sys.stderr)
+        return 2
+
     if not base_path.exists() or not new_path.exists():
         print("Base or new results file not found.", file=sys.stderr)
         return 2
     comparison = compare_runs(base_path, new_path, fail_on=args.fail_on, require_assert=args.require_assert)
     out_path = Path(args.out) if args.out is not None else None
-    report = render_markdown(comparison, out_path)
+    format_mode = getattr(args, "format", "md")
+    color_mode = getattr(args, "color", "auto")
+    stdout_color = False if out_path else should_use_color(color_mode, stream=sys.stdout)
+
+    report = ""
+    file_report = None
+    if format_mode == "md":
+        report = render_markdown(comparison, out_path)
+    elif format_mode == "table":
+        report = render_table(comparison, use_color=stdout_color)
+        if out_path:
+            file_report = render_table(comparison, use_color=False)
+    elif format_mode == "json":
+        report = render_json(comparison)
+        file_report = report
+    else:
+        print("Unknown format; use md, table, or json.", file=sys.stderr)
+        return 2
+
+    if out_path and file_report is not None:
+        out_path.write_text(file_report, encoding="utf-8")
     print(report)
     if args.junit:
         junit_path = Path(args.junit)

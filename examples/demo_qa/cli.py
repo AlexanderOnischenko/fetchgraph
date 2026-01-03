@@ -26,6 +26,7 @@ from .batch import (  # noqa: E402
 )  # noqa: E402
 from .commands.history import handle_history_case  # noqa: E402
 from .commands.report import handle_report_run, handle_report_tag  # noqa: E402
+from .commands.tags import handle_tags_list  # noqa: E402
 from .data_gen import generate_and_save  # noqa: E402
 
 
@@ -67,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Run only cases missing in the provided results.jsonl (or latest if omitted)",
     )
+    batch_p.add_argument(
+        "--only-missed-effective",
+        action="store_true",
+        help="Run only cases missing from the effective snapshot for --tag",
+    )
     batch_p.add_argument("--out", type=Path, required=False, default=None, help="Path to results jsonl")
     batch_p.add_argument("--artifacts-dir", type=Path, default=None, help="Where to store per-case artifacts")
     batch_p.add_argument("--enable-semantic", action="store_true")
@@ -91,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run only cases that failed/mismatched/errored in a previous results.jsonl",
     )
     batch_p.add_argument("--only-failed", action="store_true", help="Use latest run for --only-failed-from automatically")
+    batch_p.add_argument(
+        "--only-failed-effective",
+        action="store_true",
+        help="Run only failed/error/mismatch cases from the effective snapshot for --tag",
+    )
     batch_p.add_argument(
         "--no-overlay",
         action="store_true",
@@ -161,12 +172,36 @@ def build_parser() -> argparse.ArgumentParser:
     stats_p.add_argument("--history", type=Path, default=None, help="Path to history.jsonl (default: <data>/.runs/history.jsonl)")
     stats_p.add_argument("--last", type=int, default=10, help="How many recent runs to show")
     stats_p.add_argument("--group-by", choices=["config_hash"], default=None, help="Group stats by config hash")
+    stats_p.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for stats table")
+    stats_p.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format for stats (JSON is a list; config_hash included when grouped)",
+    )
+
+    tags_p = sub.add_parser("tags", help="Tag utilities")
+    tags_sub = tags_p.add_subparsers(dest="tags_command", required=True)
+    tags_list = tags_sub.add_parser("list", help="List known tags")
+    tags_list.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    tags_list.add_argument("--pattern", type=str, default=None, help="Glob or re:<regex> to filter tag names")
+    tags_list.add_argument("--limit", type=int, default=None, help="Maximum number of tags to display")
+    tags_list.add_argument("--sort", choices=["name", "updated"], default="updated", help="Sort order")
+    tags_list.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
+    tags_list.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for table output")
 
     compare_p = sub.add_parser("compare", help="Compare two batch result files")
-    compare_p.add_argument("--base", type=Path, required=True, help="Path to baseline results.jsonl")
-    compare_p.add_argument("--new", type=Path, required=True, help="Path to new results.jsonl")
+    compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (for tag-based compare)")
+    base_group = compare_p.add_mutually_exclusive_group(required=False)
+    base_group.add_argument("--base", type=Path, help="Path to baseline results.jsonl")
+    base_group.add_argument("--base-tag", type=str, help="Use effective snapshot for this tag as baseline")
+    new_group = compare_p.add_mutually_exclusive_group(required=False)
+    new_group.add_argument("--new", type=Path, help="Path to new results.jsonl")
+    new_group.add_argument("--new-tag", type=str, help="Use effective snapshot for this tag as new results")
     compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
     compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
+    compare_p.add_argument("--format", choices=["md", "table", "json"], default="md", help="Output format")
+    compare_p.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for table output")
     compare_p.add_argument(
         "--fail-on",
         choices=["error", "bad", "unchecked", "any", "skipped"],
@@ -189,6 +224,10 @@ def build_parser() -> argparse.ArgumentParser:
     tag_report = report_sub.add_parser("tag", help="Report current effective snapshot for a tag")
     tag_report.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
     tag_report.add_argument("--tag", type=str, required=True, help="Tag to report")
+    tag_report.add_argument("--verbose", action="store_true", help="Print full counts and summary_by_tag")
+    tag_report.add_argument("--changes", type=int, default=1, help="How many effective changes to show (default: 1)")
+    tag_report.add_argument("--format", choices=["plain", "table"], default="table", help="Output format")
+    tag_report.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode")
     run_report = report_sub.add_parser("run", help="Report a specific run folder or run_id")
     run_report.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
     run_report.add_argument("--run", type=Path, required=True, help="Run dir or run_id under runs/")
@@ -223,6 +262,11 @@ def main() -> None:
     elif args.command == "history":
         if args.history_command == "case":
             code = handle_history_case(args)
+        else:
+            code = 1
+    elif args.command == "tags":
+        if args.tags_command == "list":
+            code = handle_tags_list(args)
         else:
             code = 1
     elif args.command == "report":

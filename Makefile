@@ -47,6 +47,11 @@ TAG   ?=
 NOTE  ?=
 CASE  ?=
 LIMIT ?= 50
+CHANGES ?= 10
+NEW_TAG ?=
+PATTERN ?=
+TAGS_FORMAT ?= table
+TAGS_COLOR ?= auto
 
 ONLY_FAILED_FROM ?=
 ONLY_MISSED_FROM ?=
@@ -55,6 +60,9 @@ BASE     ?=
 NEW      ?=
 DIFF_OUT ?= $(DATA)/.runs/diff.md
 JUNIT    ?= $(DATA)/.runs/diff.junit.xml
+BASE_TAG ?= baseline
+COMPARE_TAG_OUT ?= $(DATA)/.runs/diff.tags.md
+COMPARE_TAG_JUNIT ?= $(DATA)/.runs/diff.tags.junit.xml
 
 MAX_FAILS ?= 5
 
@@ -84,8 +92,9 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         llm-init llm-show llm-edit \
         chat \
         batch batch-tag batch-failed batch-failed-from \
-        batch-missed batch-missed-from batch-fail-fast batch-max-fails \
-        stats history-case report-tag case-run case-open compare
+        batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
+        batch-fail-fast batch-max-fails \
+        stats history-case report-tag report-tag-changes tags case-run case-open compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -117,19 +126,25 @@ help:
 	@echo "  make batch-failed         - перепрогон только упавших (baseline = latest)"
 	@echo "  make batch-failed-from ONLY_FAILED_FROM=path/results.jsonl  - only-failed от явного baseline"
 	@echo "  make batch-missed [TAG=...] - добить missed (если TAG задан — относительно effective по тегу)"
+	@echo "  make batch-failed-tag TAG=...   - добить failed/error/mismatch относительно effective snapshot тега"
+	@echo "  make batch-missed-tag TAG=...   - добить missed относительно effective snapshot тега"
 	@echo "  make batch-missed-from ONLY_MISSED_FROM=path/results.jsonl  - добить missed от явного baseline"
 	@echo "  make batch-fail-fast      - быстрый smoke (остановиться на первом фейле)"
 	@echo "  make batch-max-fails MAX_FAILS=5 - остановиться после N фейлов"
 	@echo "  make stats                - stats по последним 10 прогонов"
+	@echo "  make tags                 - список тегов (effective snapshots)"
 	@echo ""
 	@echo "Диагностика / анализ:"
 	@echo "  make history-case CASE=case_42 [TAG=...] [LIMIT=50] - история по кейсу"
 	@echo "  make report-tag TAG=...    - сводка по тегу (effective snapshot)"
+	@echo "  make report-tag-changes TAG=... [CHANGES=10] - сводка + последние изменения effective snapshot"
+	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
 	@echo ""
 	@echo "Сравнение результатов:"
 	@echo "  make compare BASE=... NEW=... [DIFF_OUT=...] [JUNIT=...]"
+	@echo "  make compare-tag BASE_TAG=baseline NEW_TAG=... [COMPARE_TAG_OUT=...] [COMPARE_TAG_JUNIT=...]"
 	@echo ""
 	@echo "LLM конфиг:"
 	@echo "  make llm-init             - создать $(LLM_TOML) из $(LLM_TOML_EXAMPLE)"
@@ -264,9 +279,20 @@ batch-fail-fast: ensure-runs-dir
 batch-max-fails: ensure-runs-dir
 	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" --max-fails "$(MAX_FAILS)"
 
+batch-failed-tag: ensure-runs-dir
+	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make batch-failed-tag TAG=..." && exit 1)
+	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" --tag "$(TAG)" --only-failed-effective
+
+batch-missed-tag: ensure-runs-dir
+	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make batch-missed-tag TAG=..." && exit 1)
+	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" --tag "$(TAG)" --only-missed-effective
+
 # stats (последние 10)
 stats: check
 	@$(CLI) stats --data "$(DATA)" --last 10
+
+tags: check
+	@$(CLI) tags list --data "$(DATA)" --format "$(TAGS_FORMAT)" --color "$(TAGS_COLOR)" $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) $(if $(strip $(LIMIT)),--limit $(LIMIT),)
 
 # 8) История по кейсу (TAG опционален)
 history-case: check
@@ -277,6 +303,10 @@ history-case: check
 report-tag: check
 	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make report-tag TAG=..." && exit 1)
 	@$(CLI) report tag --data "$(DATA)" --tag "$(TAG)"
+
+report-tag-changes: check
+	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make report-tag-changes TAG=... [CHANGES=10]" && exit 1)
+	@$(CLI) report tag --data "$(DATA)" --tag "$(TAG)" --changes "$(CHANGES)"
 
 # 10) Дебаг 1 кейса
 case-run: check
@@ -296,4 +326,17 @@ compare: check
 	  --base "$(BASE)" \
 	  --new  "$(NEW)" \
 	  --out  "$(DIFF_OUT)" \
+	  --junit "$(JUNIT)"
+
+compare-tag: OUT := $(COMPARE_TAG_OUT)
+compare-tag: JUNIT := $(COMPARE_TAG_JUNIT)
+compare-tag: check
+	@test -n "$(strip $(DATA))" || (echo "Нужно задать DATA=... (где лежит .runs)" && exit 1)
+	@test -n "$(strip $(NEW_TAG))" || (echo "Нужно задать NEW_TAG=... (например NEW_TAG=baseline_v2)" && exit 1)
+	@mkdir -p "$(DATA)/.runs"
+	@$(CLI) compare \
+	  --data "$(DATA)" \
+	  --base-tag "$(BASE_TAG)" \
+	  --new-tag "$(NEW_TAG)" \
+	  --out  "$(OUT)" \
 	  --junit "$(JUNIT)"

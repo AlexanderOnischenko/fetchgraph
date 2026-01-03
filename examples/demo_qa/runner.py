@@ -706,6 +706,11 @@ def diff_runs(
 
     base_counts = summarize(base_by_id.values())
     new_counts = summarize(new_by_id.values())
+    base_total_cases = len(base_by_id)
+    new_total_cases = len(new_by_id)
+    overlap_ids = set(base_by_id) & set(new_by_id)
+    base_only_count = base_total_cases - len(overlap_ids)
+    new_only_count = new_total_cases - len(overlap_ids)
     base_med = _median_duration(base_by_id)
     new_med = _median_duration(new_by_id)
     base_avg = base_counts.get("avg_total_s")
@@ -737,6 +742,10 @@ def diff_runs(
         "still_fail": still_fail,
         "changed_status": changed_status,
         "new_cases": new_cases,
+        "base_total_cases": base_total_cases,
+        "new_total_cases": new_total_cases,
+        "base_only_count": base_only_count,
+        "new_only_count": new_only_count,
         "base_counts": base_counts,
         "new_counts": new_counts,
         "counts_delta": count_deltas,
@@ -815,6 +824,10 @@ class DiffReport(TypedDict):
     still_fail: list[DiffCaseChange]
     changed_status: list[DiffStatusChange]
     new_cases: list[str]
+    base_total_cases: int
+    new_total_cases: int
+    base_only_count: int
+    new_only_count: int
     base_counts: Dict[str, object]
     new_counts: Dict[str, object]
     counts_delta: Dict[str, int | float | None]

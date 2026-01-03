@@ -136,7 +136,8 @@ def _update_latest_markers(
     if tag:
         marker_sets.add(_latest_markers(artifacts_dir, tag))
     for markers in marker_sets:
-        markers.complete.parent.mkdir(parents=True, exist_ok=True)
+        for path in [markers.complete, markers.results, markers.any_run, markers.legacy_run]:
+            path.parent.mkdir(parents=True, exist_ok=True)
         markers.any_run.write_text(str(run_folder), encoding="utf-8")
         if results_complete:
             markers.legacy_run.write_text(str(run_folder), encoding="utf-8")

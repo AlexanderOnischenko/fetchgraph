@@ -560,7 +560,6 @@ def handle_batch(args) -> int:
         exclude_ids=exclude_ids,
     )
     suite_case_ids = [case.id for case in filtered_cases]
-    filtered_case_lookup = {case.id: case for case in filtered_cases}
     cases = filtered_cases
     failed_selection_ids: set[str] | None = None
 

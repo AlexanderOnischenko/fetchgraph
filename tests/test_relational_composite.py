@@ -5,18 +5,17 @@ import pytest
 pd = pytest.importorskip("pandas")
 
 from fetchgraph.relational import (
+    ColumnDescriptor,
     ComparisonFilter,
     CompositeRelationalProvider,
-    ColumnDescriptor,
     EntityDescriptor,
-    PandasRelationalDataProvider, 
-    RelationDescriptor,
-    RelationJoin,
+    PandasRelationalDataProvider,
     RelationalDataProvider,
     RelationalQuery,
+    RelationDescriptor,
+    RelationJoin,
     SelectExpr,
 )
-
 from fetchgraph.relational.models import (
     QueryResult,
 )

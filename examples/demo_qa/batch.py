@@ -50,8 +50,10 @@ from .runs.layout import (
 )
 from .runs.scope import _scope_hash, _scope_payload
 from .settings import load_settings
+from .term import color as term_color
+from .term import fmt_num, fmt_pct, should_use_color, truncate
+from .term import render_table as render_text_table
 from .utils import dump_json
-from .term import color as term_color, fmt_num, fmt_pct, render_table as render_text_table, should_use_color, truncate
 
 
 def write_summary(out_path: Path, summary: dict) -> Path:

@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Literal, Optional, Any
+from typing import Any, Callable, Literal, Optional
 
 import pandas as pd
 import pytest
 
 from fetchgraph import (
-    PandasRelationalDataProvider,
-    CompositeRelationalProvider,
-    RelationalDataProvider,
-    EntityDescriptor,
     ColumnDescriptor,
+    CompositeRelationalProvider,
+    EntityDescriptor,
+    PandasRelationalDataProvider,
+    RelationalDataProvider,
+    RelationalQuery,
     RelationDescriptor,
     RelationJoin,
-    RelationalQuery,
     SelectExpr,
 )
 

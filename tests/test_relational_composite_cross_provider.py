@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
-
-from typing import Literal, cast
 
 pd = pytest.importorskip("pandas")
 

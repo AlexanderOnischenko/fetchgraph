@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from ..core.models import Plan, ContextFetchSpec, RawLLMOutput
-from .json_parser import JsonParser
+from ..core.models import ContextFetchSpec, Plan, RawLLMOutput
 from .exceptions import OutputParserException
+from .json_parser import JsonParser
 
 
 class PlanParser(JsonParser[Plan]):

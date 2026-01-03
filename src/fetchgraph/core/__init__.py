@@ -1,29 +1,29 @@
 """Core (non-relational) components for fetchgraph."""
 
 from .context import (
-    ContextPacker,
     BaseGraphAgent,
+    ContextPacker,
     create_generic_agent,
     make_llm_plan_generic,
     make_llm_synth_generic,
 )
 from .models import (
-    RawLLMOutput,
-    ProviderInfo,
-    TaskProfile,
-    ContextFetchSpec,
     BaselineSpec,
+    ContextFetchSpec,
     ContextItem,
-    RefetchDecision,
     Plan,
+    ProviderInfo,
+    RawLLMOutput,
+    RefetchDecision,
+    TaskProfile,
 )
 from .protocols import (
     ContextProvider,
-    SupportsFilter,
-    SupportsDescribe,
-    Verifier,
-    Saver,
     LLMInvoke,
+    Saver,
+    SupportsDescribe,
+    SupportsFilter,
+    Verifier,
 )
 from .utils import load_pkg_text, render_prompt
 

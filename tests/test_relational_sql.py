@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any, List
 
 import pytest
+
 pd = pytest.importorskip("pandas")
 
 from fetchgraph.relational import (

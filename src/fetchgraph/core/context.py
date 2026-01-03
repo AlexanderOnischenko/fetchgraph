@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional
 
+from ..parsing.plan_parser import PlanParser
 from .models import (
     BaselineSpec,
     ContextFetchSpec,
@@ -16,7 +17,6 @@ from .models import (
     RefetchDecision,
     TaskProfile,
 )
-from ..parsing.plan_parser import PlanParser
 from .protocols import (
     ContextProvider,
     LLMInvoke,

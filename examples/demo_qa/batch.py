@@ -618,7 +618,7 @@ def handle_batch(args) -> int:
                 )
                 save_status(stub)
                 results.append(stub)
-                print("Interrupted during case execution; saved partial status.", file=sys.stderr)
+                print("\nInterrupted during case execution; saved partial status.", file=sys.stderr)
                 break
             results.append(result)
             if not args.quiet:

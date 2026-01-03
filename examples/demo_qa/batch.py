@@ -566,7 +566,7 @@ def handle_batch(args) -> int:
     results_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path = results_path.with_name("summary.json")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    history_path = Path(args.history) if args.history else (data_dir / ".runs" / "history.jsonl")
+    history_path = Path(args.history) if args.history else (artifacts_dir / "history.jsonl")
 
     log_dir = Path(args.log_dir) if args.log_dir else data_dir / ".runs" / "logs"
     configure_logging(

@@ -824,7 +824,10 @@ def handle_batch(args) -> int:
 
     overlay_run_path = None
     overlay_results_path = None
-    overlay_disabled = args.no_overlay
+    overlay_disabled = args.no_overlay or only_failed_effective or only_missed_effective
+    overlay_disabled_reason = "no_overlay" if args.no_overlay else None
+    if overlay_disabled and overlay_disabled_reason is None:
+        overlay_disabled_reason = "effective_only"
     overlay_run_meta: Optional[Mapping[str, object]] = None
     if not overlay_disabled:
         overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
@@ -886,10 +889,12 @@ def handle_batch(args) -> int:
         )
         overlay_line = (
             "Overlay: disabled (--no-overlay)"
-            if args.no_overlay
+            if overlay_disabled_reason == "no_overlay"
+            else "Overlay: disabled (effective-only selection)"
+            if overlay_disabled
             else f"Overlay: run_id={overlay_label or 'n/a'} status={overlay_status or 'n/a'} complete={overlay_complete} scope={scope_display}"
         )
-        if overlay_results_path is None and not args.no_overlay:
+        if overlay_results_path is None and not overlay_disabled and not args.no_overlay:
             overlay_line = "Overlay: none (no latest_any run)"
         print(overlay_line, file=sys.stderr)
         print(f"Baseline failures: {len(baseline_fails)}", file=sys.stderr)

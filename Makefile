@@ -50,6 +50,8 @@ LIMIT ?= 50
 CHANGES ?= 10
 NEW_TAG ?=
 PATTERN ?=
+TAGS_FORMAT ?= table
+TAGS_COLOR ?= auto
 
 ONLY_FAILED_FROM ?=
 ONLY_MISSED_FROM ?=
@@ -290,7 +292,7 @@ stats: check
 	@$(CLI) stats --data "$(DATA)" --last 10
 
 tags: check
-	@$(CLI) tags list --data "$(DATA)" $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) $(if $(strip $(LIMIT)),--limit $(LIMIT),)
+	@$(CLI) tags list --data "$(DATA)" --format "$(TAGS_FORMAT)" --color "$(TAGS_COLOR)" $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) $(if $(strip $(LIMIT)),--limit $(LIMIT),)
 
 # 8) История по кейсу (TAG опционален)
 history-case: check

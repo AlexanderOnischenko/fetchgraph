@@ -73,3 +73,44 @@ def test_stats_output_includes_metadata_and_truncates_notes(tmp_path: Path, caps
     assert "…" in row  # truncated note
     assert long_note not in row
     assert "\x1b[" not in out
+
+
+def test_stats_json_output_is_plain_and_parsable(tmp_path: Path, capsys) -> None:
+    _install_fake_pydantic_settings()
+    handle_stats = importlib.import_module("examples.demo_qa.batch").handle_stats
+    entries = [
+        {
+            "run_id": "run456",
+            "timestamp": "2024-02-02T00:00:00Z",
+            "run_status": "SUCCESS",
+            "tag": "demo-tag",
+            "note": "plain note",
+            "fail_count": 0,
+            "pass_rate": 0.75,
+            "planned_total": 12,
+            "executed_total": 9,
+            "missed_total": 3,
+            "config_hash": "abc123",
+        }
+    ]
+    _write_history(tmp_path, entries)
+    args = SimpleNamespace(history=None, data=tmp_path, last=10, group_by=None, color="always", format="json")
+
+    exit_code = handle_stats(args)
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    payload = json.loads(out)
+    assert isinstance(payload, list)
+    assert payload, "Expected stats rows"
+    row = payload[0]
+    assert "\x1b[" not in out
+    assert row["timestamp"] == entries[0]["timestamp"]
+    assert row["tag"] == entries[0]["tag"]
+    assert row["note"] == entries[0]["note"]
+    assert row["bad"] == 0
+    assert row["pass_rate"] == entries[0]["pass_rate"]
+    assert row["coverage"] == 0.75
+    assert row["planned"] == 12
+    assert row["executed"] == 9
+    assert row["missed"] == 3

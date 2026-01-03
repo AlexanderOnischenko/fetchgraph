@@ -545,8 +545,12 @@ def test_explicit_config_path_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert run_meta["inputs"]["config_hash"] == batch._hash_file(explicit_config)
 
 
-def test_no_config_available_sets_none_in_meta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_packaged_default_config_used_when_no_cli_or_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     run_meta = _run_batch_and_meta(tmp_path, monkeypatch, env_api_key="sk-env")
 
-    assert run_meta["inputs"]["config_path"] is None
-    assert run_meta["inputs"]["config_hash"] is None
+    config_path = run_meta["inputs"]["config_path"]
+    assert config_path is not None
+
+    expected_default = Path(batch.__file__).resolve().parent / "demo_qa.toml"
+    assert Path(config_path) == expected_default
+    assert run_meta["inputs"]["config_hash"] == batch._hash_file(expected_default)

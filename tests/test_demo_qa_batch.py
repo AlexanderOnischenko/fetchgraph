@@ -10,6 +10,8 @@ from typing import cast
 import pytest
 
 from examples.demo_qa.batch import (
+    _consecutive_passes,
+    _format_healed_explain,
     _fingerprint_dir,
     _only_failed_selection,
     _only_missed_selection,
@@ -151,17 +153,16 @@ def test_anti_flake_requires_two_passes_without_double_count(tmp_path: Path) -> 
     history_dir = artifacts_dir / "runs" / "cases"
     history_dir.mkdir(parents=True)
     history_file = history_dir / f"{case_id}.jsonl"
-    # most recent in history = overlay run we already count
-    history_file.write_text(
-        json.dumps({"status": "ok", "scope_hash": "s"}, ensure_ascii=False) + "\n"
-        + json.dumps({"status": "failed", "scope_hash": "s"}, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    overlay_res = _mk_result(case_id, "ok")
-    healed = _consecutive_passes(
+    now = "2024-01-02T00:00:00Z"
+    history_entries = [
+        {"status": "ok", "scope_hash": "s", "run_id": "r1", "ts": now, "timestamp": now},
+    ]
+    history_file.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in history_entries), encoding="utf-8")
+    overlay_entry = {"status": "ok", "scope_hash": "s", "run_id": "r1", "ts": now, "timestamp": now}
+    healed, _ = _consecutive_passes(
         case_id,
-        overlay_res,
-        artifacts_dir,
+        overlay_entry,
+        artifacts_dir / "runs" / "cases" / f"{case_id}.jsonl",
         scope_hash="s",
         passes_required=2,
         fail_on="bad",
@@ -169,6 +170,75 @@ def test_anti_flake_requires_two_passes_without_double_count(tmp_path: Path) -> 
         strict_scope_history=True,
     )
     assert healed is False
+
+
+def test_anti_flake_order_independent(tmp_path: Path) -> None:
+    artifacts_dir = tmp_path
+    case_id = "case-1"
+    history_dir = artifacts_dir / "runs" / "cases"
+    history_dir.mkdir(parents=True)
+    history_file = history_dir / f"{case_id}.jsonl"
+    entries = [
+        {"status": "ok", "scope_hash": "s", "run_id": "r2", "ts": "2024-01-03T00:00:00Z"},
+        {"status": "failed", "scope_hash": "s", "run_id": "r1", "ts": "2024-01-01T00:00:00Z"},
+        {"status": "ok", "scope_hash": "s", "run_id": "r3", "ts": "2024-01-02T00:00:00Z"},
+    ]
+    history_file.write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in entries), encoding="utf-8")
+    overlay_entry = {"status": "ok", "scope_hash": "s", "run_id": "r4", "ts": "2024-01-04T00:00:00Z"}
+
+    healed, used_entries = _consecutive_passes(
+        case_id,
+        overlay_entry,
+        history_file,
+        scope_hash="s",
+        passes_required=2,
+        fail_on="bad",
+        require_assert=False,
+        strict_scope_history=True,
+    )
+    assert healed is True
+    assert used_entries[0]["run_id"] == "r4"
+
+
+def test_anti_flake_respects_legacy_scope_when_not_strict(tmp_path: Path) -> None:
+    artifacts_dir = tmp_path
+    case_id = "case-legacy"
+    history_dir = artifacts_dir / "runs" / "cases"
+    history_dir.mkdir(parents=True)
+    history_file = history_dir / f"{case_id}.jsonl"
+    history_file.write_text(
+        "\n".join(
+            json.dumps(e, ensure_ascii=False)
+            for e in [
+                {"status": "ok", "scope_hash": None, "run_id": "r1", "ts": "2024-01-01T00:00:00Z"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    overlay_entry = {"status": "ok", "scope_hash": "s", "run_id": "r2", "ts": "2024-01-02T00:00:00Z"}
+
+    healed_strict, _ = _consecutive_passes(
+        case_id,
+        overlay_entry,
+        history_file,
+        scope_hash="s",
+        passes_required=2,
+        fail_on="bad",
+        require_assert=False,
+        strict_scope_history=True,
+    )
+    healed_migrating, _ = _consecutive_passes(
+        case_id,
+        overlay_entry,
+        history_file,
+        scope_hash="s",
+        passes_required=2,
+        fail_on="bad",
+        require_assert=False,
+        strict_scope_history=False,
+    )
+    assert healed_strict is False
+    assert healed_migrating is True
 
 
 def test_only_missed_uses_planned_pool_from_baseline_meta(tmp_path: Path) -> None:
@@ -223,3 +293,16 @@ def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:
     assert refreshed_tag.results.read_text(encoding="utf-8").strip() == str(results_path)
     assert refreshed_tag.any_run.read_text(encoding="utf-8").strip() == str(partial_dir)
     assert refreshed_tag.legacy_run.read_text(encoding="utf-8").strip() == str(run_dir)
+
+
+def test_format_healed_explain_includes_key_lines() -> None:
+    healed = {"a", "b"}
+    healed_details = {
+        "a": [
+            {"run_id": "r2", "ts": "2024-01-02T00:00:00Z", "status": "ok"},
+            {"run_id": "r1", "ts": "2024-01-01T00:00:00Z", "status": "ok"},
+        ]
+    }
+    lines = _format_healed_explain(healed, healed_details, anti_flake_passes=2, limit=2)
+    assert any("Healed because last 2 results are PASS for case a" in line for line in lines)
+    assert any("run_id=r2" in line and "status=ok" in line for line in lines)

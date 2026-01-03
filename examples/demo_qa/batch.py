@@ -30,7 +30,7 @@ from .runner import (
     save_status,
     summarize,
 )
-from .runs.case_history import _append_case_history, _load_case_history
+from .runs.case_history import _append_case_history, _iter_case_entries_newest_first
 from .runs.coverage import _missed_case_ids
 from .runs.effective import (
     _append_effective_diff,
@@ -119,8 +119,8 @@ def _load_ids(path: Optional[Path]) -> set[str] | None:
 
 def _consecutive_passes(
     case_id: str,
-    overlay_result: RunResult,
-    artifacts_dir: Path | None = None,
+    overlay_entry: Mapping[str, object] | None,
+    history_path: Path | None,
     *,
     tag: str | None = None,
     scope_hash: str = "",
@@ -128,34 +128,38 @@ def _consecutive_passes(
     fail_on: str = "bad",
     require_assert: bool = False,
     strict_scope_history: bool = False,
-) -> bool:
-    if passes_required <= 1 or artifacts_dir is None:
-        return overlay_result.status not in bad_statuses(fail_on, require_assert)
+    max_entries: int | None = None,
+) -> tuple[bool, list[dict]]:
     bad = bad_statuses(fail_on, require_assert)
-    if overlay_result.status in bad:
-        return False
-    count = 1
-    history_path = artifacts_dir / "runs" / "cases" / f"{case_id}.jsonl"
-    entries = list(reversed(_load_case_history(history_path)))
-    skip_first = True  # overlay_result already counted; skip the most recent history entry
-    for entry in entries:
-        if skip_first:
-            skip_first = False
-            continue
-        if tag is not None and entry.get("tag") != tag:
-            continue
-        # Old history entries may not contain scope_hash; treat missing as compatible for migration unless strict_scope_history is set.
-        if scope_hash:
-            entry_scope = entry.get("scope_hash")
-            if entry_scope != scope_hash and (strict_scope_history or entry_scope is not None):
-                continue
+    if overlay_entry is None:
+        return False, []
+    if passes_required <= 1:
+        return (overlay_entry.get("status") not in bad, [dict(overlay_entry)])
+    if history_path is None:
+        return False, [dict(overlay_entry)]
+    entries: list[dict] = []
+    passes_needed = max(passes_required, 1)
+    iterator = _iter_case_entries_newest_first(
+        history_path,
+        case_id,
+        tag,
+        scope_hash or None,
+        strict_scope=strict_scope_history,
+        fail_on=fail_on,
+        require_assert=require_assert,
+        overlay_entry=dict(overlay_entry) if overlay_entry else None,
+        max_entries=max_entries or (passes_needed + 5),
+    )
+    consecutive = 0
+    for entry in iterator:
+        entries.append(entry)
         status = str(entry.get("status", ""))
         if status in bad:
-            break
-        count += 1
-        if count >= passes_required:
-            return True
-    return count >= passes_required
+            return False, entries
+        consecutive += 1
+        if consecutive >= passes_needed:
+            return True, entries
+    return False, entries
 
 
 def _only_failed_selection(
@@ -169,20 +173,45 @@ def _only_failed_selection(
     scope_hash: str = "",
     anti_flake_passes: int = 1,
     strict_scope_history: bool = False,
+    overlay_run_meta: Mapping[str, object] | None = None,
+    overlay_run_path: Path | None = None,
+    explain_selection: bool = False,
+    explain_limit: int = 20,
 ) -> tuple[set[str], dict[str, object]]:
     baseline = baseline_results or {}
     overlay = overlay_results or {}
     bad = bad_statuses(fail_on, require_assert)
     baseline_bad = {cid for cid, res in baseline.items() if res.status in bad}
     overlay_bad = {cid for cid, res in overlay.items() if res.status in bad}
-    overlay_good = {
-        cid
-        for cid, res in overlay.items()
-        if res.status not in bad
-        and _consecutive_passes(
+    overlay_run_id = cast(Optional[str], overlay_run_meta.get("run_id") if isinstance(overlay_run_meta, Mapping) else None)
+    overlay_ts: Optional[object] = None
+    if isinstance(overlay_run_meta, Mapping):
+        overlay_ts = overlay_run_meta.get("ended_at") or overlay_run_meta.get("timestamp") or overlay_run_meta.get("started_at")
+    if overlay_ts is None and overlay_run_path and overlay_run_path.exists():
+        try:
+            overlay_ts = overlay_run_path.stat().st_mtime
+        except OSError:
+            overlay_ts = None
+    overlay_entries: dict[str, dict] = {}
+    for cid, res in overlay.items():
+        entry = {
+            "run_id": overlay_run_id or (str(overlay_run_path) if overlay_run_path else "overlay"),
+            "ts": overlay_ts,
+            "timestamp": overlay_ts,
+            "status": res.status,
+            "scope_hash": scope_hash,
+            "tag": tag,
+            "run_dir": str(overlay_run_path) if overlay_run_path else None,
+        }
+        overlay_entries[cid] = {k: v for k, v in entry.items() if v is not None}
+
+    overlay_good: set[str] = set()
+    healed_details: dict[str, list[dict]] = {}
+    for cid, res in overlay.items():
+        ok, history_entries = _consecutive_passes(
             cid,
-            res,
-            artifacts_dir,
+            overlay_entries.get(cid),
+            artifacts_dir / "runs" / "cases" / f"{cid}.jsonl" if artifacts_dir else None,
             tag=tag,
             scope_hash=scope_hash,
             passes_required=anti_flake_passes,
@@ -190,7 +219,10 @@ def _only_failed_selection(
             require_assert=require_assert,
             strict_scope_history=strict_scope_history,
         )
-    }
+        if ok:
+            overlay_good.add(cid)
+            if explain_selection:
+                healed_details[cid] = history_entries
 
     healed = baseline_bad & overlay_good
     selection = (baseline_bad - healed) | overlay_bad
@@ -199,7 +231,34 @@ def _only_failed_selection(
         "healed": healed,
         "new_failures": overlay_bad,
     }
+    if explain_selection and healed_details:
+        limit = max(1, explain_limit)
+        breakdown["healed_details"] = {cid: healed_details[cid] for cid in list(sorted(healed_details))[:limit]}
     return selection, breakdown
+
+
+def _format_healed_explain(
+    healed: Iterable[str],
+    healed_details: Mapping[str, list[dict]] | None,
+    *,
+    anti_flake_passes: int,
+    limit: int,
+) -> list[str]:
+    details = healed_details or {}
+    max_entries = max(1, limit)
+    lines: list[str] = []
+    healed_list = sorted(set(healed))
+    for cid in healed_list[:max_entries]:
+        entries = details.get(cid, [])
+        lines.append(f"Healed because last {anti_flake_passes} results are PASS for case {cid}")
+        for entry in entries[:anti_flake_passes]:
+            rid = entry.get("run_id")
+            ts = entry.get("ts") or entry.get("timestamp")
+            status = entry.get("status")
+            lines.append(f"  - run_id={rid} ts={ts} status={status}")
+    if len(healed_list) > max_entries:
+        lines.append(f"... {len(healed_list) - max_entries} more healed cases not shown (limit={max_entries})")
+    return lines
 
 
 def _only_missed_selection(
@@ -563,6 +622,7 @@ def handle_batch(args) -> int:
     overlay_run_path = None
     overlay_results_path = None
     overlay_disabled = args.no_overlay
+    overlay_run_meta: Optional[Mapping[str, object]] = None
     if not overlay_disabled:
         overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
         overlay_results_path = _load_latest_any_results(artifacts_dir, args.tag)
@@ -573,6 +633,8 @@ def handle_batch(args) -> int:
                 print(f"Failed to read overlay results from latest run: {exc}", file=sys.stderr)
                 overlay_results_path = None
                 overlay_results = None
+        if overlay_run_path:
+            overlay_run_meta = _load_run_meta(overlay_run_path)
 
     filtered_cases = _select_cases_for_rerun(
         cases,
@@ -596,6 +658,10 @@ def handle_batch(args) -> int:
             scope_hash=scope_id,
             anti_flake_passes=max(1, int(args.anti_flake_passes)),
             strict_scope_history=args.strict_scope_history,
+            overlay_run_meta=overlay_run_meta,
+            overlay_run_path=overlay_run_path,
+            explain_selection=args.explain_selection,
+            explain_limit=args.explain_limit,
         )
         cases = [case for case in cases if case.id in selection_ids]
         failed_selection_ids = selection_ids
@@ -605,7 +671,7 @@ def handle_batch(args) -> int:
         baseline_meta = _load_run_meta(_run_dir_from_results_path(baseline_filter_path))
         baseline_label = baseline_meta.get("run_id") if isinstance(baseline_meta, dict) else None
         baseline_status = baseline_meta.get("run_status") if isinstance(baseline_meta, dict) else None
-        overlay_meta = _load_run_meta(overlay_run_path)
+        overlay_meta = overlay_run_meta if overlay_run_meta is not None else _load_run_meta(overlay_run_path)
         overlay_label = overlay_meta.get("run_id") if isinstance(overlay_meta, dict) else None
         overlay_status = overlay_meta.get("run_status") if isinstance(overlay_meta, dict) else None
         baseline_complete = baseline_meta.get("results_complete") if isinstance(baseline_meta, dict) else None
@@ -627,6 +693,15 @@ def handle_batch(args) -> int:
         print(f"Healed by overlay: {len(healed)}", file=sys.stderr)
         print(f"New failures in overlay: {len(new_failures)}", file=sys.stderr)
         print(f"Final only-failed selection: {len(selection_ids)}", file=sys.stderr)
+        if args.explain_selection and healed:
+            healed_lines = _format_healed_explain(
+                healed,
+                breakdown.get("healed_details"),
+                anti_flake_passes=args.anti_flake_passes,
+                limit=args.explain_limit,
+            )
+            for line in healed_lines:
+                print(line, file=sys.stderr)
 
     only_missed_baseline_kind: str | None = None
     missed_planned_ids: set[str] | None = None
@@ -939,6 +1014,8 @@ def handle_batch(args) -> int:
             "no_overlay": args.no_overlay,
             "anti_flake_passes": args.anti_flake_passes,
             "strict_scope_history": args.strict_scope_history,
+            "explain_selection": args.explain_selection,
+            "explain_limit": args.explain_limit,
         },
         "interrupted": interrupted,
         "interrupted_at_case_id": interrupted_at_case_id,
@@ -1010,6 +1087,7 @@ def handle_batch(args) -> int:
             git_sha=git_sha,
             run_dir=run_folder,
             results_path=results_path,
+            run_ts=_isoformat_utc(ended_at),
         )
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:

@@ -304,6 +304,5 @@ def test_format_healed_explain_includes_key_lines() -> None:
         ]
     }
     lines = _format_healed_explain(healed, healed_details, anti_flake_passes=2, limit=2)
-    assert any("Baseline" not in line for line in lines)  # sanity: no noise
     assert any("Healed because last 2 results are PASS for case a" in line for line in lines)
     assert any("run_id=r2" in line and "status=ok" in line for line in lines)

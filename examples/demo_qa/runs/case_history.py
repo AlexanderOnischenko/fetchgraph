@@ -38,10 +38,11 @@ def _append_case_history(
     git_sha: str | None,
     run_dir: Path,
     results_path: Path,
+    run_ts: str | None,
 ) -> None:
     history_dir = artifacts_dir / "runs" / "cases"
     history_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    ts = run_ts or datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     payload = {
         "timestamp": ts,
         "ts": ts,
@@ -127,14 +128,17 @@ def _iter_case_entries_newest_first(
     max_entries: int,
 ) -> Iterable[dict]:
     entries = list(_load_case_history(history_path)) if history_path.exists() else []
+    overlay_index = None
     if overlay_entry:
+        overlay_index = len(entries)
         entries.append(dict(overlay_entry))
 
     accepted: dict[str, dict] = {}
     ts_map: dict[str, float | None] = {}
+    is_overlay_map: dict[str, bool] = {}
     warnings_emitted = False
     for idx, entry in enumerate(entries):
-        if tag is not None and entry.get("tag") not in {tag, None}:
+        if tag is not None and entry.get("tag") != tag:
             continue
         entry_scope = entry.get("scope_hash")
         if scope_hash:
@@ -149,11 +153,26 @@ def _iter_case_entries_newest_first(
         ts_value, warn = _entry_ts(entry, run_dir=run_dir)
         if ts_value is None and warn:
             warnings_emitted = True
+        is_overlay = overlay_entry is not None and idx == overlay_index
         current_ts = ts_map.get(run_id)
-        candidate_ts = ts_value if ts_value is not None else idx
-        if run_id not in accepted or (current_ts if current_ts is not None else -1) < candidate_ts:
+        current_is_overlay = is_overlay_map.get(run_id, False)
+        candidate_ts = ts_value
+        should_replace = False
+        if run_id not in accepted:
+            should_replace = True
+        else:
+            if candidate_ts is not None:
+                if current_ts is None or candidate_ts > current_ts or (
+                    candidate_ts == current_ts and is_overlay and not current_is_overlay
+                ):
+                    should_replace = True
+            else:
+                if current_ts is None and is_overlay and not current_is_overlay:
+                    should_replace = True
+        if should_replace:
             accepted[run_id] = entry
             ts_map[run_id] = candidate_ts
+            is_overlay_map[run_id] = is_overlay
     if warnings_emitted:
         logger.warning("ts missing; history order fallback used for case %s", case_id)
 

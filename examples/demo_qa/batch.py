@@ -133,8 +133,10 @@ def _consecutive_passes(
     bad = bad_statuses(fail_on, require_assert)
     if overlay_entry is None:
         return False, []
-    if passes_required <= 1 or history_path is None:
+    if passes_required <= 1:
         return (overlay_entry.get("status") not in bad, [dict(overlay_entry)])
+    if history_path is None:
+        return False, [dict(overlay_entry)]
     entries: list[dict] = []
     passes_needed = max(passes_required, 1)
     iterator = _iter_case_entries_newest_first(
@@ -1085,6 +1087,7 @@ def handle_batch(args) -> int:
             git_sha=git_sha,
             run_dir=run_folder,
             results_path=results_path,
+            run_ts=_isoformat_utc(ended_at),
         )
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:

@@ -46,15 +46,15 @@ class OpenAILLM(LLMInvoke):
             self.logger.info("OpenAILLM using endpoint %s", endpoint)
 
     def _resolve_api_key(self, api_key: str | None) -> str:
-        if api_key is None:
-            raise RuntimeError("OpenAI provider selected but llm.api_key is missing.")
-        if api_key.startswith("env:"):
-            env_var = api_key.split(":", 1)[1]
-            value = os.getenv(env_var)
-            if not value:
-                raise RuntimeError(f"Environment variable {env_var} referenced in config but not set.")
-            return value
-        return api_key
+        if api_key:
+            if api_key.startswith("env:"):
+                env_var = api_key.split(":", 1)[1]
+                value = os.getenv(env_var)
+                return value or "unused"
+            return api_key
+
+        env_key = os.getenv("OPENAI_API_KEY")
+        return env_key or "unused"
 
     def _validate_base_url(self, base_url: str | None) -> str | None:
         if base_url in (None, ""):

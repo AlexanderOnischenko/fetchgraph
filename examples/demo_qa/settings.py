@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, ClassVar, Dict
 from urllib.parse import urlparse
@@ -16,6 +15,7 @@ except ImportError as exc:  # pragma: no cover - make missing dependency explici
         "pydantic-settings is required for demo_qa configuration. "
         "Install demo extras via `pip install -e .[demo]` or `pip install -r examples/demo_qa/requirements.txt`."
     ) from exc
+
 
 class LLMSettings(BaseModel):
     base_url: str | None = Field(default=None)
@@ -87,16 +87,6 @@ class DemoQASettings(BaseSettings):
         sources.append(file_secret_settings)
         return tuple(sources)
 
-    @model_validator(mode="after")
-    def require_api_key(self) -> "DemoQASettings":
-        if not self.llm.api_key:
-            env_key = os.getenv("OPENAI_API_KEY")
-            if env_key:
-                self.llm.api_key = env_key
-        if not self.llm.api_key:
-            raise ValueError("llm.api_key is required. Provide it in config or set OPENAI_API_KEY.")
-        return self
-
 
 def resolve_config_path(config: Path | None, data_dir: Path | None) -> Path | None:
     if config is not None:
@@ -107,7 +97,8 @@ def resolve_config_path(config: Path | None, data_dir: Path | None) -> Path | No
         candidate = data_dir / "demo_qa.toml"
         if candidate.exists():
             return candidate
-    default = Path(__file__).resolve().parent / "demo_qa.toml"
+    root = Path(__file__).resolve().parent
+    default = root / "demo_qa.toml"
     if default.exists():
         return default
     return None

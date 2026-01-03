@@ -1,8 +1,7 @@
 [llm]
-api_key = "unused"
 base_url = "http://localhost:8000/v1"
-plan_model = "gpt-4o-mini"
-synth_model = "gpt-4o-mini"
+plan_model = "default"
+synth_model = "default"
 plan_temperature = 0.0
 synth_temperature = 0.2
 timeout_s = 900

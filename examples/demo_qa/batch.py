@@ -184,14 +184,39 @@ def _only_failed_selection(
     baseline_bad = {cid for cid, res in baseline.items() if res.status in bad}
     overlay_bad = {cid for cid, res in overlay.items() if res.status in bad}
     overlay_run_id = cast(Optional[str], overlay_run_meta.get("run_id") if isinstance(overlay_run_meta, Mapping) else None)
+    overlay_scope_hash = cast(Optional[str], overlay_run_meta.get("scope_hash") if isinstance(overlay_run_meta, Mapping) else None)
+    overlay_tag = cast(Optional[str], overlay_run_meta.get("tag") if isinstance(overlay_run_meta, Mapping) else None)
     overlay_ts: Optional[object] = None
     if isinstance(overlay_run_meta, Mapping):
-        overlay_ts = overlay_run_meta.get("ended_at") or overlay_run_meta.get("timestamp") or overlay_run_meta.get("started_at")
+        overlay_ts = (
+            overlay_run_meta.get("ended_at")
+            or overlay_run_meta.get("started_at")
+            or overlay_run_meta.get("ts")
+            or overlay_run_meta.get("timestamp")
+        )
     if overlay_ts is None and overlay_run_path and overlay_run_path.exists():
         try:
             overlay_ts = overlay_run_path.stat().st_mtime
         except OSError:
             overlay_ts = None
+
+    current_scope_hash = scope_hash or None
+    overlay_scope_matches_current = True
+    if strict_scope_history and current_scope_hash:
+        overlay_scope_matches_current = overlay_scope_hash == current_scope_hash
+
+    explain_lines: list[str] = []
+    if explain_selection:
+        explain_lines.append(
+            f"current_scope_hash={current_scope_hash} overlay_scope_hash={overlay_scope_hash} "
+            f"overlay_scope_matches_current={overlay_scope_matches_current}"
+        )
+        if overlay_tag is None and tag is not None:
+            explain_lines.append(f"Overlay tag missing; using current tag={tag} for overlay entries")
+        elif overlay_tag is not None and tag is not None and overlay_tag != tag:
+            explain_lines.append(
+                f"Overlay tag differs from current selection; using overlay tag={overlay_tag} (current tag={tag})"
+            )
     overlay_entries: dict[str, dict] = {}
     for cid, res in overlay.items():
         entry = {
@@ -199,18 +224,20 @@ def _only_failed_selection(
             "ts": overlay_ts,
             "timestamp": overlay_ts,
             "status": res.status,
-            "scope_hash": scope_hash,
-            "tag": tag,
+            "scope_hash": overlay_scope_hash,
+            "tag": overlay_tag if overlay_tag is not None else tag,
             "run_dir": str(overlay_run_path) if overlay_run_path else None,
         }
         overlay_entries[cid] = {k: v for k, v in entry.items() if v is not None}
 
     overlay_good: set[str] = set()
     healed_details: dict[str, list[dict]] = {}
+    scope_mismatch_warned = False
     for cid, res in overlay.items():
+        overlay_entry_for_history = overlay_entries.get(cid) if overlay_scope_matches_current else None
         ok, history_entries = _consecutive_passes(
             cid,
-            overlay_entries.get(cid),
+            overlay_entry_for_history,
             artifacts_dir / "runs" / "cases" / f"{cid}.jsonl" if artifacts_dir else None,
             tag=tag,
             scope_hash=scope_hash,
@@ -219,6 +246,18 @@ def _only_failed_selection(
             require_assert=require_assert,
             strict_scope_history=strict_scope_history,
         )
+        if explain_selection and strict_scope_history and not overlay_scope_matches_current:
+            if res.status not in bad:
+                explain_lines.append(
+                    f"Overlay PASS for case {cid} ignored due to strict scope mismatch "
+                    f"(overlay_scope_hash={overlay_scope_hash}, current_scope_hash={current_scope_hash})"
+                )
+            elif not scope_mismatch_warned:
+                explain_lines.append(
+                    f"Overlay scope mismatch; overlay failures still counted (overlay_scope_hash={overlay_scope_hash}, "
+                    f"current_scope_hash={current_scope_hash})"
+                )
+                scope_mismatch_warned = True
         if ok:
             overlay_good.add(cid)
             if explain_selection:
@@ -234,6 +273,8 @@ def _only_failed_selection(
     if explain_selection and healed_details:
         limit = max(1, explain_limit)
         breakdown["healed_details"] = {cid: healed_details[cid] for cid in list(sorted(healed_details))[:limit]}
+    if explain_selection and explain_lines:
+        breakdown["explain"] = explain_lines
     return selection, breakdown
 
 
@@ -704,7 +745,6 @@ def handle_batch(args) -> int:
                 print(line, file=sys.stderr)
 
     only_missed_baseline_kind: str | None = None
-    missed_planned_ids: set[str] | None = None
     missed_effective_meta: Mapping[str, object] | None = None
     if args.only_missed:
         only_missed_from_arg = cast(Optional[Path], args.only_missed_from)

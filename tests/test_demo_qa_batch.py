@@ -147,6 +147,80 @@ def test_only_missed_selection_uses_overlay_executed() -> None:
     assert breakdown["overlay_executed"] == {"c"}
 
 
+def test_only_failed_strict_scope_ignores_overlay_pass(tmp_path: Path) -> None:
+    baseline = {"A": _mk_result("A", "failed")}
+    overlay = {"A": _mk_result("A", "ok")}
+    overlay_meta = {"run_id": "overlay", "scope_hash": "scope_overlay", "ended_at": "2024-01-01T00:00:00Z"}
+
+    selection, breakdown = _only_failed_selection(
+        baseline,
+        overlay,
+        fail_on="bad",
+        require_assert=False,
+        artifacts_dir=tmp_path,
+        tag="t1",
+        scope_hash="scope_current",
+        anti_flake_passes=1,
+        strict_scope_history=True,
+        overlay_run_meta=overlay_meta,
+        overlay_run_path=tmp_path,
+        explain_selection=True,
+    )
+
+    assert selection == {"A"}
+    assert breakdown["healed"] == set()
+    explain_lines = cast(list[str], breakdown.get("explain", []) or [])
+    assert any("overlay_scope_matches_current=False" in line for line in explain_lines)
+
+
+def test_only_failed_strict_scope_allows_overlay_pass_when_scope_matches(tmp_path: Path) -> None:
+    baseline = {"A": _mk_result("A", "failed")}
+    overlay = {"A": _mk_result("A", "ok")}
+    overlay_meta = {"run_id": "overlay", "scope_hash": "scope_current", "ended_at": "2024-01-01T00:00:00Z"}
+
+    selection, breakdown = _only_failed_selection(
+        baseline,
+        overlay,
+        fail_on="bad",
+        require_assert=False,
+        artifacts_dir=tmp_path,
+        tag="t1",
+        scope_hash="scope_current",
+        anti_flake_passes=1,
+        strict_scope_history=True,
+        overlay_run_meta=overlay_meta,
+        overlay_run_path=tmp_path,
+        explain_selection=True,
+    )
+
+    assert selection == set()
+    assert breakdown["healed"] == {"A"}
+
+
+def test_only_failed_explain_notes_scope_mismatch(tmp_path: Path) -> None:
+    baseline = {"A": _mk_result("A", "failed")}
+    overlay = {"A": _mk_result("A", "ok")}
+    overlay_meta = {"run_id": "overlay", "scope_hash": "scope_other", "ended_at": "2024-01-01T00:00:00Z"}
+
+    _, breakdown = _only_failed_selection(
+        baseline,
+        overlay,
+        fail_on="bad",
+        require_assert=False,
+        artifacts_dir=tmp_path,
+        tag="t1",
+        scope_hash="scope_current",
+        anti_flake_passes=1,
+        strict_scope_history=True,
+        overlay_run_meta=overlay_meta,
+        overlay_run_path=tmp_path,
+        explain_selection=True,
+    )
+
+    explain_lines = cast(list[str], breakdown.get("explain", []) or [])
+    assert any("ignored due to strict scope mismatch" in line for line in explain_lines)
+
+
 def test_anti_flake_requires_two_passes_without_double_count(tmp_path: Path) -> None:
     artifacts_dir = tmp_path
     case_id = "x1"

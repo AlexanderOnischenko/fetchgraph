@@ -44,14 +44,17 @@ def truncate(text: object | None, max_len: int) -> str:
     plain = strip_ansi(s)
     if len(plain) <= max_len:
         return s
-    if max_len == 1:
-        truncated_plain = plain[:1]
-    else:
-        truncated_plain = plain[: max_len - 1] + "…"
-    match = re.match(r"^(\x1b\[[0-9;]*m)(.*)(\x1b\[0m)$", s)
-    if match:
-        prefix, _, suffix = match.groups()
-        return f"{prefix}{truncated_plain}{suffix}"
+    truncated_plain = plain[:1] if max_len == 1 else plain[: max_len - 1] + "…"
+    prefix = ""
+    pos = 0
+    while True:
+        match = _ANSI_RE.match(s, pos)
+        if not match or match.start() != pos:
+            break
+        prefix += match.group()
+        pos = match.end()
+    if prefix:
+        return f"{prefix}{truncated_plain}{ANSI['reset']}"
     return truncated_plain
 
 

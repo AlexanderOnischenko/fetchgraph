@@ -177,19 +177,21 @@ def handle_report_tag(args) -> int:
         for tag, bucket in summary_by_tag.items():
             bad_bucket = sum((bucket.get(status, 0) or 0) for status in bad)
             pr = bucket.get("pass_rate")
-            buckets.append((tag, bad_bucket, pr))
+            buckets.append((tag, bad_bucket, pr, bucket))
         buckets.sort(key=lambda t: (-t[1], (t[2] if t[2] is not None else 1.1)))
         print("Top bad groups (by tag):")
-        headers = ["tag", "bad", "pass_rate"]
+        headers = ["tag", "bad", "ok", "total", "pass_rate"]
         rows = []
-        for tag, bad_bucket, pr in buckets[:5]:
+        for tag, bad_bucket, pr, bucket in buckets[:5]:
             pr_disp = fmt_pct(pr if isinstance(pr, (int, float)) else None)
-            rows.append([tag, fmt_num(bad_bucket), pr_disp])
+            row_total = bucket.get("total") if isinstance(bucket, dict) else None
+            row_ok = bucket.get("ok") if isinstance(bucket, dict) else None
+            rows.append([tag, fmt_num(bad_bucket), fmt_num(row_ok), fmt_num(row_total), pr_disp])
         print(
             render_table(
                 headers,
                 rows,
-                align_right={1, 2},
+                align_right={1, 2, 3, 4},
                 indent="  ",
             )
         )

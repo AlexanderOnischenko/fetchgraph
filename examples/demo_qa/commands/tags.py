@@ -174,7 +174,7 @@ def _format_table(rows: Iterable[TagInfo], *, use_color: bool) -> str:
     return render_table(
         headers,
         table_rows,
-        align_right={2, 3, 4, 5},
+        align_right={3, 4, 5},
         col_max={1: 25, 6: 80},
     )
 

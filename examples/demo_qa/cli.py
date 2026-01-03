@@ -173,7 +173,12 @@ def build_parser() -> argparse.ArgumentParser:
     stats_p.add_argument("--last", type=int, default=10, help="How many recent runs to show")
     stats_p.add_argument("--group-by", choices=["config_hash"], default=None, help="Group stats by config hash")
     stats_p.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for stats table")
-    stats_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format for stats")
+    stats_p.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format for stats (JSON is a list; config_hash included when grouped)",
+    )
 
     tags_p = sub.add_parser("tags", help="Tag utilities")
     tags_sub = tags_p.add_subparsers(dest="tags_command", required=True)

@@ -182,6 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
     new_group.add_argument("--new-tag", type=str, help="Use effective snapshot for this tag as new results")
     compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
     compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
+    compare_p.add_argument("--format", choices=["md", "table", "json"], default="md", help="Output format")
+    compare_p.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for table output")
     compare_p.add_argument(
         "--fail-on",
         choices=["error", "bad", "unchecked", "any", "skipped"],

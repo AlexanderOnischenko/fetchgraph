@@ -542,6 +542,109 @@ def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
     return content
 
 
+ANSI = {
+    "reset": "\x1b[0m",
+    "red": "\x1b[31m",
+    "green": "\x1b[32m",
+    "yellow": "\x1b[33m",
+    "gray": "\x1b[90m",
+}
+
+
+def _color(text: str, color: str, *, use_color: bool) -> str:
+    if not use_color:
+        return text
+    prefix = ANSI.get(color)
+    if not prefix:
+        return text
+    return f"{prefix}{text}{ANSI['reset']}"
+
+
+def _format_delta(value: int | float | None, *, positive_good: bool, use_color: bool) -> str:
+    if value is None:
+        return "n/a"
+    sign = "+" if value >= 0 else ""
+    text = f"{sign}{value}"
+    if value == 0:
+        return _color(text, "gray", use_color=use_color)
+    is_improvement = (value > 0 and positive_good) or (value < 0 and not positive_good)
+    return _color(text, "green" if is_improvement else "red", use_color=use_color)
+
+
+def _top_list(label: str, entries: list[DiffCaseChange], *, use_color: bool) -> list[str]:
+    lines = [label]
+    if not entries:
+        lines.append("  none")
+        return lines
+    for entry in entries[:10]:
+        status = f"{entry.get('from')} -> {entry.get('to')}"
+        reason = entry.get("reason") or ""
+        lines.append(f"  - {entry.get('id')}: {status} ({reason})")
+    return lines
+
+
+def render_table(compare: DiffReport, *, use_color: bool) -> str:
+    base_counts = compare["base_counts"]
+    new_counts = compare["new_counts"]
+    counts_delta = compare.get("counts_delta", {})
+    base_total = compare.get("base_total_cases", base_counts.get("total", 0))
+    new_total = compare.get("new_total_cases", new_counts.get("total", 0))
+    delta_bad = compare.get("new_bad_total", 0) - compare.get("base_bad_total", 0)
+    lines: list[str] = []
+    lines.append("Summary:")
+    lines.append(
+        f"  Base: ok={base_counts.get('ok',0)} mismatch={base_counts.get('mismatch',0)} error={base_counts.get('error',0)} failed={base_counts.get('failed',0)} unchecked={base_counts.get('unchecked',0)} total={base_total}"
+    )
+    lines.append(
+        f"  New : ok={new_counts.get('ok',0)} mismatch={new_counts.get('mismatch',0)} error={new_counts.get('error',0)} failed={new_counts.get('failed',0)} unchecked={new_counts.get('unchecked',0)} total={new_total}"
+    )
+    lines.append(
+        "  Δ    : "
+        f"ok={_format_delta(counts_delta.get('ok'), positive_good=True, use_color=use_color)} "
+        f"bad={_format_delta(delta_bad, positive_good=False, use_color=use_color)} "
+        f"unchecked={_format_delta(counts_delta.get('unchecked'), positive_good=False, use_color=use_color)} "
+        f"total={_format_delta(counts_delta.get('total'), positive_good=True, use_color=use_color)}"
+    )
+    lines.append("")
+    base_only_count = compare.get("base_only_count", 0)
+    new_only_count = compare.get("new_only_count", 0)
+    lines.append("Coverage:")
+    lines.append(f"  base_total_cases={base_total} new_total_cases={new_total}")
+    lines.append(
+        f"  only_in_base={_color(str(base_only_count), 'yellow', use_color=use_color)} only_in_new={_color(str(new_only_count), 'yellow', use_color=use_color)}"
+    )
+    lines.append("")
+    lines.extend(_top_list("Top regressions:", compare["new_fail"], use_color=use_color))
+    lines.append("")
+    lines.extend(_top_list("Top fixes:", compare["fixed"], use_color=use_color))
+    return "\n".join(lines)
+
+
+def render_json(compare: DiffReport) -> str:
+    summary = {
+        "base": compare.get("base_counts"),
+        "new": compare.get("new_counts"),
+        "deltas": {
+            "counts": compare.get("counts_delta"),
+            "bad": compare.get("new_bad_total", 0) - compare.get("base_bad_total", 0),
+        },
+        "coverage": {
+            "base_total_cases": compare.get("base_total_cases"),
+            "new_total_cases": compare.get("new_total_cases"),
+            "only_in_base": compare.get("base_only_count"),
+            "only_in_new": compare.get("new_only_count"),
+        },
+    }
+    payload = {
+        "summary": summary,
+        "top_regressions": compare.get("new_fail", [])[:10],
+        "top_fixes": compare.get("fixed", [])[:10],
+        "fail_on": compare.get("fail_on"),
+        "require_assert": compare.get("require_assert"),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 def write_junit(compare: DiffReport, out_path: Path) -> None:
     import xml.etree.ElementTree as ET
 
@@ -1436,6 +1539,16 @@ def _render_missing_effective_error(tag: str, attempted: list[Path]) -> str:
     return message
 
 
+def _should_use_color(mode: str, *, stream, force_plain: bool = False) -> bool:
+    if force_plain:
+        return False
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    return bool(getattr(stream, "isatty", lambda: False)())
+
+
 def handle_compare(args) -> int:
     if args.base and args.base_tag:
         print("Use either --base or --base-tag (not both).", file=sys.stderr)
@@ -1482,7 +1595,27 @@ def handle_compare(args) -> int:
         return 2
     comparison = compare_runs(base_path, new_path, fail_on=args.fail_on, require_assert=args.require_assert)
     out_path = Path(args.out) if args.out is not None else None
-    report = render_markdown(comparison, out_path)
+    format_mode = getattr(args, "format", "md")
+    color_mode = getattr(args, "color", "auto")
+    stdout_color = _should_use_color(color_mode, stream=sys.stdout, force_plain=bool(out_path))
+
+    report = ""
+    file_report = None
+    if format_mode == "md":
+        report = render_markdown(comparison, out_path)
+    elif format_mode == "table":
+        report = render_table(comparison, use_color=stdout_color)
+        if out_path:
+            file_report = render_table(comparison, use_color=_should_use_color(color_mode, stream=sys.stdout, force_plain=True))
+    elif format_mode == "json":
+        report = render_json(comparison)
+        file_report = report
+    else:
+        print("Unknown format; use md, table, or json.", file=sys.stderr)
+        return 2
+
+    if out_path and file_report is not None:
+        out_path.write_text(file_report, encoding="utf-8")
     print(report)
     if args.junit:
         junit_path = Path(args.junit)

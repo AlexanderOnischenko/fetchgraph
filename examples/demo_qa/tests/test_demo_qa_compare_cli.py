@@ -69,6 +69,11 @@ def _write_effective_snapshot(data_dir: Path, tag: str, results: list[RunResult]
     return results_path
 
 
+def _write_results_file(path: Path, results: list[RunResult]) -> Path:
+    write_results(path, results)
+    return path
+
+
 def test_compare_resolves_effective_snapshots(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data_dir = tmp_path / "data"
     _write_effective_snapshot(data_dir, "baseline", [_make_result("case-1", "ok")])
@@ -116,3 +121,33 @@ def test_compare_rejects_mixed_base_args(tmp_path: Path, capsys: pytest.CaptureF
     assert excinfo.value.code == 2
     captured = capsys.readouterr().err
     assert "argument --base-tag: not allowed with argument --base" in captured
+
+
+def test_compare_table_format_without_color(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    base = _write_results_file(tmp_path / "base.jsonl", [_make_result("case-1", "ok")])
+    new = _write_results_file(tmp_path / "new.jsonl", [_make_result("case-1", "failed")])
+
+    args = build_parser().parse_args(
+        ["compare", "--base", str(base), "--new", str(new), "--format", "table", "--color", "never"]
+    )
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Summary:" in captured
+    assert "Top regressions" in captured
+    assert "\x1b[" not in captured
+
+
+def test_compare_json_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    base = _write_results_file(tmp_path / "base.jsonl", [_make_result("case-1", "failed")])
+    new = _write_results_file(tmp_path / "new.jsonl", [_make_result("case-1", "ok")])
+
+    args = build_parser().parse_args(["compare", "--base", str(base), "--new", str(new), "--format", "json"])
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr().out
+
+    assert exit_code == 0
+    payload = json.loads(captured)
+    assert payload["summary"]["coverage"]["base_total_cases"] == 1
+    assert payload["top_fixes"]

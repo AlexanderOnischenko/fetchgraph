@@ -85,7 +85,9 @@ python -m examples.demo_qa.cli batch \
 
 * `--fail-on (error|bad|unchecked|any|skipped)`, `--max-fails`, `--fail-fast`, `--require-assert` — остановка/код выхода (0/1/2) и строгость проверок.
 * `--only-failed` / `--only-failed-from PATH` — перепрогон только плохих кейсов (baseline = latest либо явно заданный results).
+* `--only-failed-effective` — перепрогон только плохих кейсов относительно effective snapshot для `--tag` (без ручного поиска baseline).
 * `--only-missed` / `--only-missed-from PATH` — “добить” только те кейсы, которые отсутствуют в baseline results (удобно после Ctrl-C).
+* `--only-missed-effective` — “добить” кейсы, которых нет в effective snapshot для `--tag`.
 * `--tag TAG` / `--note "..."` — пометить прогон как часть эксперимента. Для `--tag` поддерживается “effective snapshot”: результаты по тегу накапливаются инкрементально, так что `--only-failed/--only-missed` по тегу корректно работают даже после частичных прогонов.
 * `--plan-only` — строить планы без выполнения.
 
@@ -100,7 +102,7 @@ python -m examples.demo_qa.cli batch \
 * `python -m examples.demo_qa.cli report tag --data <DATA_DIR> --tag <TAG>` — сводка по “effective” результатам тега.
 * `python -m examples.demo_qa.cli report run --data <DATA_DIR> --run runs/latest` — сводка по конкретному run.
 * `python -m examples.demo_qa.cli history case <id> --data <DATA_DIR> [--tag <TAG>]` — история по кейсу.
-* `python -m examples.demo_qa.cli compare --base <PATH> --new <PATH> [--out ... --junit ...]` — сравнить два результата по путям.
+* `python -m examples.demo_qa.cli compare --base <PATH> --new <PATH> [--out ... --junit ... --format md|table|json --color auto|always|never]` — сравнить два результата по путям (табличный и JSON форматы удобны для CI/терминала).
 * `python -m examples.demo_qa.cli compare --data <DATA_DIR> --base-tag <TAG1> --new-tag <TAG2> [...]` — сравнить “effective snapshot” двух тегов без явных путей (работает и для неполных прогонов).
 
 ### Удобные алиасы (bash/zsh)
@@ -122,6 +124,8 @@ dq() { python -m examples.demo_qa.cli "$@"; }
 dq-batch()  { dq batch  --data "$DQ_DATA" --schema "$DQ_SCHEMA" --cases "$DQ_CASES" --out "$DQ_OUT" "$@"; }
 dq-failed() { dq-batch --only-failed "$@"; }
 dq-missed() { dq-batch --only-missed "$@"; }
+dq-failed-effective()  { dq-batch --tag "$DQ_TAG" --only-failed-effective "$@"; }
+dq-missed-effective()  { dq-batch --tag "$DQ_TAG" --only-missed-effective "$@"; }
 
 # Tagged (effective) workflow
 dq-batch-tag()  { dq-batch --tag "$DQ_TAG" "$@"; }

@@ -4,8 +4,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from examples.demo_qa.llm.factory import build_llm
 from examples.demo_qa.llm.openai_adapter import OpenAILLM
 from examples.demo_qa.settings import load_settings
@@ -36,7 +34,9 @@ plan_model = "toml-plan"
     assert settings.llm.plan_model == "env-plan"
 
 
-def test_openai_requires_api_key(tmp_path):
+
+
+def test_allow_missing_api_key_when_disabled(tmp_path):
     config_path = tmp_path / "demo_qa.toml"
     write_toml(
         config_path,
@@ -47,8 +47,9 @@ synth_model = "gpt-4o-mini"
 """,
     )
 
-    with pytest.raises(ValueError):
-        load_settings(config_path=config_path)
+    settings, resolved = load_settings(config_path=config_path)
+    assert resolved == config_path
+    assert settings.llm.api_key is None
 
 
 def test_openai_key_from_global_env(tmp_path, monkeypatch):

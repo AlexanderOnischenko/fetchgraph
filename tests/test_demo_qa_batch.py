@@ -11,7 +11,6 @@ from typing import cast
 import pytest
 
 import examples.demo_qa.batch as batch
-from examples.demo_qa.cli import build_parser
 from examples.demo_qa.batch import (
     _consecutive_passes,
     _fingerprint_dir,
@@ -24,6 +23,7 @@ from examples.demo_qa.batch import (
     render_markdown,
     write_results,
 )
+from examples.demo_qa.cli import build_parser
 from examples.demo_qa.runner import DiffReport, RunResult, RunTimings, diff_runs
 from examples.demo_qa.runs.coverage import _missed_case_ids
 from examples.demo_qa.runs.layout import _latest_markers, _update_latest_markers
@@ -546,7 +546,7 @@ def test_explicit_config_path_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_packaged_default_config_used_when_no_cli_or_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    run_meta = _run_batch_and_meta(tmp_path, monkeypatch, env_api_key="sk-env")
+    run_meta = _run_batch_and_meta(tmp_path, monkeypatch, env_api_key=None)
 
     config_path = run_meta["inputs"]["config_path"]
     assert config_path is not None

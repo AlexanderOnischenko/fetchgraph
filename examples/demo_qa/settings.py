@@ -93,8 +93,6 @@ class DemoQASettings(BaseSettings):
             env_key = os.getenv("OPENAI_API_KEY")
             if env_key:
                 self.llm.api_key = env_key
-        if not self.llm.api_key:
-            raise ValueError("llm.api_key is required. Provide it in config or set OPENAI_API_KEY.")
         return self
 
 
@@ -107,7 +105,8 @@ def resolve_config_path(config: Path | None, data_dir: Path | None) -> Path | No
         candidate = data_dir / "demo_qa.toml"
         if candidate.exists():
             return candidate
-    default = Path(__file__).resolve().parent / "demo_qa.toml"
+    root = Path(__file__).resolve().parent
+    default = root / "demo_qa.toml"
     if default.exists():
         return default
     return None

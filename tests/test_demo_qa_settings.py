@@ -29,7 +29,8 @@ plan_model = "toml-plan"
     monkeypatch.setenv("DEMO_QA_LLM__API_KEY", "sk-from-env")
     monkeypatch.setenv("DEMO_QA_LLM__PLAN_MODEL", "env-plan")
 
-    settings = load_settings(config_path=config_path)
+    settings, resolved = load_settings(config_path=config_path)
+    assert resolved == config_path
     assert settings.llm.api_key == "sk-from-env"
     assert settings.llm.base_url == "http://localhost:1234/v1"
     assert settings.llm.plan_model == "env-plan"
@@ -61,7 +62,8 @@ base_url = "http://localhost:1234/v1"
     )
     monkeypatch.setenv("OPENAI_API_KEY", "sk-global")
 
-    settings = load_settings(config_path=config_path)
+    settings, resolved = load_settings(config_path=config_path)
+    assert resolved == config_path
     assert settings.llm.api_key == "sk-global"
 
 
@@ -96,7 +98,8 @@ plan_model = "demo-plan"
 
     monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
 
-    settings = load_settings(config_path=config_path)
+    settings, resolved = load_settings(config_path=config_path)
+    assert resolved == config_path
     llm = build_llm(settings)
 
     result = llm("hello", sender="generic_plan")

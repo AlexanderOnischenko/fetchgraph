@@ -429,7 +429,7 @@ def _resolve_run_path(path: Path | None, artifacts_dir: Path) -> Optional[Path]:
 
 def handle_chat(args) -> int:
     try:
-        settings = load_settings(config_path=args.config, data_dir=args.data)
+        settings, _ = load_settings(config_path=args.config, data_dir=args.data)
     except Exception as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
@@ -605,10 +605,10 @@ def handle_batch(args) -> int:
     data_dir = Path(args.data)
     schema_path = Path(args.schema)
     cases_path = Path(args.cases)
-    config_path = Path(args.config) if args.config else None
+    cli_config_path = Path(args.config) if args.config else None
 
     try:
-        settings = load_settings(config_path=config_path, data_dir=data_dir)
+        settings, resolved_config_path = load_settings(config_path=cli_config_path, data_dir=data_dir)
     except Exception as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
@@ -1047,7 +1047,7 @@ def handle_batch(args) -> int:
         except Exception as exc:
             print(f"Failed to update effective results for tag {args.tag!r}: {exc}", file=sys.stderr)
 
-    config_hash = _hash_file(config_path) if config_path else None
+    config_hash = _hash_file(resolved_config_path) if resolved_config_path else None
     schema_hash = _hash_file(schema_path)
     data_fingerprint = _fingerprint_dir(data_dir, verbose=args.fingerprint_verbose)
     git_sha = _git_sha()
@@ -1060,7 +1060,7 @@ def handle_batch(args) -> int:
         "inputs": {
             "cases_path": str(cases_path),
             "cases_hash": cases_hash,
-            "config_path": str(config_path) if config_path else None,
+            "config_path": str(resolved_config_path) if resolved_config_path else None,
             "config_hash": config_hash,
             "schema_path": str(schema_path),
             "schema_hash": schema_hash,
@@ -1230,7 +1230,7 @@ def handle_batch(args) -> int:
 
 def handle_case_run(args) -> int:
     try:
-        settings = load_settings(config_path=args.config, data_dir=args.data)
+        settings, _ = load_settings(config_path=args.config, data_dir=args.data)
     except Exception as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2

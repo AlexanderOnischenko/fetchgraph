@@ -118,7 +118,7 @@ def load_settings(
     config_path: Path | None = None,
     data_dir: Path | None = None,
     overrides: Dict[str, Any] | None = None,
-) -> DemoQASettings:
+) -> tuple[DemoQASettings, Path | None]:
     resolved = resolve_config_path(config_path, data_dir)
     DemoQASettings._toml_path = resolved
     try:
@@ -127,7 +127,7 @@ def load_settings(
         DemoQASettings._toml_path = None
         raise
     DemoQASettings._toml_path = None
-    return settings
+    return settings, resolved
 
 
 __all__ = ["DemoQASettings", "LLMSettings", "resolve_config_path", "load_settings"]

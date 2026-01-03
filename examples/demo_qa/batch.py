@@ -30,7 +30,7 @@ from .runner import (
     save_status,
     summarize,
 )
-from .runs.case_history import _append_case_history
+from .runs.case_history import _append_case_history, _load_case_history
 from .runs.coverage import _missed_case_ids
 from .runs.effective import (
     _append_effective_diff,
@@ -118,19 +118,70 @@ def _load_ids(path: Optional[Path]) -> set[str] | None:
     return ids
 
 
+def _consecutive_passes(
+    case_id: str,
+    overlay_result: RunResult,
+    artifacts_dir: Path,
+    *,
+    tag: str | None,
+    scope_hash: str,
+    passes_required: int,
+    fail_on: str,
+    require_assert: bool,
+) -> bool:
+    if passes_required <= 1:
+        return True
+    bad = bad_statuses(fail_on, require_assert)
+    if overlay_result.status in bad:
+        return False
+    count = 1
+    history_path = artifacts_dir / "runs" / "cases" / f"{case_id}.jsonl"
+    entries = list(reversed(_load_case_history(history_path)))
+    for entry in entries:
+        if tag is not None and entry.get("tag") != tag:
+            continue
+        if scope_hash and entry.get("scope_hash") not in (None, scope_hash):
+            continue
+        status = str(entry.get("status", ""))
+        if status in bad:
+            break
+        count += 1
+        if count >= passes_required:
+            return True
+    return count >= passes_required
+
+
 def _only_failed_selection(
     baseline_results: Mapping[str, RunResult] | None,
     overlay_results: Mapping[str, RunResult] | None,
     *,
     fail_on: str,
     require_assert: bool,
+    artifacts_dir: Path,
+    tag: str | None,
+    scope_hash: str,
+    anti_flake_passes: int,
 ) -> tuple[set[str], dict[str, object]]:
     baseline = baseline_results or {}
     overlay = overlay_results or {}
     bad = bad_statuses(fail_on, require_assert)
     baseline_bad = {cid for cid, res in baseline.items() if res.status in bad}
     overlay_bad = {cid for cid, res in overlay.items() if res.status in bad}
-    overlay_good = {cid for cid, res in overlay.items() if res.status not in bad}
+    overlay_good = {
+        cid
+        for cid, res in overlay.items()
+        if res.status not in bad
+        and _consecutive_passes(
+            cid,
+            res,
+            artifacts_dir,
+            tag=tag,
+            scope_hash=scope_hash,
+            passes_required=anti_flake_passes,
+            fail_on=fail_on,
+            require_assert=require_assert,
+        )
+    }
 
     healed = baseline_bad & overlay_good
     selection = (baseline_bad - healed) | overlay_bad
@@ -509,6 +560,10 @@ def handle_batch(args) -> int:
             overlay_results if not args.no_overlay else None,
             fail_on=args.fail_on,
             require_assert=args.require_assert,
+            artifacts_dir=artifacts_dir,
+            tag=args.tag,
+            scope_hash=scope_id,
+            anti_flake_passes=max(1, int(args.anti_flake_passes)),
         )
         cases = [case for case in cases if case.id in selection_ids]
         failed_selection_ids = selection_ids
@@ -831,6 +886,7 @@ def handle_batch(args) -> int:
             "fail_fast": args.fail_fast,
             "max_fails": args.max_fails,
             "no_overlay": args.no_overlay,
+            "anti_flake_passes": args.anti_flake_passes,
         },
         "interrupted": interrupted,
         "interrupted_at_case_id": interrupted_at_case_id,
@@ -1020,7 +1076,7 @@ def handle_case_open(args) -> int:
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
     run_path = _resolve_run_path(args.run, artifacts_dir)
     if not run_path:
-        print("No run found. Provide --run or ensure runs/latest.txt exists.", file=sys.stderr)
+        print("No run found. Provide --run or ensure runs/latest_any.txt exists (run a batch first).", file=sys.stderr)
         return 2
     case_dir = _find_case_artifact(run_path, args.case_id)
     if not case_dir:

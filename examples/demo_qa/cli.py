@@ -96,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Ignore latest partial run when selecting only-failed/only-missed (use baseline only)",
     )
+    batch_p.add_argument(
+        "--anti-flake-passes",
+        type=int,
+        default=2,
+        help="Require N consecutive PASS results to consider a test healed (applies to --only-failed overlay logic)",
+    )
     batch_p.add_argument("--plan-only", action="store_true", help="Run planner only (no fetch/synthesize)")
     batch_p.add_argument("--quiet", action="store_true", help="Print only summary and exit code")
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")

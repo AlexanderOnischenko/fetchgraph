@@ -140,6 +140,7 @@ def _consecutive_passes(
     for entry in entries:
         if tag is not None and entry.get("tag") != tag:
             continue
+        # Old history entries may not contain scope_hash; treat missing as compatible for migration.
         if scope_hash and entry.get("scope_hash") not in (None, scope_hash):
             continue
         status = str(entry.get("status", ""))
@@ -535,9 +536,7 @@ def handle_batch(args) -> int:
             return 2
 
     overlay_run_path = _load_latest_run(artifacts_dir, args.tag, kind="any")
-    overlay_results_path = _resolve_results_path_for_run(overlay_run_path) or _load_latest_any_results(
-        artifacts_dir, args.tag
-    )
+    overlay_results_path = _load_latest_any_results(artifacts_dir, args.tag)
     if overlay_results_path and not args.no_overlay:
         try:
             overlay_results = load_results(overlay_results_path)
@@ -1092,7 +1091,10 @@ def handle_case_open(args) -> int:
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
     run_path = _resolve_run_path(args.run, artifacts_dir)
     if not run_path:
-        print("No run found. Provide --run or ensure runs/latest_any.txt exists (run a batch first).", file=sys.stderr)
+        print(
+            "No run found. Provide --run or ensure latest markers exist (latest_any/latest_complete); run a batch first.",
+            file=sys.stderr,
+        )
         return 2
     case_dir = _find_case_artifact(run_path, args.case_id)
     if not case_dir:

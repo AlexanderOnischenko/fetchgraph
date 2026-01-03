@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 import pandas as pd
 
-from fetchgraph.relational_schema import build_sql_provider_from_schema
+from fetchgraph.relational.schema import build_sql_provider_from_schema
 
 from .schema import RETAIL_SCHEMA
 

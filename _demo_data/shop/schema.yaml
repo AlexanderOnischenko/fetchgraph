@@ -1,0 +1,212 @@
+{
+  "name": "demo_qa",
+  "label": "Demo QA",
+  "description": "Synthetic commerce dataset for fetchgraph demo QA.",
+  "entities": [
+    {
+      "name": "customers",
+      "label": "Customers",
+      "source": "customers.csv",
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "int",
+          "pk": true,
+          "semantic": false
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "city",
+          "type": "text",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "segment",
+          "type": "text",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "signup_date",
+          "type": "date",
+          "pk": false,
+          "semantic": false
+        }
+      ],
+      "semantic_text_fields": [],
+      "planning_hint": "Customer demographics and signup information."
+    },
+    {
+      "name": "products",
+      "label": "Products",
+      "source": "products.csv",
+      "columns": [
+        {
+          "name": "product_id",
+          "type": "int",
+          "pk": true,
+          "semantic": false
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "price",
+          "type": "float",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "in_stock",
+          "type": "int",
+          "pk": false,
+          "semantic": false
+        }
+      ],
+      "semantic_text_fields": [],
+      "planning_hint": "Catalog of products and pricing."
+    },
+    {
+      "name": "orders",
+      "label": "Orders",
+      "source": "orders.csv",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "int",
+          "pk": true,
+          "semantic": false
+        },
+        {
+          "name": "customer_id",
+          "type": "int",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "order_date",
+          "type": "date",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "channel",
+          "type": "text",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "order_total",
+          "type": "float",
+          "pk": false,
+          "semantic": false
+        }
+      ],
+      "semantic_text_fields": [],
+      "planning_hint": "Orders placed by customers across channels."
+    },
+    {
+      "name": "order_items",
+      "label": "Order Items",
+      "source": "order_items.csv",
+      "columns": [
+        {
+          "name": "order_item_id",
+          "type": "int",
+          "pk": true,
+          "semantic": false
+        },
+        {
+          "name": "order_id",
+          "type": "int",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "product_id",
+          "type": "int",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "quantity",
+          "type": "int",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "unit_price",
+          "type": "float",
+          "pk": false,
+          "semantic": false
+        },
+        {
+          "name": "line_total",
+          "type": "float",
+          "pk": false,
+          "semantic": false
+        }
+      ],
+      "semantic_text_fields": [],
+      "planning_hint": "Line items for each order."
+    }
+  ],
+  "relations": [
+    {
+      "name": "orders_to_customers",
+      "from_entity": "orders",
+      "from_column": "customer_id",
+      "to_entity": "customers",
+      "to_column": "customer_id",
+      "cardinality": "many_to_1",
+      "semantic_hint": null,
+      "planning_hint": "Orders reference the customer placing them."
+    },
+    {
+      "name": "items_to_orders",
+      "from_entity": "order_items",
+      "from_column": "order_id",
+      "to_entity": "orders",
+      "to_column": "order_id",
+      "cardinality": "many_to_1",
+      "semantic_hint": null,
+      "planning_hint": "Order items belong to a single order."
+    },
+    {
+      "name": "items_to_products",
+      "from_entity": "order_items",
+      "from_column": "product_id",
+      "to_entity": "products",
+      "to_column": "product_id",
+      "cardinality": "many_to_1",
+      "semantic_hint": null,
+      "planning_hint": "Order items reference a product."
+    }
+  ],
+  "planning_hints": [
+    "Prefer aggregates instead of returning raw rows.",
+    "Use joins only when relevant to the question."
+  ],
+  "examples": []
+}

@@ -1,0 +1,200 @@
+{"id": "agg_001", "question": "Сколько всего заказов (orders) в датасете? Ответь только числом.", "expected_regex": "(?<!\\d)1000(?!\\d)", "tags": ["agg", "count"]}
+{"id": "agg_002", "question": "Сколько всего клиентов (customers) в датасете? Ответь только числом.", "expected_regex": "(?<!\\d)1000(?!\\d)", "tags": ["agg", "count"]}
+{"id": "agg_003", "question": "Сколько всего товаров (products) в датасете? Ответь только числом.", "expected_regex": "(?<!\\d)333(?!\\d)", "tags": ["agg", "count"]}
+{"id": "agg_004", "question": "Сколько всего строк в таблице order_items? Ответь только числом.", "expected_regex": "(?<!\\d)2527(?!\\d)", "tags": ["agg", "count"]}
+{"id": "agg_005", "question": "Сколько уникальных клиентов сделали хотя бы один заказ? Ответь только числом.", "expected_regex": "(?<!\\d)612(?!\\d)", "tags": ["agg", "distinct"]}
+{"id": "agg_006", "question": "Какова самая ранняя дата заказа (min orders.order_date)? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-01-01", "tags": ["agg", "date"]}
+{"id": "agg_007", "question": "Какова самая поздняя дата заказа (max orders.order_date)? Ответь строго YYYY-MM-DD.", "expected_contains": "2024-05-31", "tags": ["agg", "date"]}
+{"id": "agg_008", "question": "Какова общая выручка по всем заказам (sum orders.order_total)? Ответь числом с 2 знаками после точки, без пробелов.", "expected_regex": "(?<!\\d)1884643\\.88(?!\\d)", "tags": ["agg", "sum"]}
+{"id": "agg_009", "question": "Каков средний чек (avg orders.order_total) по всем заказам? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)1884\\.64(?!\\d)", "tags": ["agg", "avg"]}
+{"id": "agg_010", "question": "Каков медианный чек (median orders.order_total) по всем заказам? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)1723\\.77(?!\\d)", "tags": ["agg", "median"]}
+{"id": "agg_011", "question": "Какой минимальный чек (min orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)10\\.62(?!\\d)", "tags": ["agg", "minmax"]}
+{"id": "agg_012", "question": "Какой максимальный чек (max orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)6218\\.39(?!\\d)", "tags": ["agg", "minmax"]}
+{"id": "agg_013", "question": "Какой order_id у заказа с максимальным order_total? Ответь только числом.", "expected_regex": "(?<!\\d)135(?!\\d)", "tags": ["agg", "argmax"]}
+{"id": "agg_014", "question": "Какой order_id у заказа с минимальным order_total? Ответь только числом.", "expected_regex": "(?<!\\d)117(?!\\d)", "tags": ["agg", "argmin"]}
+{"id": "agg_015", "question": "Сколько заказов со статусом 'cancelled'? Ответь только числом.", "expected_regex": "(?<!\\d)197(?!\\d)", "tags": ["agg", "status"]}
+{"id": "agg_016", "question": "Сколько заказов со статусом 'delivered'? Ответь только числом.", "expected_regex": "(?<!\\d)229(?!\\d)", "tags": ["agg", "status"]}
+{"id": "agg_017", "question": "Сколько заказов со статусом 'pending'? Ответь только числом.", "expected_regex": "(?<!\\d)189(?!\\d)", "tags": ["agg", "status"]}
+{"id": "agg_018", "question": "Сколько заказов со статусом 'processing'? Ответь только числом.", "expected_regex": "(?<!\\d)190(?!\\d)", "tags": ["agg", "status"]}
+{"id": "agg_019", "question": "Сколько заказов со статусом 'shipped'? Ответь только числом.", "expected_regex": "(?<!\\d)195(?!\\d)", "tags": ["agg", "status"]}
+{"id": "agg_020", "question": "Сколько заказов через канал 'online'? Ответь только числом.", "expected_regex": "(?<!\\d)265(?!\\d)", "tags": ["agg", "channel"]}
+{"id": "agg_021", "question": "Сколько заказов через канал 'partner'? Ответь только числом.", "expected_regex": "(?<!\\d)245(?!\\d)", "tags": ["agg", "channel"]}
+{"id": "agg_022", "question": "Сколько заказов через канал 'phone'? Ответь только числом.", "expected_regex": "(?<!\\d)246(?!\\d)", "tags": ["agg", "channel"]}
+{"id": "agg_023", "question": "Сколько заказов через канал 'retail'? Ответь только числом.", "expected_regex": "(?<!\\d)244(?!\\d)", "tags": ["agg", "channel"]}
+{"id": "agg_030", "question": "Сколько заказов было в 2022 году? Ответь только числом.", "expected_regex": "(?<!\\d)410(?!\\d)", "tags": ["agg", "year"]}
+{"id": "agg_031", "question": "Сколько заказов было в 2023 году? Ответь только числом.", "expected_regex": "(?<!\\d)404(?!\\d)", "tags": ["agg", "year"]}
+{"id": "agg_032", "question": "Сколько заказов было в 2024 году? Ответь только числом.", "expected_regex": "(?<!\\d)186(?!\\d)", "tags": ["agg", "year"]}
+{"id": "agg_033", "question": "В каком месяце было больше всего заказов? Ответь строго YYYY-MM.", "expected_contains": "2022-07", "tags": ["agg", "month"]}
+{"id": "agg_034", "question": "В каком месяце было меньше всего заказов? Ответь строго YYYY-MM.", "expected_contains": "2022-03", "tags": ["agg", "month"]}
+{"id": "agg_035", "question": "Сколько заказов было в 2022-03? Ответь только числом.", "expected_regex": "(?<!\\d)28(?!\\d)", "tags": ["agg", "month"]}
+{"id": "agg_036", "question": "Сколько заказов было в 2022-07? Ответь только числом.", "expected_regex": "(?<!\\d)45(?!\\d)", "tags": ["agg", "month"]}
+{"id": "agg_037", "question": "Какая категория товаров принесла больше всего выручки (по order_items.line_total)? Ответь одним словом (category).", "expected_contains": "toys", "tags": ["agg", "category"]}
+{"id": "agg_038", "question": "Какова общая выручка (sum line_total) по категории 'toys'? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)363503\\.05(?!\\d)", "tags": ["agg", "category"]}
+{"id": "cat_rev_toys", "question": "Какова общая выручка (sum line_total) по категории 'toys'? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)363503\\.05(?!\\d)", "tags": ["agg", "category"]}
+{"id": "cat_rev_books", "question": "Какова общая выручка (sum line_total) по категории 'books'? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)319278\\.84(?!\\d)", "tags": ["agg", "category"]}
+{"id": "cat_rev_electronics", "question": "Какова общая выручка (sum line_total) по категории 'electronics'? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)317969\\.51(?!\\d)", "tags": ["agg", "category"]}
+{"id": "cat_rev_furniture", "question": "Какова общая выручка (sum line_total) по категории 'furniture'? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)311900\\.48(?!\\d)", "tags": ["agg", "category"]}
+{"id": "cat_rev_office_supplies", "question": "Какова общая выручка (sum line_total) по категории 'office_supplies'? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)296822\\.87(?!\\d)", "tags": ["agg", "category"]}
+{"id": "cat_rev_outdoors", "question": "Какова общая выручка (sum line_total) по категории 'outdoors'? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)275169\\.13(?!\\d)", "tags": ["agg", "category"]}
+{"id": "prod_ext_001", "question": "Какой product_id у самого дорогого товара (max products.price)? Ответь только числом.", "expected_regex": "(?<!\\d)153(?!\\d)", "tags": ["product", "extremes"]}
+{"id": "prod_ext_002", "question": "Какова цена самого дорогого товара (max products.price)? Ответь числом (десятичная точка).", "expected_regex": "(?<!\\d)498\\.90?(?!\\d)", "tags": ["product", "extremes"]}
+{"id": "prod_ext_003", "question": "Какой product_id у самого дешевого товара (min products.price)? Ответь только числом.", "expected_regex": "(?<!\\d)115(?!\\d)", "tags": ["product", "extremes"]}
+{"id": "prod_ext_004", "question": "Какова цена самого дешевого товара (min products.price)? Ответь числом (десятичная точка).", "expected_regex": "(?<!\\d)6\\.270?(?!\\d)", "tags": ["product", "extremes"]}
+{"id": "prod_top_001", "question": "Какой product_id принес больше всего выручки (sum order_items.line_total)? Ответь только числом.", "expected_regex": "(?<!\\d)155(?!\\d)", "tags": ["product", "top"]}
+{"id": "prod_top_002", "question": "Сколько выручки принес product_id-лидер (sum line_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)23524\\.48(?!\\d)", "tags": ["product", "top"]}
+{"id": "prod_top_003", "question": "Сколько единиц (sum order_items.quantity) продано для продукта-лидера по количеству? Ответь только числом.", "expected_regex": "(?<!\\d)64(?!\\d)", "tags": ["product", "top"]}
+{"id": "items_001", "question": "Какое общее количество единиц товара было продано (sum order_items.quantity)? Ответь только числом.", "expected_regex": "(?<!\\d)7567(?!\\d)", "tags": ["items", "sum"]}
+{"id": "items_002", "question": "Сколько заказов содержат больше 3 позиций (кол-во order_items по order_id > 3)? Ответь только числом.", "expected_regex": "(?<!\\d)257(?!\\d)", "tags": ["items", "distribution"]}
+{"id": "items_003", "question": "Сколько заказов состоят ровно из 1 позиции (order_items per order_id = 1)? Ответь только числом.", "expected_regex": "(?<!\\d)239(?!\\d)", "tags": ["items", "distribution"]}
+{"id": "geo_001", "question": "Сколько заказов было у клиентов из города San Antonio в месяце 2022-03? Ответь только числом.", "expected_regex": "(?<!\\d)10(?!\\d)", "tags": ["geo", "month"]}
+{"id": "geo_002", "question": "Сколько заказов со статусом shipped было у клиентов из San Antonio в 2022-03? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["geo", "month"]}
+{"id": "geo_003", "question": "Сколько заказов было у клиентов из Los Angeles в 2023-08? Ответь только числом.", "expected_regex": "(?<!\\d)11(?!\\d)", "tags": ["geo", "month"]}
+{"id": "cust_323_city", "question": "В каком городе зарегистрирован customer_id 323? Ответь ровно названием города.", "expected_contains": "New York", "tags": ["customer", "lookup"]}
+{"id": "cust_323_segment", "question": "Какой сегмент у customer_id 323? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "corporate", "tags": ["customer", "lookup"]}
+{"id": "cust_323_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 323? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-10-08", "tags": ["customer", "lookup"]}
+{"id": "cust_323_orders", "question": "Сколько заказов сделал customer_id 323? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_323_spend", "question": "Сколько всего потратил customer_id 323 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)1442\\.37(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_323_last", "question": "Какая дата последнего заказа у customer_id 323? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-08-08", "tags": ["customer", "agg"]}
+{"id": "cust_536_city", "question": "В каком городе зарегистрирован customer_id 536? Ответь ровно названием города.", "expected_contains": "Chicago", "tags": ["customer", "lookup"]}
+{"id": "cust_536_segment", "question": "Какой сегмент у customer_id 536? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "corporate", "tags": ["customer", "lookup"]}
+{"id": "cust_536_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 536? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-05-19", "tags": ["customer", "lookup"]}
+{"id": "cust_536_orders", "question": "Сколько заказов сделал customer_id 536? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_536_spend", "question": "Сколько всего потратил customer_id 536 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)1074\\.70(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_536_last", "question": "Какая дата последнего заказа у customer_id 536? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-07-03", "tags": ["customer", "agg"]}
+{"id": "cust_692_city", "question": "В каком городе зарегистрирован customer_id 692? Ответь ровно названием города.", "expected_contains": "Philadelphia", "tags": ["customer", "lookup"]}
+{"id": "cust_692_segment", "question": "Какой сегмент у customer_id 692? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "consumer", "tags": ["customer", "lookup"]}
+{"id": "cust_692_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 692? Ответь строго YYYY-MM-DD.", "expected_contains": "2021-05-09", "tags": ["customer", "lookup"]}
+{"id": "cust_692_orders", "question": "Сколько заказов сделал customer_id 692? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_692_spend", "question": "Сколько всего потратил customer_id 692 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)418\\.97(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_692_last", "question": "Какая дата последнего заказа у customer_id 692? Ответь строго YYYY-MM-DD.", "expected_contains": "2024-01-14", "tags": ["customer", "agg"]}
+{"id": "cust_722_city", "question": "В каком городе зарегистрирован customer_id 722? Ответь ровно названием города.", "expected_contains": "Philadelphia", "tags": ["customer", "lookup"]}
+{"id": "cust_722_segment", "question": "Какой сегмент у customer_id 722? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "consumer", "tags": ["customer", "lookup"]}
+{"id": "cust_722_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 722? Ответь строго YYYY-MM-DD.", "expected_contains": "2021-04-30", "tags": ["customer", "lookup"]}
+{"id": "cust_722_orders", "question": "Сколько заказов сделал customer_id 722? Ответь только числом.", "expected_regex": "(?<!\\d)2(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_722_spend", "question": "Сколько всего потратил customer_id 722 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)2475\\.47(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_722_last", "question": "Какая дата последнего заказа у customer_id 722? Ответь строго YYYY-MM-DD.", "expected_contains": "2024-03-26", "tags": ["customer", "agg"]}
+{"id": "cust_725_city", "question": "В каком городе зарегистрирован customer_id 725? Ответь ровно названием города.", "expected_contains": "Houston", "tags": ["customer", "lookup"]}
+{"id": "cust_725_segment", "question": "Какой сегмент у customer_id 725? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "corporate", "tags": ["customer", "lookup"]}
+{"id": "cust_725_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 725? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-05-27", "tags": ["customer", "lookup"]}
+{"id": "cust_725_orders", "question": "Сколько заказов сделал customer_id 725? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_725_spend", "question": "Сколько всего потратил customer_id 725 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)2307\\.88(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_725_last", "question": "Какая дата последнего заказа у customer_id 725? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-02-23", "tags": ["customer", "agg"]}
+{"id": "cust_804_city", "question": "В каком городе зарегистрирован customer_id 804? Ответь ровно названием города.", "expected_contains": "Philadelphia", "tags": ["customer", "lookup"]}
+{"id": "cust_804_segment", "question": "Какой сегмент у customer_id 804? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "consumer", "tags": ["customer", "lookup"]}
+{"id": "cust_804_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 804? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-08-22", "tags": ["customer", "lookup"]}
+{"id": "cust_804_orders", "question": "Сколько заказов сделал customer_id 804? Ответь только числом.", "expected_regex": "(?<!\\d)2(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_804_spend", "question": "Сколько всего потратил customer_id 804 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)1886\\.57(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_804_last", "question": "Какая дата последнего заказа у customer_id 804? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-06-15", "tags": ["customer", "agg"]}
+{"id": "cust_856_city", "question": "В каком городе зарегистрирован customer_id 856? Ответь ровно названием города.", "expected_contains": "San Diego", "tags": ["customer", "lookup"]}
+{"id": "cust_856_segment", "question": "Какой сегмент у customer_id 856? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "consumer", "tags": ["customer", "lookup"]}
+{"id": "cust_856_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 856? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-04-12", "tags": ["customer", "lookup"]}
+{"id": "cust_856_orders", "question": "Сколько заказов сделал customer_id 856? Ответь только числом.", "expected_regex": "(?<!\\d)2(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_856_spend", "question": "Сколько всего потратил customer_id 856 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)2709\\.31(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_856_last", "question": "Какая дата последнего заказа у customer_id 856? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-08-23", "tags": ["customer", "agg"]}
+{"id": "cust_875_city", "question": "В каком городе зарегистрирован customer_id 875? Ответь ровно названием города.", "expected_contains": "Houston", "tags": ["customer", "lookup"]}
+{"id": "cust_875_segment", "question": "Какой сегмент у customer_id 875? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "consumer", "tags": ["customer", "lookup"]}
+{"id": "cust_875_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 875? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-09-03", "tags": ["customer", "lookup"]}
+{"id": "cust_875_orders", "question": "Сколько заказов сделал customer_id 875? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_875_spend", "question": "Сколько всего потратил customer_id 875 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)2646\\.92(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_875_last", "question": "Какая дата последнего заказа у customer_id 875? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-11-29", "tags": ["customer", "agg"]}
+{"id": "cust_882_city", "question": "В каком городе зарегистрирован customer_id 882? Ответь ровно названием города.", "expected_contains": "Philadelphia", "tags": ["customer", "lookup"]}
+{"id": "cust_882_segment", "question": "Какой сегмент у customer_id 882? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "home_office", "tags": ["customer", "lookup"]}
+{"id": "cust_882_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 882? Ответь строго YYYY-MM-DD.", "expected_contains": "2021-10-07", "tags": ["customer", "lookup"]}
+{"id": "cust_882_orders", "question": "Сколько заказов сделал customer_id 882? Ответь только числом.", "expected_regex": "(?<!\\d)5(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_882_spend", "question": "Сколько всего потратил customer_id 882 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)9881\\.85(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_882_last", "question": "Какая дата последнего заказа у customer_id 882? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-05-03", "tags": ["customer", "agg"]}
+{"id": "cust_914_city", "question": "В каком городе зарегистрирован customer_id 914? Ответь ровно названием города.", "expected_contains": "Houston", "tags": ["customer", "lookup"]}
+{"id": "cust_914_segment", "question": "Какой сегмент у customer_id 914? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "consumer", "tags": ["customer", "lookup"]}
+{"id": "cust_914_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 914? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-04-25", "tags": ["customer", "lookup"]}
+{"id": "cust_914_orders", "question": "Сколько заказов сделал customer_id 914? Ответь только числом.", "expected_regex": "(?<!\\d)2(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_914_spend", "question": "Сколько всего потратил customer_id 914 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)5855\\.88(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_914_last", "question": "Какая дата последнего заказа у customer_id 914? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-12-13", "tags": ["customer", "agg"]}
+{"id": "cust_920_city", "question": "В каком городе зарегистрирован customer_id 920? Ответь ровно названием города.", "expected_contains": "San Diego", "tags": ["customer", "lookup"]}
+{"id": "cust_920_segment", "question": "Какой сегмент у customer_id 920? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "consumer", "tags": ["customer", "lookup"]}
+{"id": "cust_920_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 920? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-09-19", "tags": ["customer", "lookup"]}
+{"id": "cust_920_orders", "question": "Сколько заказов сделал customer_id 920? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_920_spend", "question": "Сколько всего потратил customer_id 920 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)120\\.28(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_920_last", "question": "Какая дата последнего заказа у customer_id 920? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-08-12", "tags": ["customer", "agg"]}
+{"id": "cust_954_city", "question": "В каком городе зарегистрирован customer_id 954? Ответь ровно названием города.", "expected_contains": "Phoenix", "tags": ["customer", "lookup"]}
+{"id": "cust_954_segment", "question": "Какой сегмент у customer_id 954? Ответь одним словом: consumer, corporate или home_office.", "expected_contains": "corporate", "tags": ["customer", "lookup"]}
+{"id": "cust_954_signup", "question": "Какая дата регистрации (customers.signup_date) у customer_id 954? Ответь строго YYYY-MM-DD.", "expected_contains": "2023-11-22", "tags": ["customer", "lookup"]}
+{"id": "cust_954_orders", "question": "Сколько заказов сделал customer_id 954? Ответь только числом.", "expected_regex": "(?<!\\d)1(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_954_spend", "question": "Сколько всего потратил customer_id 954 (sum orders.order_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)4466\\.77(?!\\d)", "tags": ["customer", "agg"]}
+{"id": "cust_954_last", "question": "Какая дата последнего заказа у customer_id 954? Ответь строго YYYY-MM-DD.", "expected_contains": "2022-10-05", "tags": ["customer", "agg"]}
+{"id": "cust_top_001", "question": "Какой customer_id потратил больше всего денег (sum orders.order_total)? Ответь только числом.", "expected_regex": "(?<!\\d)656(?!\\d)", "tags": ["customer", "top"]}
+{"id": "cust_top_002", "question": "Сколько всего потратил customer_id 656? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)13773\\.57(?!\\d)", "tags": ["customer", "top"]}
+{"id": "cust_top_003", "question": "Сколько заказов у customer_id 656? Ответь только числом.", "expected_regex": "(?<!\\d)5(?!\\d)", "tags": ["customer", "top"]}
+{"id": "cust_top_004", "question": "В каком городе зарегистрирован customer_id 656? Ответь названием города.", "expected_contains": "San Antonio", "tags": ["customer", "top"]}
+{"id": "prod_14_cat", "question": "Какая категория (products.category) у product_id 14? Ответь одним словом.", "expected_contains": "toys", "tags": ["product", "lookup"]}
+{"id": "prod_14_price", "question": "Какая цена (products.price) у product_id 14? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)127\\.65(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_14_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 14? Ответь только числом.", "expected_regex": "(?<!\\d)432(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_16_cat", "question": "Какая категория (products.category) у product_id 16? Ответь одним словом.", "expected_contains": "toys", "tags": ["product", "lookup"]}
+{"id": "prod_16_price", "question": "Какая цена (products.price) у product_id 16? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)127\\.84(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_16_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 16? Ответь только числом.", "expected_regex": "(?<!\\d)165(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_17_cat", "question": "Какая категория (products.category) у product_id 17? Ответь одним словом.", "expected_contains": "toys", "tags": ["product", "lookup"]}
+{"id": "prod_17_price", "question": "Какая цена (products.price) у product_id 17? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)302\\.49(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_17_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 17? Ответь только числом.", "expected_regex": "(?<!\\d)30(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_45_cat", "question": "Какая категория (products.category) у product_id 45? Ответь одним словом.", "expected_contains": "electronics", "tags": ["product", "lookup"]}
+{"id": "prod_45_price", "question": "Какая цена (products.price) у product_id 45? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)238\\.15(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_45_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 45? Ответь только числом.", "expected_regex": "(?<!\\d)374(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_48_cat", "question": "Какая категория (products.category) у product_id 48? Ответь одним словом.", "expected_contains": "toys", "tags": ["product", "lookup"]}
+{"id": "prod_48_price", "question": "Какая цена (products.price) у product_id 48? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)295\\.74(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_48_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 48? Ответь только числом.", "expected_regex": "(?<!\\d)405(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_112_cat", "question": "Какая категория (products.category) у product_id 112? Ответь одним словом.", "expected_contains": "outdoors", "tags": ["product", "lookup"]}
+{"id": "prod_112_price", "question": "Какая цена (products.price) у product_id 112? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)338\\.69(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_112_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 112? Ответь только числом.", "expected_regex": "(?<!\\d)45(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_120_cat", "question": "Какая категория (products.category) у product_id 120? Ответь одним словом.", "expected_contains": "office_supplies", "tags": ["product", "lookup"]}
+{"id": "prod_120_price", "question": "Какая цена (products.price) у product_id 120? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)460\\.51(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_120_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 120? Ответь только числом.", "expected_regex": "(?<!\\d)228(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_217_cat", "question": "Какая категория (products.category) у product_id 217? Ответь одним словом.", "expected_contains": "office_supplies", "tags": ["product", "lookup"]}
+{"id": "prod_217_price", "question": "Какая цена (products.price) у product_id 217? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)303\\.63(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_217_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 217? Ответь только числом.", "expected_regex": "(?<!\\d)25(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_259_cat", "question": "Какая категория (products.category) у product_id 259? Ответь одним словом.", "expected_contains": "electronics", "tags": ["product", "lookup"]}
+{"id": "prod_259_price", "question": "Какая цена (products.price) у product_id 259? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)363\\.59(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_259_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 259? Ответь только числом.", "expected_regex": "(?<!\\d)94(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_280_cat", "question": "Какая категория (products.category) у product_id 280? Ответь одним словом.", "expected_contains": "office_supplies", "tags": ["product", "lookup"]}
+{"id": "prod_280_price", "question": "Какая цена (products.price) у product_id 280? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)497\\.07(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_280_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 280? Ответь только числом.", "expected_regex": "(?<!\\d)49(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_303_cat", "question": "Какая категория (products.category) у product_id 303? Ответь одним словом.", "expected_contains": "electronics", "tags": ["product", "lookup"]}
+{"id": "prod_303_price", "question": "Какая цена (products.price) у product_id 303? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)124\\.37(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_303_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 303? Ответь только числом.", "expected_regex": "(?<!\\d)243(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_309_cat", "question": "Какая категория (products.category) у product_id 309? Ответь одним словом.", "expected_contains": "furniture", "tags": ["product", "lookup"]}
+{"id": "prod_309_price", "question": "Какая цена (products.price) у product_id 309? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)289\\.97(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_309_stock", "question": "Сколько единиц на складе (products.in_stock) у product_id 309? Ответь только числом.", "expected_regex": "(?<!\\d)40(?!\\d)", "tags": ["product", "lookup"]}
+{"id": "prod_14_sold_qty", "question": "Сколько всего единиц было продано для product_id 14 (sum order_items.quantity)? Ответь только числом.", "expected_regex": "(?<!\\d)24(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_14_sold_rev", "question": "Сколько выручки принес product_id 14 (sum order_items.line_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)3063\\.60(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_16_sold_qty", "question": "Сколько всего единиц было продано для product_id 16 (sum order_items.quantity)? Ответь только числом.", "expected_regex": "(?<!\\d)15(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_16_sold_rev", "question": "Сколько выручки принес product_id 16 (sum order_items.line_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)1917\\.60(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_17_sold_qty", "question": "Сколько всего единиц было продано для product_id 17 (sum order_items.quantity)? Ответь только числом.", "expected_regex": "(?<!\\d)22(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_17_sold_rev", "question": "Сколько выручки принес product_id 17 (sum order_items.line_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)6654\\.78(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_45_sold_qty", "question": "Сколько всего единиц было продано для product_id 45 (sum order_items.quantity)? Ответь только числом.", "expected_regex": "(?<!\\d)9(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_45_sold_rev", "question": "Сколько выручки принес product_id 45 (sum order_items.line_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)2143\\.35(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_48_sold_qty", "question": "Сколько всего единиц было продано для product_id 48 (sum order_items.quantity)? Ответь только числом.", "expected_regex": "(?<!\\d)33(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_48_sold_rev", "question": "Сколько выручки принес product_id 48 (sum order_items.line_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)9759\\.42(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_112_sold_qty", "question": "Сколько всего единиц было продано для product_id 112 (sum order_items.quantity)? Ответь только числом.", "expected_regex": "(?<!\\d)9(?!\\d)", "tags": ["product", "sales"]}
+{"id": "prod_112_sold_rev", "question": "Сколько выручки принес product_id 112 (sum order_items.line_total)? Ответь числом с 2 знаками после точки.", "expected_regex": "(?<!\\d)1741\\.18(?!\\d)", "tags": ["product", "sales"]}
+{"id": "qa_001", "question": "Расскажи всё о клиенте 42: профиль (city, segment, signup_date), количество заказов, общая сумма, дата/статус/канал последнего заказа и 5 самых дорогих покупок (по line_total).", "tags": ["qa", "narrative"]}
+{"id": "qa_002", "question": "Покажи последние 10 заказов клиента 42 (order_id, order_date, status, channel, order_total) и по каждому — сколько позиций и общая quantity.", "tags": ["qa", "narrative"]}
+{"id": "qa_003", "question": "Кто из клиентов потратил больше всего в категории 'electronics'? Выведи top-5 клиентов (customer_id, name, city, сумма).", "tags": ["qa", "narrative"]}
+{"id": "qa_004", "question": "Сделай топ-10 товаров по выручке (product_id, name, category, revenue).", "tags": ["qa", "narrative"]}
+{"id": "qa_005", "question": "Сделай топ-10 товаров по количеству проданных единиц (product_id, name, category, units_sold).", "tags": ["qa", "narrative"]}
+{"id": "qa_006", "question": "Какие 10 заказов самые дорогие? Выведи order_id, customer_id, city клиента, order_date, status, channel, order_total.", "tags": ["qa", "narrative"]}
+{"id": "qa_007", "question": "Сколько заказов и какая выручка по каждому каналу (online/retail/partner/phone)? Дай ответ таблицей.", "tags": ["qa", "narrative"]}
+{"id": "qa_008", "question": "Сколько заказов и какая выручка по каждому статусу (delivered/shipped/processing/pending/cancelled)? Дай ответ таблицей.", "tags": ["qa", "narrative"]}
+{"id": "qa_009", "question": "Построй помесячную динамику выручки (YYYY-MM -> sum order_total) за весь период.", "tags": ["qa", "narrative"]}
+{"id": "qa_010", "question": "Построй помесячную динамику количества заказов за весь период; отдельно для статусов delivered и cancelled.", "tags": ["qa", "narrative"]}
+{"id": "qa_011", "question": "Сколько мы 'отгрузили' (status='shipped') в каждом городе за 2023 год? Сортируй по убыванию количества.", "tags": ["qa", "narrative"]}
+{"id": "qa_012", "question": "Сколько уникальных клиентов (distinct customer_id) сделали заказы в каждом городе?", "tags": ["qa", "narrative"]}
+{"id": "qa_013", "question": "Найди клиентов без единого заказа. Сколько их и приведи первые 20 customer_id + city + segment.", "tags": ["qa", "narrative"]}
+{"id": "qa_014", "question": "Найди товары с нулевым остатком (in_stock=0). Сколько их и приведи первые 20 (product_id, name, category, price).", "tags": ["qa", "narrative"]}
+{"id": "qa_015", "question": "Есть ли заказы, где сумма order_total не равна сумме line_total по order_items? Если есть — перечисли их (order_id, order_total, sum_line_total).", "tags": ["qa", "narrative"]}
+{"id": "qa_016", "question": "Для клиента 882: покажи разбивку его выручки по категориям (category -> revenue) и укажи топ-3 категории.", "tags": ["qa", "narrative"]}
+{"id": "qa_017", "question": "Для клиента 914: найди его самый дорогой заказ и перечисли товары в этом заказе (product_id, name, category, quantity, unit_price, line_total).", "tags": ["qa", "narrative"]}
+{"id": "qa_018", "question": "Для заказа 204: перечисли товары (product_id, name, category) и суммы по ним; проверь, что сумма равна order_total.", "tags": ["qa", "narrative"]}
+{"id": "qa_019", "question": "Сколько заказов было в 2022 году в городе 'San Diego', и как они распределены по каналам?", "tags": ["qa", "narrative"]}
+{"id": "qa_020", "question": "Какая средняя сумма заказа (avg order_total) по каждому сегменту клиента (consumer/corporate/home_office)?", "tags": ["qa", "narrative"]}
+{"id": "qa_021", "question": "Сравни средний чек по городам: выведи город, число заказов, avg order_total, median order_total.", "tags": ["qa", "narrative"]}
+{"id": "qa_022", "question": "Найди 20 клиентов с самым высоким числом заказов; выведи customer_id, name, city, segment, orders_count, total_spend.", "tags": ["qa", "narrative"]}
+{"id": "qa_023", "question": "Какие категории чаще всего покупают в канале 'phone'? Дай top-5 категорий по выручке в этом канале.", "tags": ["qa", "narrative"]}
+{"id": "qa_024", "question": "Для категории 'books': выведи 10 самых продаваемых товаров по количеству (product_id, name, units_sold).", "tags": ["qa", "narrative"]}
+{"id": "qa_025", "question": "Сформируй короткий executive summary по бизнесу: общий оборот, топ-3 категории, топ-3 города по выручке, доля отменённых заказов, и 3 инсайта по данным.", "tags": ["qa", "narrative"]}

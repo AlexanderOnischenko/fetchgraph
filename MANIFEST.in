@@ -1,0 +1,4 @@
+exclude examples/**
+exclude README_demo_qa.md
+exclude *.csv
+exclude *.json

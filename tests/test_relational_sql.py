@@ -4,9 +4,10 @@ import sqlite3
 from typing import Any, List
 
 import pytest
+
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.relational_models import (
+from fetchgraph.relational import (
     AggregationSpec,
     ColumnDescriptor,
     ComparisonFilter,
@@ -19,8 +20,8 @@ from fetchgraph.relational_models import (
     SelectExpr,
     SemanticClause,
     SemanticMatch,
+    SqlRelationalDataProvider,
 )
-from fetchgraph.relational_sql import SqlRelationalDataProvider
 
 
 class FakeSemanticBackend:

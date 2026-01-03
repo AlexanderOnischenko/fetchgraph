@@ -32,7 +32,9 @@ dev = [
   "pydantic-settings>=2.2",
   "python-dotenv>=1.0",
   "ruff",
-  "pyright"
+  "pyright",
+  "build",
+  "twine"
 ]
 demo = [
   "pydantic-settings>=2.12",

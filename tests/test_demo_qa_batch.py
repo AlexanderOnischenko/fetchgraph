@@ -468,7 +468,7 @@ def _prepare_batch_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     schema_path = tmp_path / "schema.json"
     schema_path.write_text("{}", encoding="utf-8")
     cases_path = tmp_path / "cases.jsonl"
-    cases_path.write_text('[{"id":"c1","question":"Q?"}]', encoding="utf-8")
+    cases_path.write_text('{"id":"c1","question":"Q?"}\n', encoding="utf-8")
     artifacts_dir = tmp_path / "artifacts"
     return data_dir, schema_path, cases_path, artifacts_dir
 

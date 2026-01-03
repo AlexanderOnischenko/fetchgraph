@@ -499,7 +499,9 @@ def handle_batch(args) -> int:
         exclude_ids=exclude_ids,
     )
     suite_case_ids = [case.id for case in filtered_cases]
+    filtered_case_lookup = {case.id: case for case in filtered_cases}
     cases = filtered_cases
+    failed_selection_ids: set[str] | None = None
 
     if args.only_failed:
         selection_ids, breakdown = _only_failed_selection(
@@ -509,6 +511,7 @@ def handle_batch(args) -> int:
             require_assert=args.require_assert,
         )
         cases = [case for case in cases if case.id in selection_ids]
+        failed_selection_ids = selection_ids
         healed = breakdown.get("healed", set())
         baseline_fails = breakdown.get("baseline_failures", set())
         new_failures = breakdown.get("new_failures", set())
@@ -559,13 +562,21 @@ def handle_batch(args) -> int:
         if args.only_missed and missed_baseline_results is None:
             print("No baseline found for --only-missed.", file=sys.stderr)
             return 2
-        selected_case_ids = [case.id for case in cases]
+        selected_case_ids = suite_case_ids
         missed_ids, missed_breakdown = _only_missed_selection(
             selected_case_ids,
             missed_baseline_results,
             overlay_results if not args.no_overlay else None,
         )
-        cases = [case for case in cases if case.id in missed_ids]
+        base_pool = filtered_case_lookup
+        target_ids = missed_ids
+        if args.only_failed and failed_selection_ids is not None:
+            target_ids = target_ids & failed_selection_ids
+            print(
+                f"Combining --only-failed and --only-missed via intersection: {len(target_ids)} cases remain.",
+                file=sys.stderr,
+            )
+        cases = [case for cid, case in base_pool.items() if cid in target_ids]
         print(f"Baseline (missed) results: {missed_baseline_path}", file=sys.stderr)
         print(f"Overlay executed: {len(missed_breakdown.get('overlay_executed', set()))}", file=sys.stderr)
         print(f"Missed in baseline: {len(missed_breakdown.get('missed_base', set()))}", file=sys.stderr)

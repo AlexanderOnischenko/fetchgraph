@@ -98,8 +98,7 @@ def _load_latest_any_results(artifacts_dir: Path, tag: str | None = None) -> Opt
     results = _resolve_results_path_for_run(latest_run)
     if results:
         return results
-    markers = _latest_markers(artifacts_dir, tag)
-    return _read_marker(markers.results)
+    return None
 
 
 def _load_run_meta(run_path: Path | None) -> Optional[dict]:

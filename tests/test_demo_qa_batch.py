@@ -9,7 +9,15 @@ from typing import cast
 
 import pytest
 
-from examples.demo_qa.batch import _fingerprint_dir, bad_statuses, is_failure, render_markdown, write_results
+from examples.demo_qa.batch import (
+    _fingerprint_dir,
+    _only_failed_selection,
+    _only_missed_selection,
+    bad_statuses,
+    is_failure,
+    render_markdown,
+    write_results,
+)
 from examples.demo_qa.runs.coverage import _missed_case_ids
 from examples.demo_qa.runs.layout import _latest_markers, _update_latest_markers
 from examples.demo_qa.runner import DiffReport, RunResult, diff_runs
@@ -106,6 +114,29 @@ def test_missed_case_ids_diff_planned_and_executed() -> None:
     assert _missed_case_ids(planned, executed) == {"a", "c"}
 
 
+def test_only_failed_selection_uses_overlay_and_baseline() -> None:
+    baseline = {"a": _mk_result("a", "failed"), "b": _mk_result("b", "failed")}
+    overlay = {"a": _mk_result("a", "ok"), "c": _mk_result("c", "failed")}
+
+    selection, breakdown = _only_failed_selection(baseline, overlay, fail_on="bad", require_assert=False)
+
+    assert selection == {"b", "c"}
+    assert breakdown["healed"] == {"a"}
+    assert breakdown["baseline_failures"] == {"a", "b"}
+    assert breakdown["new_failures"] == {"c"}
+
+
+def test_only_missed_selection_uses_overlay_executed() -> None:
+    baseline = {"a": _mk_result("a", "ok")}
+    overlay = {"c": _mk_result("c", "ok")}
+
+    missed, breakdown = _only_missed_selection(["a", "b", "c"], baseline, overlay)
+
+    assert missed == {"b"}
+    assert breakdown["missed_base"] == {"b", "c"}
+    assert breakdown["overlay_executed"] == {"c"}
+
+
 def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:
     artifacts_dir = tmp_path / "data" / ".runs"
     run_dir = artifacts_dir / "runs" / "20240101_cases"
@@ -113,12 +144,31 @@ def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:
     run_dir.mkdir(parents=True)
     results_path.write_text("{}", encoding="utf-8")
 
-    _update_latest_markers(run_dir, results_path, artifacts_dir, "feature/beta")
+    _update_latest_markers(run_dir, results_path, artifacts_dir, "feature/beta", results_complete=True)
 
-    latest_default, latest_results_default = _latest_markers(artifacts_dir, None)
-    assert latest_default.read_text(encoding="utf-8").strip() == str(run_dir)
-    assert latest_results_default.read_text(encoding="utf-8").strip() == str(results_path)
+    latest_default = _latest_markers(artifacts_dir, None)
+    assert latest_default.complete.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert latest_default.results.read_text(encoding="utf-8").strip() == str(results_path)
+    assert latest_default.any_run.read_text(encoding="utf-8").strip() == str(run_dir)
 
-    latest_tag, latest_results_tag = _latest_markers(artifacts_dir, "feature/beta")
-    assert latest_tag.read_text(encoding="utf-8").strip() == str(run_dir)
-    assert latest_results_tag.read_text(encoding="utf-8").strip() == str(results_path)
+    latest_tag = _latest_markers(artifacts_dir, "feature/beta")
+    assert latest_tag.complete.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert latest_tag.results.read_text(encoding="utf-8").strip() == str(results_path)
+    assert latest_tag.any_run.read_text(encoding="utf-8").strip() == str(run_dir)
+
+    partial_dir = artifacts_dir / "runs" / "20240102_cases"
+    partial_results = partial_dir / "results.jsonl"
+    partial_dir.mkdir(parents=True)
+    partial_results.write_text("{}", encoding="utf-8")
+
+    _update_latest_markers(partial_dir, partial_results, artifacts_dir, "feature/beta", results_complete=False)
+
+    refreshed_default = _latest_markers(artifacts_dir, None)
+    assert refreshed_default.complete.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert refreshed_default.results.read_text(encoding="utf-8").strip() == str(results_path)
+    assert refreshed_default.any_run.read_text(encoding="utf-8").strip() == str(partial_dir)
+
+    refreshed_tag = _latest_markers(artifacts_dir, "feature/beta")
+    assert refreshed_tag.complete.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert refreshed_tag.results.read_text(encoding="utf-8").strip() == str(results_path)
+    assert refreshed_tag.any_run.read_text(encoding="utf-8").strip() == str(partial_dir)

@@ -91,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run only cases that failed/mismatched/errored in a previous results.jsonl",
     )
     batch_p.add_argument("--only-failed", action="store_true", help="Use latest run for --only-failed-from automatically")
+    batch_p.add_argument(
+        "--no-overlay",
+        action="store_true",
+        help="Ignore latest partial run when selecting only-failed/only-missed (use baseline only)",
+    )
     batch_p.add_argument("--plan-only", action="store_true", help="Run planner only (no fetch/synthesize)")
     batch_p.add_argument("--quiet", action="store_true", help="Print only summary and exit code")
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")

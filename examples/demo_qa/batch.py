@@ -590,6 +590,12 @@ def render_table(compare: DiffReport, *, use_color: bool) -> str:
     base_total = compare.get("base_total_cases", base_counts.get("total", 0))
     new_total = compare.get("new_total_cases", new_counts.get("total", 0))
     delta_bad = compare.get("new_bad_total", 0) - compare.get("base_bad_total", 0)
+    base_med = compare.get("base_median")
+    new_med = compare.get("new_median")
+    med_delta = compare.get("median_delta")
+    base_avg = compare.get("base_avg")
+    new_avg = compare.get("new_avg")
+    avg_delta = compare.get("avg_delta")
     lines: list[str] = []
     lines.append("Summary:")
     lines.append(
@@ -602,9 +608,20 @@ def render_table(compare: DiffReport, *, use_color: bool) -> str:
         "  Δ    : "
         f"ok={_format_delta(counts_delta.get('ok'), positive_good=True, use_color=use_color)} "
         f"bad={_format_delta(delta_bad, positive_good=False, use_color=use_color)} "
+        f"error={_format_delta(counts_delta.get('error'), positive_good=False, use_color=use_color)} "
+        f"mismatch={_format_delta(counts_delta.get('mismatch'), positive_good=False, use_color=use_color)} "
+        f"failed={_format_delta(counts_delta.get('failed'), positive_good=False, use_color=use_color)} "
         f"unchecked={_format_delta(counts_delta.get('unchecked'), positive_good=False, use_color=use_color)} "
         f"total={_format_delta(counts_delta.get('total'), positive_good=True, use_color=use_color)}"
     )
+    if base_med is not None or new_med is not None:
+        lines.append(
+            f"  Median total time: base={base_med if base_med is not None else 'n/a'}s new={new_med if new_med is not None else 'n/a'}s Δ={_format_delta(med_delta, positive_good=False, use_color=use_color)}"
+        )
+    if base_avg is not None or new_avg is not None:
+        lines.append(
+            f"  Avg total time:    base={base_avg if base_avg is not None else 'n/a'}s new={new_avg if new_avg is not None else 'n/a'}s Δ={_format_delta(avg_delta, positive_good=False, use_color=use_color)}"
+        )
     lines.append("")
     base_only_count = compare.get("base_only_count", 0)
     new_only_count = compare.get("new_only_count", 0)
@@ -1611,7 +1628,7 @@ def handle_compare(args) -> int:
     elif format_mode == "table":
         report = render_table(comparison, use_color=stdout_color)
         if out_path:
-            file_report = render_table(comparison, use_color=_should_use_color(color_mode, stream=sys.stdout, force_plain=True))
+            file_report = render_table(comparison, use_color=False)
     elif format_mode == "json":
         report = render_json(comparison)
         file_report = report

@@ -26,6 +26,7 @@ from .batch import (  # noqa: E402
 )  # noqa: E402
 from .commands.history import handle_history_case  # noqa: E402
 from .commands.report import handle_report_run, handle_report_tag  # noqa: E402
+from .commands.tags import handle_tags_list  # noqa: E402
 from .data_gen import generate_and_save  # noqa: E402
 
 
@@ -173,6 +174,14 @@ def build_parser() -> argparse.ArgumentParser:
     stats_p.add_argument("--group-by", choices=["config_hash"], default=None, help="Group stats by config hash")
     stats_p.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for stats table")
 
+    tags_p = sub.add_parser("tags", help="Tag utilities")
+    tags_sub = tags_p.add_subparsers(dest="tags_command", required=True)
+    tags_list = tags_sub.add_parser("list", help="List known tags")
+    tags_list.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
+    tags_list.add_argument("--pattern", type=str, default=None, help="Glob or regex to filter tag names")
+    tags_list.add_argument("--limit", type=int, default=None, help="Maximum number of tags to display")
+    tags_list.add_argument("--sort", choices=["name", "updated"], default="updated", help="Sort order")
+
     compare_p = sub.add_parser("compare", help="Compare two batch result files")
     compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (for tag-based compare)")
     base_group = compare_p.add_mutually_exclusive_group(required=False)
@@ -245,6 +254,11 @@ def main() -> None:
     elif args.command == "history":
         if args.history_command == "case":
             code = handle_history_case(args)
+        else:
+            code = 1
+    elif args.command == "tags":
+        if args.tags_command == "list":
+            code = handle_tags_list(args)
         else:
             code = 1
     elif args.command == "report":

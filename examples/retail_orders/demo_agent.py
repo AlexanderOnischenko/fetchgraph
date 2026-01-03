@@ -8,7 +8,7 @@ from fetchgraph import LLMInvoke
 from fetchgraph.core import TaskProfile, create_generic_agent
 from fetchgraph.relational.schema import SchemaConfig  # только для типа, не обязательно
 
-from .schema import build_retail_provider, RETAIL_SCHEMA
+from .schema import RETAIL_SCHEMA, build_retail_provider
 
 
 # Простейшая заглушка LLM, чтобы пример запускался без внешних зависимостей.

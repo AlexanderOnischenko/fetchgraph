@@ -1,92 +1,30 @@
 from __future__ import annotations
 
-import datetime
 import json
+import readline
 import sys
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Optional, Sequence
-
-import readline
-
-from fetchgraph.core import create_generic_agent
-from fetchgraph.core.models import TaskProfile
-from fetchgraph.utils import set_run_id
+from typing import Optional, Sequence
 
 from .provider_factory import build_provider
+from .runner import (
+    Case,
+    EventLogger,
+    RunArtifacts,
+    build_agent,
+    run_one,
+    save_artifacts,
+)
 
 
-@dataclass
-class RunArtifacts:
-    run_id: str
-    run_dir: Path
-    plan: str | None = None
-    context: Dict[str, object] | None = None
-    answer: str | None = None
-    error: str | None = None
-
-
-def build_agent(llm, provider) -> Callable[[str, str, Path], RunArtifacts]:
-    def saver(feature_name: str, parsed: object) -> None:
-        # Placeholder to satisfy BaseGraphAgent.saver; artifacts captured elsewhere.
+def _load_json(path: Path) -> object | None:
+    if not path.exists():
         return None
-
-    task_profile = TaskProfile(
-        task_name="Demo QA",
-        goal="Answer analytics questions over the demo dataset",
-        output_format="Plain text answer",
-        focus_hints=[
-            "Prefer aggregates",
-            "Use concise answers",
-        ],
-    )
-
-    agent = create_generic_agent(
-        llm_invoke=llm,
-        providers={provider.name: provider},
-        saver=saver,
-        task_profile=task_profile,
-    )
-
-    def run_question(question: str, run_id: str, run_dir: Path) -> RunArtifacts:
-        set_run_id(run_id)
-        artifacts = RunArtifacts(run_id=run_id, run_dir=run_dir)
-        plan = agent._plan(question)  # type: ignore[attr-defined]
-        artifacts.plan = json.dumps(plan.model_dump(), ensure_ascii=False, indent=2)
-        try:
-            ctx = agent._fetch(question, plan)  # type: ignore[attr-defined]
-            artifacts.context = {k: v.text for k, v in (ctx or {}).items()} if ctx else {}
-        except Exception as exc:  # pragma: no cover - demo fallback
-            artifacts.error = str(exc)
-            artifacts.context = {"error": str(exc)}
-            ctx = None
-        draft = agent._synthesize(question, ctx, plan)  # type: ignore[attr-defined]
-        parsed = agent.domain_parser(draft)
-        artifacts.answer = str(parsed)
-        return artifacts
-
-    return run_question
-
-
-def _save_text(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
-
-
-def _save_json(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _save_artifacts(artifacts: RunArtifacts) -> None:
-    artifacts.run_dir.mkdir(parents=True, exist_ok=True)
-    if artifacts.plan is not None:
-        _save_text(artifacts.run_dir / "plan.json", artifacts.plan)
-    if artifacts.context is not None:
-        _save_json(artifacts.run_dir / "context.json", artifacts.context)
-    if artifacts.answer is not None:
-        _save_text(artifacts.run_dir / "answer.txt", artifacts.answer)
-    if artifacts.error is not None:
-        _save_text(artifacts.run_dir / "error.txt", artifacts.error)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _maybe_add_history(entry: str) -> None:
@@ -168,23 +106,36 @@ def start_repl(
             continue
 
         run_id = uuid.uuid4().hex[:8]
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_dir = runs_root / f"{timestamp}_{run_id}"
+        run_dir = runs_root / f"{run_id}_{uuid.uuid4().hex[:8]}"
+        event_logger = EventLogger(path=None, run_id=run_id)
 
         artifacts: RunArtifacts | None = None
         try:
-            artifacts = runner(line, run_id, run_dir)
+            case = Case(id=run_id, question=line, tags=[])
+            result = run_one(case, runner, runs_root, plan_only=False, event_logger=event_logger, run_dir=run_dir)
+            plan_obj = _load_json(Path(result.artifacts_dir) / "plan.json")
+            ctx_obj = _load_json(Path(result.artifacts_dir) / "context.json") or {}
+            artifacts = RunArtifacts(
+                run_id=run_id,
+                run_dir=Path(result.artifacts_dir),
+                question=line,
+                plan=plan_obj if isinstance(plan_obj, dict) else None,
+                context=ctx_obj if isinstance(ctx_obj, dict) else None,
+                answer=result.answer,
+                raw_synth=None,
+                error=result.error,
+            )
             last_artifacts = artifacts
-            _save_artifacts(artifacts)
             if plan_debug_mode in {"on", "once"} and artifacts.plan:
                 print("--- PLAN ---")
-                print(artifacts.plan)
-            print(artifacts.answer or "")
+                print(json.dumps(artifacts.plan, ensure_ascii=False, indent=2))
+            print(result.answer or "")
+            print(f"Events: {Path(result.artifacts_dir) / 'events.jsonl'}")
         except Exception as exc:  # pragma: no cover - REPL resilience
-            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=run_dir)
+            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=run_dir, question=line)
             error_artifacts.error = error_artifacts.error or str(exc)
             last_artifacts = error_artifacts
-            _save_artifacts(error_artifacts)
+            save_artifacts(error_artifacts)
             print(f"Error during run {run_id}: {exc}", file=sys.stderr)
         finally:
             if plan_debug_mode == "once":

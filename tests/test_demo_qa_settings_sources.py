@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from examples.demo_qa.settings import DemoQASettings, load_settings, resolve_config_path
+from examples.demo_qa.settings import load_settings, resolve_config_path
 
 
 def write_toml(path: Path, content: str) -> None:
@@ -25,8 +25,9 @@ synth_model = "toml-synth"
     monkeypatch.setenv("DEMO_QA_LLM__API_KEY", "sk-env")
     monkeypatch.setenv("DEMO_QA_LLM__PLAN_MODEL", "env-plan")
 
-    settings = load_settings(config_path=config_path, overrides={"llm": {"plan_model": "override-plan"}})
+    settings, resolved = load_settings(config_path=config_path, overrides={"llm": {"plan_model": "override-plan"}})
 
+    assert resolved == config_path
     assert settings.llm.api_key == "sk-env"
     assert settings.llm.plan_model == "override-plan"
     assert settings.llm.synth_model == "toml-synth"

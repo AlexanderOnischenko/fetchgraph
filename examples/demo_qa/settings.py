@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, ClassVar, Dict
 from urllib.parse import urlparse
@@ -8,7 +7,9 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
+    from pydantic_settings.sources import TomlConfigSettingsSource
+
+    from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError as exc:  # pragma: no cover - make missing dependency explicit
     raise ImportError(
         "pydantic-settings is required for demo_qa configuration. "
@@ -20,8 +21,8 @@ class LLMSettings(BaseModel):
     base_url: str | None = Field(default=None)
     api_key: str | None = Field(default=None)
     model: str | None = None
-    plan_model: str = "gpt-4o-mini"
-    synth_model: str = "gpt-4o-mini"
+    plan_model: str = "default"
+    synth_model: str = "default"
     plan_temperature: float = 0.0
     synth_temperature: float = 0.2
     timeout_s: float | None = None
@@ -82,19 +83,9 @@ class DemoQASettings(BaseSettings):
     ):
         sources = [init_settings, env_settings, dotenv_settings]
         if cls._toml_path:
-            sources.append(TomlConfigSettingsSource(settings_cls, cls._toml_path))
+            sources.append(TomlConfigSettingsSource(settings_cls, toml_file=cls._toml_path))
         sources.append(file_secret_settings)
         return tuple(sources)
-
-    @model_validator(mode="after")
-    def require_api_key(self) -> "DemoQASettings":
-        if not self.llm.api_key:
-            env_key = os.getenv("OPENAI_API_KEY")
-            if env_key:
-                self.llm.api_key = env_key
-        if not self.llm.api_key:
-            raise ValueError("llm.api_key is required. Provide it in config or set OPENAI_API_KEY.")
-        return self
 
 
 def resolve_config_path(config: Path | None, data_dir: Path | None) -> Path | None:
@@ -106,7 +97,8 @@ def resolve_config_path(config: Path | None, data_dir: Path | None) -> Path | No
         candidate = data_dir / "demo_qa.toml"
         if candidate.exists():
             return candidate
-    default = Path(__file__).resolve().parent / "demo_qa.toml"
+    root = Path(__file__).resolve().parent
+    default = root / "demo_qa.toml"
     if default.exists():
         return default
     return None
@@ -117,16 +109,16 @@ def load_settings(
     config_path: Path | None = None,
     data_dir: Path | None = None,
     overrides: Dict[str, Any] | None = None,
-) -> DemoQASettings:
+) -> tuple[DemoQASettings, Path | None]:
     resolved = resolve_config_path(config_path, data_dir)
     DemoQASettings._toml_path = resolved
     try:
         settings = DemoQASettings(**(overrides or {}))
-    except ValidationError as exc:
+    except ValidationError:
         DemoQASettings._toml_path = None
         raise
     DemoQASettings._toml_path = None
-    return settings
+    return settings, resolved
 
 
 __all__ = ["DemoQASettings", "LLMSettings", "resolve_config_path", "load_settings"]

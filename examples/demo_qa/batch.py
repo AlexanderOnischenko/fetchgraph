@@ -485,6 +485,10 @@ def handle_batch(args) -> int:
     only_failed_baseline_kind: str | None = None
     if baseline_filter_path_arg:
         only_failed_baseline_kind = "path"
+        print(
+            "Using explicit baseline from --only-failed-from; overlay (latest any run) will still be considered unless --no-overlay is set.",
+            file=sys.stderr,
+        )
     elif args.tag and args.only_failed:
         effective_results, effective_meta, eff_path = _load_effective_results(artifacts_dir, args.tag)
         if not effective_results:
@@ -570,10 +574,23 @@ def handle_batch(args) -> int:
         healed = breakdown.get("healed", set())
         baseline_fails = breakdown.get("baseline_failures", set())
         new_failures = breakdown.get("new_failures", set())
-        baseline_label = str(_run_dir_from_results_path(baseline_filter_path) or baseline_filter_path or "n/a")
-        overlay_label = str(overlay_run_path or overlay_results_path or "n/a")
-        print(f"Baseline: {baseline_label}", file=sys.stderr)
-        print(f"Overlay: {overlay_label}", file=sys.stderr)
+        baseline_meta = _load_run_meta(_run_dir_from_results_path(baseline_filter_path))
+        baseline_label = baseline_meta.get("run_id") if isinstance(baseline_meta, dict) else None
+        baseline_status = baseline_meta.get("run_status") if isinstance(baseline_meta, dict) else None
+        overlay_meta = _load_run_meta(overlay_run_path)
+        overlay_label = overlay_meta.get("run_id") if isinstance(overlay_meta, dict) else None
+        overlay_status = overlay_meta.get("run_status") if isinstance(overlay_meta, dict) else None
+        baseline_complete = baseline_meta.get("results_complete") if isinstance(baseline_meta, dict) else None
+        overlay_complete = overlay_meta.get("results_complete") if isinstance(overlay_meta, dict) else None
+        scope_display = scope_id or "n/a"
+        print(
+            f"Baseline: run_id={baseline_label or 'n/a'} status={baseline_status or 'n/a'} complete={baseline_complete} scope={scope_display}",
+            file=sys.stderr,
+        )
+        print(
+            f"Overlay: run_id={overlay_label or 'n/a'} status={overlay_status or 'n/a'} complete={overlay_complete} scope={scope_display}",
+            file=sys.stderr,
+        )
         print(f"Baseline failures: {len(baseline_fails)}", file=sys.stderr)
         print(f"Healed by overlay: {len(healed)}", file=sys.stderr)
         print(f"New failures in overlay: {len(new_failures)}", file=sys.stderr)

@@ -20,8 +20,8 @@ class LLMSettings(BaseModel):
     base_url: str | None = Field(default=None)
     api_key: str | None = Field(default=None)
     model: str | None = None
-    plan_model: str = "gpt-4o-mini"
-    synth_model: str = "gpt-4o-mini"
+    plan_model: str = "default"
+    synth_model: str = "default"
     plan_temperature: float = 0.0
     synth_temperature: float = 0.2
     timeout_s: float | None = None

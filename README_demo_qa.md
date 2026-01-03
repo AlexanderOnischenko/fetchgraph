@@ -106,7 +106,7 @@ python -m examples.demo_qa.cli batch \
 ```bash
 # 1) Настройте свои дефолты под проект/датасет
 export DQ_DATA="./_demo_data/shop"
-export DQ_SCHEMA="$DQ_DATA/schema.yaml"
+export DQ_SCHEMA="$DQ_DATA/schema.json"
 export DQ_CASES="./examples/demo_qa/cases/retail_cases.json"
 export DQ_OUT="$DQ_DATA/.runs/results.jsonl"
 export DQ_TAG="retail-iter1"

@@ -149,14 +149,14 @@ def test_only_missed_selection_uses_overlay_executed() -> None:
 
 def test_only_missed_ignores_overlay_when_scope_mismatches() -> None:
     baseline = {"A": _mk_result("A", "ok")}
+    overlay = {"B": _mk_result("B", "ok")}
 
     missed, breakdown = _only_missed_selection(
         ["A", "B", "C"],
         baseline,
-        None,
+        overlay,
         overlay_scope_hash="overlay_scope",
-        overlay_scope_matches_current=False,
-        overlay_ignored_reason="scope_mismatch",
+        selection_scope_hash="current_scope",
     )
 
     assert missed == {"B", "C"}
@@ -176,7 +176,7 @@ def test_only_missed_applies_overlay_when_scope_matches() -> None:
         baseline,
         overlay,
         overlay_scope_hash="scope_current",
-        overlay_scope_matches_current=True,
+        selection_scope_hash="scope_current",
     )
 
     assert missed == {"C"}

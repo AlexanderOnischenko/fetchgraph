@@ -130,6 +130,23 @@ def _load_effective_diff(tag_dir: Path) -> Optional[dict]:
     return last
 
 
+def _load_effective_diff_history(tag_dir: Path, *, limit: int) -> list[dict]:
+    path = tag_dir / "effective_changes.jsonl"
+    if not path.exists() or limit <= 0:
+        return []
+    entries: list[dict] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except Exception:
+                continue
+    return entries[-limit:]
+
+
 def _update_effective_snapshot(
     *,
     artifacts_dir: Path,
@@ -198,6 +215,7 @@ __all__ = [
     "_build_effective_diff",
     "_load_effective_results",
     "_load_effective_diff",
+    "_load_effective_diff_history",
     "_update_effective_snapshot",
     "_write_effective_results",
 ]

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..runner import bad_statuses, load_results, summarize
-from ..runs.effective import _load_effective_diff
+from ..runs.effective import _load_effective_diff, _load_effective_diff_history
 from ..runs.layout import _effective_paths
 
 
@@ -75,8 +75,40 @@ def handle_report_tag(args) -> int:
     fail_on = meta.get("fail_on", "bad")
     require_assert = bool(meta.get("require_assert", False))
     print(f"Tag: {args.tag}")
-    print(f"Planned: {meta.get('planned_total')} | Executed: {meta.get('executed_total')} | Missed: {meta.get('missed_total')}")
-    print("Counts:", counts)
+    planned = meta.get("planned_total")
+    executed = meta.get("executed_total")
+    missed = meta.get("missed_total")
+    executed_pct = f"{(executed / planned * 100):.1f}%" if planned else "n/a"
+    print(f"Coverage: planned={planned} executed={executed} missed={missed} ({executed_pct} executed)")
+    ok = counts.get("ok", 0)
+    mismatch = counts.get("mismatch", 0)
+    failed = counts.get("failed", 0)
+    error = counts.get("error", 0)
+    unchecked = counts.get("unchecked", 0)
+    skipped = counts.get("skipped", 0)
+    non_skipped = (counts.get("total", 0) or 0) - (skipped or 0)
+    pass_rate = (ok / non_skipped) if non_skipped else None
+    pass_rate_display = f"{pass_rate*100:.1f}%" if pass_rate is not None else "n/a"
+    bad = bad_statuses(str(fail_on), require_assert)
+    bad_total = sum(counts.get(status, 0) or 0 for status in bad)
+    print(f"Quality: ok={ok} mismatch={mismatch} failed={failed} error={error} unchecked={unchecked} bad={bad_total} pass_rate={pass_rate_display}")
+    if args.verbose:
+        print("Counts:", counts)
+    summary_by_tag = meta.get("counts", {}).get("summary_by_tag") or counts.get("summary_by_tag") or {}
+    if summary_by_tag:
+        buckets = []
+        for tag, bucket in summary_by_tag.items():
+            bad_bucket = sum((bucket.get(status, 0) or 0) for status in bad)
+            pr = bucket.get("pass_rate")
+            buckets.append((tag, bad_bucket, pr))
+        buckets.sort(key=lambda t: (-t[1], (t[2] if t[2] is not None else 1.1)))
+        print("Top bad groups (by tag):")
+        for tag, bad_bucket, pr in buckets[:5]:
+            pr_disp = f"{pr*100:.1f}%" if isinstance(pr, (int, float)) else "n/a"
+            print(f"- {tag}: bad={bad_bucket} pass_rate={pr_disp}")
+        if args.verbose:
+            print("Full summary_by_tag:")
+            print(json.dumps(summary_by_tag, ensure_ascii=False, indent=2))
     bad = bad_statuses(str(fail_on), require_assert)
     failing = [res for res in results.values() if res.status in bad]
     failing = sorted(failing, key=lambda r: r.id)[:10]
@@ -84,15 +116,28 @@ def handle_report_tag(args) -> int:
         print("Failing cases (top 10):")
         for res in failing:
             print(f"- {res.id}: {res.status} ({_reason_text(res)}) [{res.artifacts_dir}]")
-    diff_entry = _load_effective_diff(eff_results_path.parent)
-    if diff_entry:
-        print("Last effective change:")
-        for key in ["timestamp", "run_id", "note"]:
-            if key in diff_entry:
-                print(f"  {key}: {diff_entry.get(key)}")
-        for label in ["regressed", "fixed", "changed_bad", "new_cases"]:
-            items = diff_entry.get(label) or []
-            print(f"  {label}: {len(items)}")
+    tag_dir = eff_results_path.parent
+    print("Paths:")
+    print(f"- effective_results_path: {eff_results_path}")
+    print(f"- effective_meta_path:    {eff_meta_path}")
+    diff_history_path = tag_dir / "effective_changes.jsonl"
+    print(f"- effective_diff_history_path: {diff_history_path}")
+
+    history_limit = max(0, int(args.changes)) if hasattr(args, "changes") else 1
+    if history_limit > 0:
+        history_entries = _load_effective_diff_history(tag_dir, limit=history_limit)
+        if history_entries:
+            print(f"Last {len(history_entries)} effective change(s):")
+            for entry in history_entries:
+                for key in ["timestamp", "run_id", "note"]:
+                    if key in entry:
+                        print(f"  {key}: {entry.get(key)}")
+                for label in ["regressed", "fixed", "changed_bad", "new_cases"]:
+                    items = entry.get(label) or []
+                    print(f"  {label}: {len(items)}")
+                print("")
+        else:
+            print("No effective change history found.")
     return 0
 
 

@@ -99,7 +99,7 @@ python -m examples.demo_qa.cli batch \
 Отчёты и история:
 
 * `python -m examples.demo_qa.cli stats --data <DATA_DIR> --last 10` — последние прогоны.
-* `python -m examples.demo_qa.cli report tag --data <DATA_DIR> --tag <TAG>` — сводка по “effective” результатам тега.
+* `python -m examples.demo_qa.cli report tag --data <DATA_DIR> --tag <TAG> [--changes 5 --verbose]` — сводка по “effective” результатам тега (короткая по умолчанию, можно показать историю изменений).
 * `python -m examples.demo_qa.cli report run --data <DATA_DIR> --run runs/latest` — сводка по конкретному run.
 * `python -m examples.demo_qa.cli history case <id> --data <DATA_DIR> [--tag <TAG>]` — история по кейсу.
 * `python -m examples.demo_qa.cli compare --base <PATH> --new <PATH> [--out ... --junit ... --format md|table|json --color auto|always|never]` — сравнить два результата по путям (табличный и JSON форматы удобны для CI/терминала).

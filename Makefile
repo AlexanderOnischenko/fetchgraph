@@ -47,6 +47,7 @@ TAG   ?=
 NOTE  ?=
 CASE  ?=
 LIMIT ?= 50
+CHANGES ?= 10
 
 ONLY_FAILED_FROM ?=
 ONLY_MISSED_FROM ?=
@@ -131,6 +132,7 @@ help:
 	@echo "Диагностика / анализ:"
 	@echo "  make history-case CASE=case_42 [TAG=...] [LIMIT=50] - история по кейсу"
 	@echo "  make report-tag TAG=...    - сводка по тегу (effective snapshot)"
+	@echo "  make report-tag-changes TAG=... [CHANGES=10] - сводка + последние изменения effective snapshot"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
 	@echo ""
@@ -292,6 +294,10 @@ history-case: check
 report-tag: check
 	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make report-tag TAG=..." && exit 1)
 	@$(CLI) report tag --data "$(DATA)" --tag "$(TAG)"
+
+report-tag-changes: check
+	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make report-tag-changes TAG=... [CHANGES=10]" && exit 1)
+	@$(CLI) report tag --data "$(DATA)" --tag "$(TAG)" --changes "$(CHANGES)"
 
 # 10) Дебаг 1 кейса
 case-run: check

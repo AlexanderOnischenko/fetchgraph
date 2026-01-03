@@ -1518,6 +1518,34 @@ def _format_percentage(value: float | None) -> str:
     return f"{value*100:.1f}%" if value is not None else "n/a"
 
 
+def _build_stat_row(entry: Mapping[str, object]) -> dict[str, object]:
+    timestamp = _format_history_timestamp(entry)
+    run_id = str(entry.get("run_id", ""))
+    status = entry.get("run_status") or ("INTERRUPTED" if entry.get("interrupted") else "")
+    tag = entry.get("tag") or ""
+    note = entry.get("note") or ""
+    bad_count = _coerce_int(entry.get("fail_count")) if entry.get("fail_count") is not None else None
+    pass_rate = _coerce_number(entry.get("pass_rate"))
+    planned = _coerce_number(entry.get("planned_total"))
+    executed = _coerce_number(entry.get("executed_total"))
+    coverage = (executed / planned) if planned else None
+    missed = _coerce_number(entry.get("missed_total"))
+    return {
+        "timestamp": timestamp,
+        "run_id": run_id,
+        "status": (status or "UNKNOWN"),
+        "tag": tag,
+        "note": note,
+        "bad": bad_count,
+        "pass_rate": pass_rate,
+        "coverage": coverage,
+        "planned": planned,
+        "executed": executed,
+        "missed": missed,
+        "config_hash": entry.get("config_hash"),
+    }
+
+
 def _print_stats(entries: list[dict], *, use_color: bool) -> None:
     if not entries:
         print("No history entries found.")
@@ -1536,30 +1564,20 @@ def _print_stats(entries: list[dict], *, use_color: bool) -> None:
 
     rows: list[dict] = []
     for entry in entries:
-        timestamp = _format_history_timestamp(entry)
-        run_id = str(entry.get("run_id", ""))
-        status = entry.get("run_status") or ("INTERRUPTED" if entry.get("interrupted") else "")
-        tag = entry.get("tag") or ""
-        note = entry.get("note") or ""
-        bad_count = _coerce_int(entry.get("fail_count")) if entry.get("fail_count") is not None else None
-        pass_rate = _coerce_number(entry.get("pass_rate"))
-        planned = _coerce_number(entry.get("planned_total"))
-        executed = _coerce_number(entry.get("executed_total"))
-        coverage = (executed / planned) if planned else None
-
+        stat = _build_stat_row(entry)
         rows.append(
             {
-                "timestamp": timestamp,
-                "run_id": run_id,
-                "status": status or "UNKNOWN",
-                "tag": tag,
-                "note": note,
-                "bad": "n/a" if bad_count is None else str(bad_count),
-                "bad_raw": bad_count,
-                "pass_rate": _format_percentage(pass_rate),
-                "pass_rate_raw": pass_rate,
-                "coverage": _format_percentage(coverage),
-                "coverage_raw": coverage,
+                "timestamp": stat["timestamp"],
+                "run_id": stat["run_id"],
+                "status": stat["status"],
+                "tag": stat["tag"],
+                "note": stat["note"],
+                "bad": "n/a" if stat["bad"] is None else str(stat["bad"]),
+                "bad_raw": stat["bad"],
+                "pass_rate": _format_percentage(stat["pass_rate"]),
+                "pass_rate_raw": stat["pass_rate"],
+                "coverage": _format_percentage(stat["coverage"]),
+                "coverage_raw": stat["coverage"],
             }
         )
 
@@ -1606,6 +1624,29 @@ def _print_stats(entries: list[dict], *, use_color: bool) -> None:
         print("  ".join(parts))
 
 
+def _render_stats_json(entries: list[dict], *, include_config_hash: bool) -> str:
+    rows: list[dict[str, object | None]] = []
+    for entry in entries:
+        stat = _build_stat_row(entry)
+        row: dict[str, object | None] = {
+            "timestamp": stat["timestamp"],
+            "run_id": stat["run_id"],
+            "status": stat["status"],
+            "tag": stat["tag"],
+            "note": stat["note"],
+            "bad": stat["bad"],
+            "pass_rate": stat["pass_rate"],
+            "coverage": stat["coverage"],
+            "planned": stat["planned"],
+            "executed": stat["executed"],
+            "missed": stat["missed"],
+        }
+        if include_config_hash:
+            row["config_hash"] = stat.get("config_hash")
+        rows.append(row)
+    return json.dumps(rows, ensure_ascii=False, indent=2)
+
+
 def handle_stats(args) -> int:
     history_path: Path | None = args.history
     if history_path is None:
@@ -1614,18 +1655,33 @@ def handle_stats(args) -> int:
             return 2
         history_path = Path(args.data) / ".runs" / "history.jsonl"
     entries = _load_history(history_path)
+    format_mode = getattr(args, "format", "table")
     color_mode = getattr(args, "color", "auto")
     use_color = _should_use_color(color_mode, stream=sys.stdout)
-    if args.group_by == "config_hash":
-        grouped: dict[str, list[dict]] = {}
-        for e in entries:
-            key = e.get("config_hash") or "unknown"
-            grouped.setdefault(key, []).append(e)
-        for key, vals in grouped.items():
-            print(f"\nconfig_hash={key}")
-            _print_stats(vals[-args.last :], use_color=use_color)
+    include_config_hash = bool(args.group_by == "config_hash")
+    if format_mode == "json":
+        rows: list[dict] = []
+        if args.group_by == "config_hash":
+            grouped: dict[str, list[dict]] = {}
+            for e in entries:
+                key = e.get("config_hash") or "unknown"
+                grouped.setdefault(key, []).append(e)
+            for vals in grouped.values():
+                rows.extend(vals[-args.last :])
+        else:
+            rows = entries[-args.last :]
+        print(_render_stats_json(rows, include_config_hash=include_config_hash))
     else:
-        _print_stats(entries[-args.last :], use_color=use_color)
+        if args.group_by == "config_hash":
+            grouped = {}
+            for e in entries:
+                key = e.get("config_hash") or "unknown"
+                grouped.setdefault(key, []).append(e)
+            for key, vals in grouped.items():
+                print(f"\nconfig_hash={key}")
+                _print_stats(vals[-args.last :], use_color=use_color)
+        else:
+            _print_stats(entries[-args.last :], use_color=use_color)
     return 0
 
 

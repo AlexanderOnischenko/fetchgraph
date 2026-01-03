@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Run only cases missing in the provided results.jsonl (or latest if omitted)",
     )
+    batch_p.add_argument(
+        "--only-missed-effective",
+        action="store_true",
+        help="Run only cases missing from the effective snapshot for --tag",
+    )
     batch_p.add_argument("--out", type=Path, required=False, default=None, help="Path to results jsonl")
     batch_p.add_argument("--artifacts-dir", type=Path, default=None, help="Where to store per-case artifacts")
     batch_p.add_argument("--enable-semantic", action="store_true")
@@ -91,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run only cases that failed/mismatched/errored in a previous results.jsonl",
     )
     batch_p.add_argument("--only-failed", action="store_true", help="Use latest run for --only-failed-from automatically")
+    batch_p.add_argument(
+        "--only-failed-effective",
+        action="store_true",
+        help="Run only failed/error/mismatch cases from the effective snapshot for --tag",
+    )
     batch_p.add_argument(
         "--no-overlay",
         action="store_true",

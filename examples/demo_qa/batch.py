@@ -599,6 +599,28 @@ def _select_cases_for_rerun(
 
 
 def handle_batch(args) -> int:
+    only_failed_effective = bool(getattr(args, "only_failed_effective", False))
+    only_missed_effective = bool(getattr(args, "only_missed_effective", False))
+    if only_failed_effective and args.only_failed:
+        print("Use either --only-failed or --only-failed-effective (not both).", file=sys.stderr)
+        return 2
+    if only_missed_effective and args.only_missed:
+        print("Use either --only-missed or --only-missed-effective (not both).", file=sys.stderr)
+        return 2
+    if only_failed_effective and args.only_failed_from:
+        print("--only-failed-effective is not compatible with --only-failed-from.", file=sys.stderr)
+        return 2
+    if only_missed_effective and args.only_missed_from:
+        print("--only-missed-effective is not compatible with --only-missed-from.", file=sys.stderr)
+        return 2
+    if (only_failed_effective or only_missed_effective) and not args.tag:
+        print("--tag is required when using --only-failed-effective/--only-missed-effective.", file=sys.stderr)
+        return 2
+    if only_failed_effective:
+        args.only_failed = True
+    if only_missed_effective:
+        args.only_missed = True
+
     started_at = datetime.datetime.now(datetime.timezone.utc)
     run_id = uuid.uuid4().hex[:8]
     interrupted = False

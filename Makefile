@@ -88,7 +88,8 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         llm-init llm-show llm-edit \
         chat \
         batch batch-tag batch-failed batch-failed-from \
-        batch-missed batch-missed-from batch-fail-fast batch-max-fails \
+        batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
+        batch-fail-fast batch-max-fails \
         stats history-case report-tag case-run case-open compare compare-tag
 
 # ==============================================================================
@@ -121,6 +122,8 @@ help:
 	@echo "  make batch-failed         - перепрогон только упавших (baseline = latest)"
 	@echo "  make batch-failed-from ONLY_FAILED_FROM=path/results.jsonl  - only-failed от явного baseline"
 	@echo "  make batch-missed [TAG=...] - добить missed (если TAG задан — относительно effective по тегу)"
+	@echo "  make batch-failed-tag TAG=...   - добить failed/error/mismatch относительно effective snapshot тега"
+	@echo "  make batch-missed-tag TAG=...   - добить missed относительно effective snapshot тега"
 	@echo "  make batch-missed-from ONLY_MISSED_FROM=path/results.jsonl  - добить missed от явного baseline"
 	@echo "  make batch-fail-fast      - быстрый smoke (остановиться на первом фейле)"
 	@echo "  make batch-max-fails MAX_FAILS=5 - остановиться после N фейлов"
@@ -268,6 +271,14 @@ batch-fail-fast: ensure-runs-dir
 
 batch-max-fails: ensure-runs-dir
 	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" --max-fails "$(MAX_FAILS)"
+
+batch-failed-tag: ensure-runs-dir
+	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make batch-failed-tag TAG=..." && exit 1)
+	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" --tag "$(TAG)" --only-failed-effective
+
+batch-missed-tag: ensure-runs-dir
+	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make batch-missed-tag TAG=..." && exit 1)
+	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" --tag "$(TAG)" --only-missed-effective
 
 # stats (последние 10)
 stats: check

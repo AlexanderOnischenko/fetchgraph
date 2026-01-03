@@ -138,7 +138,7 @@ dq-report()  { dq report tag --data "$DQ_DATA" --tag "$DQ_TAG" "$@"; }
 dq-run()     { dq report run --data "$DQ_DATA" --run "${1:-runs/latest}"; }
 dq-hist()    { dq history case "$1" --data "$DQ_DATA" --tag "$DQ_TAG" "${@:2}"; }
 dq-compare() { dq compare --base "$1" --new "$2" "${@:3}"; }
-dq-compare-tag() { dq compare --data "$DQ_DATA" --base-tag "${1:-baseline}" --new-tag "${2:-baseline_v2}" "${@:3}"; }
+dq-compare-tag() { dq compare --data "$DQ_DATA" --base-tag "${1:-baseline}" --new-tag "$2" "${@:3}"; }
 
 # Дебаг кейса
 dq-case()    { dq case run "$1" --cases "$DQ_CASES" --data "$DQ_DATA" --schema "$DQ_SCHEMA" "${@:2}"; }

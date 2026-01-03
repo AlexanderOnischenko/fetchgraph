@@ -56,7 +56,6 @@ NEW      ?=
 DIFF_OUT ?= $(DATA)/.runs/diff.md
 JUNIT    ?= $(DATA)/.runs/diff.junit.xml
 BASE_TAG ?= baseline
-NEW_TAG  ?= baseline_v2
 COMPARE_TAG_OUT ?= $(DATA)/.runs/diff.tags.md
 COMPARE_TAG_JUNIT ?= $(DATA)/.runs/diff.tags.junit.xml
 
@@ -137,7 +136,7 @@ help:
 	@echo ""
 	@echo "Сравнение результатов:"
 	@echo "  make compare BASE=... NEW=... [DIFF_OUT=...] [JUNIT=...]"
-	@echo "  make compare-tag BASE_TAG=... NEW_TAG=... [OUT=...] [JUNIT=...]"
+	@echo "  make compare-tag BASE_TAG=baseline NEW_TAG=... [COMPARE_TAG_OUT=...] [COMPARE_TAG_JUNIT=...]"
 	@echo ""
 	@echo "LLM конфиг:"
 	@echo "  make llm-init             - создать $(LLM_TOML) из $(LLM_TOML_EXAMPLE)"
@@ -318,6 +317,7 @@ compare-tag: OUT := $(COMPARE_TAG_OUT)
 compare-tag: JUNIT := $(COMPARE_TAG_JUNIT)
 compare-tag: check
 	@test -n "$(strip $(DATA))" || (echo "Нужно задать DATA=... (где лежит .runs)" && exit 1)
+	@test -n "$(strip $(NEW_TAG))" || (echo "Нужно задать NEW_TAG=... (например NEW_TAG=baseline_v2)" && exit 1)
 	@mkdir -p "$(DATA)/.runs"
 	@$(CLI) compare \
 	  --data "$(DATA)" \

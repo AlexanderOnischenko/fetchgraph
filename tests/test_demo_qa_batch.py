@@ -187,6 +187,22 @@ def test_only_missed_applies_overlay_when_scope_matches() -> None:
     assert "overlay_ignored_reason" not in breakdown
 
 
+def test_only_missed_exposes_tag_match_flag_even_when_overlay_tag_missing() -> None:
+    baseline = {"A": _mk_result("A", "ok")}
+    overlay = {"B": _mk_result("B", "ok")}
+
+    _, breakdown = _only_missed_selection(
+        ["A", "B"],
+        baseline,
+        overlay,
+        selection_tag="current-tag",
+    )
+
+    assert breakdown["overlay_executed"] == {"B"}
+    assert "overlay_tag_matches_current" in breakdown
+    assert breakdown["overlay_tag_matches_current"] is None
+
+
 def test_only_failed_strict_scope_ignores_overlay_pass(tmp_path: Path) -> None:
     baseline = {"A": _mk_result("A", "failed")}
     overlay = {"A": _mk_result("A", "ok")}

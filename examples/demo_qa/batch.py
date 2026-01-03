@@ -345,7 +345,7 @@ def _only_missed_selection(
     }
     if overlay_tag is not None:
         breakdown["overlay_tag"] = overlay_tag
-    if overlay_tag_matches_current is not None:
+    if selection_tag is not None:
         breakdown["overlay_tag_matches_current"] = overlay_tag_matches_current
     if ignored_reason:
         breakdown["overlay_ignored_reason"] = ignored_reason

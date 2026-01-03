@@ -44,7 +44,6 @@ from .runs.layout import (
     _load_latest_any_results,
     _load_latest_run,
     _load_run_meta,
-    _resolve_results_path_for_run,
     _run_dir_from_results_path,
     _update_latest_markers,
 )
@@ -128,6 +127,7 @@ def _consecutive_passes(
     passes_required: int = 1,
     fail_on: str = "bad",
     require_assert: bool = False,
+    strict_scope_history: bool = False,
 ) -> bool:
     if passes_required <= 1 or artifacts_dir is None:
         return overlay_result.status not in bad_statuses(fail_on, require_assert)
@@ -140,9 +140,11 @@ def _consecutive_passes(
     for entry in entries:
         if tag is not None and entry.get("tag") != tag:
             continue
-        # Old history entries may not contain scope_hash; treat missing as compatible for migration.
-        if scope_hash and entry.get("scope_hash") not in (None, scope_hash):
-            continue
+        # Old history entries may not contain scope_hash; treat missing as compatible for migration unless strict.
+        if scope_hash:
+            entry_scope = entry.get("scope_hash")
+            if entry_scope != scope_hash and (strict_scope_history or entry_scope is not None):
+                continue
         status = str(entry.get("status", ""))
         if status in bad:
             break
@@ -162,6 +164,7 @@ def _only_failed_selection(
     tag: str | None = None,
     scope_hash: str = "",
     anti_flake_passes: int = 1,
+    strict_scope_history: bool = False,
 ) -> tuple[set[str], dict[str, object]]:
     baseline = baseline_results or {}
     overlay = overlay_results or {}
@@ -181,6 +184,7 @@ def _only_failed_selection(
             passes_required=anti_flake_passes,
             fail_on=fail_on,
             require_assert=require_assert,
+            strict_scope_history=strict_scope_history,
         )
     }
 
@@ -459,7 +463,6 @@ def handle_batch(args) -> int:
 
     baseline_for_compare: Optional[Mapping[str, RunResult]] = None
     failed_baseline_results: Optional[Mapping[str, RunResult]] = None
-    failed_baseline_path: Path | None = None
     missed_baseline_results: Optional[Mapping[str, RunResult]] = None
     missed_baseline_path: Path | None = None
     overlay_results: Optional[Mapping[str, RunResult]] = None
@@ -571,6 +574,7 @@ def handle_batch(args) -> int:
             tag=args.tag,
             scope_hash=scope_id,
             anti_flake_passes=max(1, int(args.anti_flake_passes)),
+            strict_scope_history=args.strict_scope_history,
         )
         cases = [case for case in cases if case.id in selection_ids]
         failed_selection_ids = selection_ids
@@ -910,6 +914,7 @@ def handle_batch(args) -> int:
             "max_fails": args.max_fails,
             "no_overlay": args.no_overlay,
             "anti_flake_passes": args.anti_flake_passes,
+            "strict_scope_history": args.strict_scope_history,
         },
         "interrupted": interrupted,
         "interrupted_at_case_id": interrupted_at_case_id,
@@ -1055,7 +1060,8 @@ def handle_case_run(args) -> int:
 
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}"
+    run_id = uuid.uuid4().hex[:8]
+    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}_{run_id}"
     artifacts_root = run_folder / "cases"
     results_path = run_folder / "results.jsonl"
 
@@ -1074,7 +1080,7 @@ def handle_case_run(args) -> int:
     run_status = "FAILED" if bad_count else "SUCCESS"
     exit_code = 1 if bad_count else 0
     summary = {
-        "run_id": run_folder.name,
+        "run_id": run_id,
         "timestamp": timestamp + "Z",
         "counts": counts,
         "results_path": str(results_path),
@@ -1085,6 +1091,7 @@ def handle_case_run(args) -> int:
         "total_selected": 1,
         "total_executed": 1,
         "exit_code": exit_code,
+        "run_dir": str(run_folder),
     }
     summary_path = write_summary(results_path, summary)
     _update_latest_markers(run_folder, results_path, artifacts_dir, None, results_complete=True)

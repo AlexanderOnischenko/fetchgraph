@@ -102,6 +102,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=2,
         help="Require N consecutive PASS results to consider a test healed (applies to --only-failed overlay logic)",
     )
+    batch_p.add_argument(
+        "--strict-scope-history",
+        action="store_true",
+        help="Require scope_hash match in history when counting consecutive passes (disable migration fallback)",
+    )
     batch_p.add_argument("--plan-only", action="store_true", help="Run planner only (no fetch/synthesize)")
     batch_p.add_argument("--quiet", action="store_true", help="Print only summary and exit code")
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")

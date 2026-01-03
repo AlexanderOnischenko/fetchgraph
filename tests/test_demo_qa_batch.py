@@ -157,11 +157,13 @@ def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:
     assert latest_default.complete.read_text(encoding="utf-8").strip() == str(run_dir)
     assert latest_default.results.read_text(encoding="utf-8").strip() == str(results_path)
     assert latest_default.any_run.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert latest_default.legacy_run.read_text(encoding="utf-8").strip() == str(run_dir)
 
     latest_tag = _latest_markers(artifacts_dir, "feature/beta")
     assert latest_tag.complete.read_text(encoding="utf-8").strip() == str(run_dir)
     assert latest_tag.results.read_text(encoding="utf-8").strip() == str(results_path)
     assert latest_tag.any_run.read_text(encoding="utf-8").strip() == str(run_dir)
+    assert latest_tag.legacy_run.read_text(encoding="utf-8").strip() == str(run_dir)
 
     partial_dir = artifacts_dir / "runs" / "20240102_cases"
     partial_results = partial_dir / "results.jsonl"
@@ -174,8 +176,10 @@ def test_update_latest_markers_handles_tag(tmp_path: Path) -> None:
     assert refreshed_default.complete.read_text(encoding="utf-8").strip() == str(run_dir)
     assert refreshed_default.results.read_text(encoding="utf-8").strip() == str(results_path)
     assert refreshed_default.any_run.read_text(encoding="utf-8").strip() == str(partial_dir)
+    assert refreshed_default.legacy_run.read_text(encoding="utf-8").strip() == str(run_dir)
 
     refreshed_tag = _latest_markers(artifacts_dir, "feature/beta")
     assert refreshed_tag.complete.read_text(encoding="utf-8").strip() == str(run_dir)
     assert refreshed_tag.results.read_text(encoding="utf-8").strip() == str(results_path)
     assert refreshed_tag.any_run.read_text(encoding="utf-8").strip() == str(partial_dir)
+    assert refreshed_tag.legacy_run.read_text(encoding="utf-8").strip() == str(run_dir)

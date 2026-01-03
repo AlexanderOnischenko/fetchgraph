@@ -8,6 +8,19 @@ def test_match_expected_unchecked_when_no_expectations() -> None:
     assert _match_expected(case, "anything") is None
 
 
+def test_match_expected_coerces_non_string_expected_values() -> None:
+    case = Case(id="c1", question="What is foo?", expected=42)
+
+    mismatch = _match_expected(case, "43")
+    assert mismatch is not None
+    assert mismatch.passed is False
+    assert "expected='42'" in (mismatch.detail or "")
+
+    match = _match_expected(case, "42")
+    assert match is not None
+    assert match.passed is True
+
+
 def test_match_expected_contains_pass_and_fail() -> None:
     case = Case(id="c2", question="Q", expected_contains="bar")
 

@@ -204,25 +204,34 @@ def save_status(result: RunResult) -> None:
     _save_json(status_path, result.to_json())
 
 
+def _stringify(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
 def _match_expected(case: Case, answer: str | None) -> ExpectedCheck | None:
     if not case.has_asserts:
         return None
-    expected_value = case.expected or case.expected_regex or case.expected_contains or ""
+    expected_value = _stringify(case.expected) or _stringify(case.expected_regex) or _stringify(case.expected_contains) or ""
     if answer is None:
         return ExpectedCheck(mode="none", expected=expected_value, passed=False, detail="no answer")
     if case.expected is not None:
-        passed = answer.strip() == case.expected.strip()
-        detail = None if passed else f"expected={case.expected!r}, got={answer!r}"
-        return ExpectedCheck(mode="exact", expected=case.expected, passed=passed, detail=detail)
+        expected_str = _stringify(case.expected) or ""
+        passed = answer.strip() == expected_str.strip()
+        detail = None if passed else f"expected={expected_str!r}, got={answer!r}"
+        return ExpectedCheck(mode="exact", expected=expected_str, passed=passed, detail=detail)
     if case.expected_regex is not None:
-        pattern = re.compile(case.expected_regex)
+        expected_regex = _stringify(case.expected_regex) or ""
+        pattern = re.compile(expected_regex)
         passed = bool(pattern.search(answer))
-        detail = None if passed else f"regex {case.expected_regex!r} not found"
-        return ExpectedCheck(mode="regex", expected=case.expected_regex, passed=passed, detail=detail)
+        detail = None if passed else f"regex {expected_regex!r} not found"
+        return ExpectedCheck(mode="regex", expected=expected_regex, passed=passed, detail=detail)
     if case.expected_contains is not None:
-        passed = case.expected_contains in answer
-        detail = None if passed else f"expected to contain {case.expected_contains!r}"
-        return ExpectedCheck(mode="contains", expected=case.expected_contains, passed=passed, detail=detail)
+        expected_contains = _stringify(case.expected_contains) or ""
+        passed = expected_contains in answer
+        detail = None if passed else f"expected to contain {expected_contains!r}"
+        return ExpectedCheck(mode="contains", expected=expected_contains, passed=passed, detail=detail)
     return None
 
 

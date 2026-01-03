@@ -121,16 +121,16 @@ def _load_ids(path: Optional[Path]) -> set[str] | None:
 def _consecutive_passes(
     case_id: str,
     overlay_result: RunResult,
-    artifacts_dir: Path,
+    artifacts_dir: Path | None = None,
     *,
-    tag: str | None,
-    scope_hash: str,
-    passes_required: int,
-    fail_on: str,
-    require_assert: bool,
+    tag: str | None = None,
+    scope_hash: str = "",
+    passes_required: int = 1,
+    fail_on: str = "bad",
+    require_assert: bool = False,
 ) -> bool:
-    if passes_required <= 1:
-        return True
+    if passes_required <= 1 or artifacts_dir is None:
+        return overlay_result.status not in bad_statuses(fail_on, require_assert)
     bad = bad_statuses(fail_on, require_assert)
     if overlay_result.status in bad:
         return False
@@ -155,12 +155,12 @@ def _only_failed_selection(
     baseline_results: Mapping[str, RunResult] | None,
     overlay_results: Mapping[str, RunResult] | None,
     *,
-    fail_on: str,
-    require_assert: bool,
-    artifacts_dir: Path,
-    tag: str | None,
-    scope_hash: str,
-    anti_flake_passes: int,
+    fail_on: str = "bad",
+    require_assert: bool = False,
+    artifacts_dir: Path | None = None,
+    tag: str | None = None,
+    scope_hash: str = "",
+    anti_flake_passes: int = 1,
 ) -> tuple[set[str], dict[str, object]]:
     baseline = baseline_results or {}
     overlay = overlay_results or {}
@@ -640,19 +640,18 @@ def handle_batch(args) -> int:
             missed_baseline_results,
             overlay_results if not args.no_overlay else None,
         )
-        base_pool = filtered_case_lookup
         target_ids = missed_ids
         if args.only_failed and failed_selection_ids is not None:
             target_ids = target_ids & failed_selection_ids
             print(
-                f"Combining --only-failed and --only-missed via intersection: {len(target_ids)} cases remain.",
+                f"Combining --only-failed and --only-missed via intersection: {len(target_ids)} cases remain (missed={len(missed_ids)}).",
                 file=sys.stderr,
             )
-        cases = [case for cid, case in base_pool.items() if cid in target_ids]
+        cases = [case for case in filtered_cases if case.id in target_ids]
         print(f"Baseline (missed) results: {missed_baseline_path}", file=sys.stderr)
         print(f"Overlay executed: {len(missed_breakdown.get('overlay_executed', set()))}", file=sys.stderr)
         print(f"Missed in baseline: {len(missed_breakdown.get('missed_base', set()))}", file=sys.stderr)
-        print(f"Final only-missed selection: {len(missed_ids)}", file=sys.stderr)
+        print(f"Final only-missed selection: {len(target_ids)}", file=sys.stderr)
         if not cases:
             print("0 missed cases selected.", file=sys.stderr)
 

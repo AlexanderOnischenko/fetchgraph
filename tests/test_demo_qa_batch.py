@@ -118,7 +118,14 @@ def test_only_failed_selection_uses_overlay_and_baseline() -> None:
     baseline = {"a": _mk_result("a", "failed"), "b": _mk_result("b", "failed")}
     overlay = {"a": _mk_result("a", "ok"), "c": _mk_result("c", "failed")}
 
-    selection, breakdown = _only_failed_selection(baseline, overlay, fail_on="bad", require_assert=False)
+    selection, breakdown = _only_failed_selection(
+        baseline,
+        overlay,
+        fail_on="bad",
+        require_assert=False,
+        artifacts_dir=None,
+        anti_flake_passes=1,
+    )
 
     assert selection == {"b", "c"}
     assert breakdown["healed"] == {"a"}

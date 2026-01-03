@@ -208,6 +208,8 @@ def build_parser() -> argparse.ArgumentParser:
     tag_report.add_argument("--tag", type=str, required=True, help="Tag to report")
     tag_report.add_argument("--verbose", action="store_true", help="Print full counts and summary_by_tag")
     tag_report.add_argument("--changes", type=int, default=1, help="How many effective changes to show (default: 1)")
+    tag_report.add_argument("--format", choices=["plain", "table"], default="table", help="Output format")
+    tag_report.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode")
     run_report = report_sub.add_parser("run", help="Report a specific run folder or run_id")
     run_report.add_argument("--data", type=Path, required=True, help="Data dir containing .runs")
     run_report.add_argument("--run", type=Path, required=True, help="Run dir or run_id under runs/")

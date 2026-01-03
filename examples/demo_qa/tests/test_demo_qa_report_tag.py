@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 from examples.demo_qa.commands.report import handle_report_tag
 from examples.demo_qa.runner import RunResult
@@ -73,8 +73,10 @@ def test_report_tag_short_output(tmp_path, capsys):
     out = capsys.readouterr().out
 
     assert exit_code == 0
-    assert "Coverage:" in out
-    assert "Quality:" in out
+    assert "Coverage" in out
+    assert "planned" in out
+    assert "Quality" in out
+    assert "Top bad groups (by tag):" in out
     assert "effective_results_path" in out
     assert "Last 1 effective change" in out
 
@@ -89,3 +91,26 @@ def test_report_tag_changes_limit(tmp_path, capsys):
     assert exit_code == 0
     assert "r1" in out
     assert "r2" in out
+
+
+def test_report_tag_plain_output(tmp_path, capsys):
+    _write_effective(tmp_path)
+    args = SimpleNamespace(data=tmp_path, tag="demo", verbose=False, changes=1, format="plain", color="never")
+
+    exit_code = handle_report_tag(args)
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Coverage: planned=4 executed=3 missed=1 (75.0% executed)" in out
+    assert "Quality: ok=1 mismatch=0 failed=1 error=1 unchecked=0 bad=2 pass_rate=33.3%" in out
+
+
+def test_report_tag_color_never(tmp_path, capsys):
+    _write_effective(tmp_path)
+    args = SimpleNamespace(data=tmp_path, tag="demo", verbose=False, changes=1, color="never")
+
+    exit_code = handle_report_tag(args)
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "\x1b[" not in out

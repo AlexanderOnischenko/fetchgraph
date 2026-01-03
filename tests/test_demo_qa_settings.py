@@ -13,6 +13,20 @@ def write_toml(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _install_fake_openai(monkeypatch, created: dict):
+    def _store_and_return(kwargs):
+        created["chat_kwargs"] = kwargs
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+
+    class FakeOpenAI:
+        def __init__(self, api_key=None, base_url=None, **kwargs):
+            created["api_key"] = api_key
+            created["base_url"] = base_url
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: _store_and_return(kwargs)))
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+
 def test_env_overrides_toml(tmp_path, monkeypatch):
     config_path = tmp_path / "demo_qa.toml"
     write_toml(
@@ -62,10 +76,15 @@ base_url = "http://localhost:1234/v1"
 """,
     )
     monkeypatch.setenv("OPENAI_API_KEY", "sk-global")
+    created = {}
+    _install_fake_openai(monkeypatch, created)
 
     settings, resolved = load_settings(config_path=config_path)
     assert resolved == config_path
-    assert settings.llm.api_key == "sk-global"
+    llm = build_llm(settings)
+
+    llm("hello", sender="generic_plan")
+    assert created["api_key"] == "sk-global"
 
 
 def test_base_url_passed_to_openai_client(tmp_path, monkeypatch):
@@ -83,21 +102,7 @@ plan_model = "demo-plan"
 
     created = {}
 
-    class FakeOpenAI:
-        def __init__(self, api_key=None, base_url=None, **kwargs):
-            created["api_key"] = api_key
-            created["base_url"] = base_url
-            self.chat = SimpleNamespace(
-                completions=SimpleNamespace(
-                    create=lambda **kwargs: _store_and_return(kwargs)
-                )
-            )
-
-    def _store_and_return(kwargs):
-        created["chat_kwargs"] = kwargs
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
-
-    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    _install_fake_openai(monkeypatch, created)
 
     settings, resolved = load_settings(config_path=config_path)
     assert resolved == config_path
@@ -194,3 +199,51 @@ def test_no_options_uses_base_client(monkeypatch):
         "messages": [{"role": "user", "content": "question"}],
         "temperature": 0.2,
     }
+
+
+def test_missing_api_key_uses_unused(monkeypatch):
+    created: dict = {}
+    _install_fake_openai(monkeypatch, created)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    llm = OpenAILLM(
+        api_key=None,
+        base_url=None,
+        plan_model="demo-plan",
+        synth_model="demo-synth",
+    )
+    llm("hello", sender="generic_plan")
+
+    assert created["api_key"] == "unused"
+
+
+def test_env_reference_uses_openai_api_key(monkeypatch):
+    created: dict = {}
+    _install_fake_openai(monkeypatch, created)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+
+    llm = OpenAILLM(
+        api_key="env:OPENAI_API_KEY",
+        base_url=None,
+        plan_model="demo-plan",
+        synth_model="demo-synth",
+    )
+    llm("hello", sender="generic_plan")
+
+    assert created["api_key"] == "sk-env"
+
+
+def test_env_reference_defaults_to_unused_when_missing(monkeypatch):
+    created: dict = {}
+    _install_fake_openai(monkeypatch, created)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    llm = OpenAILLM(
+        api_key="env:OPENAI_API_KEY",
+        base_url=None,
+        plan_model="demo-plan",
+        synth_model="demo-synth",
+    )
+    llm("hello", sender="generic_plan")
+
+    assert created["api_key"] == "unused"

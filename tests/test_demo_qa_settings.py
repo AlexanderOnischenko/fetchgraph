@@ -51,6 +51,24 @@ synth_model = "gpt-4o-mini"
         load_settings(config_path=config_path)
 
 
+def test_allow_missing_api_key_when_disabled(tmp_path):
+    config_path = tmp_path / "demo_qa.toml"
+    write_toml(
+        config_path,
+        """
+[llm]
+plan_model = "gpt-4o-mini"
+synth_model = "gpt-4o-mini"
+require_api_key = false
+""",
+    )
+
+    settings, resolved = load_settings(config_path=config_path)
+    assert resolved == config_path
+    assert settings.llm.api_key is None
+    assert settings.llm.require_api_key is False
+
+
 def test_openai_key_from_global_env(tmp_path, monkeypatch):
     config_path = tmp_path / "demo_qa.toml"
     write_toml(

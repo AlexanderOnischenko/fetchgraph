@@ -20,6 +20,7 @@ except ImportError as exc:  # pragma: no cover - make missing dependency explici
 class LLMSettings(BaseModel):
     base_url: str | None = Field(default=None)
     api_key: str | None = Field(default=None)
+    require_api_key: bool = True
     model: str | None = None
     plan_model: str = "default"
     synth_model: str = "default"
@@ -93,7 +94,7 @@ class DemoQASettings(BaseSettings):
             env_key = os.getenv("OPENAI_API_KEY")
             if env_key:
                 self.llm.api_key = env_key
-        if not self.llm.api_key:
+        if self.llm.require_api_key and not self.llm.api_key:
             raise ValueError("llm.api_key is required. Provide it in config or set OPENAI_API_KEY.")
         return self
 

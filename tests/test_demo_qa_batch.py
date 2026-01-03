@@ -546,7 +546,7 @@ def test_explicit_config_path_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_packaged_default_config_used_when_no_cli_or_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    run_meta = _run_batch_and_meta(tmp_path, monkeypatch, env_api_key="sk-env")
+    run_meta = _run_batch_and_meta(tmp_path, monkeypatch, env_api_key=None)
 
     config_path = run_meta["inputs"]["config_path"]
     assert config_path is not None

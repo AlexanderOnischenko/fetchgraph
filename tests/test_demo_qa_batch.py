@@ -169,7 +169,8 @@ def test_only_failed_strict_scope_ignores_overlay_pass(tmp_path: Path) -> None:
 
     assert selection == {"A"}
     assert breakdown["healed"] == set()
-    assert any("overlay_scope_matches_current=False" in line for line in breakdown.get("explain", []))
+    explain_lines = cast(list[str], breakdown.get("explain", []) or [])
+    assert any("overlay_scope_matches_current=False" in line for line in explain_lines)
 
 
 def test_only_failed_strict_scope_allows_overlay_pass_when_scope_matches(tmp_path: Path) -> None:
@@ -216,7 +217,7 @@ def test_only_failed_explain_notes_scope_mismatch(tmp_path: Path) -> None:
         explain_selection=True,
     )
 
-    explain_lines = breakdown.get("explain", [])
+    explain_lines = cast(list[str], breakdown.get("explain", []) or [])
     assert any("ignored due to strict scope mismatch" in line for line in explain_lines)
 
 

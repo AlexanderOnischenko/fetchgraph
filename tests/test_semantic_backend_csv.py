@@ -5,7 +5,7 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.semantic_backend import (
+from fetchgraph.relational.semantic import (
     CsvEmbeddingBuilder,
     CsvSemanticBackend,
     CsvSemanticSource,

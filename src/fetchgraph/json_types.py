@@ -1,12 +1,11 @@
-"""Type aliases for JSON-like structures used in provider selectors.
+"""Legacy compatibility aliases for JSON selector types.
 
-These aliases describe data that must remain JSON-serializable and are
-intended for use with the ``selectors`` argument in provider protocols.
+The canonical definitions live in :mod:`fetchgraph.relational.types`. This
+module preserves the historical import path used prior to the relational
+package refactor.
 """
 
-from typing import Dict, List, Union
+from .relational.types import JSONDict, JSONPrimitive, JSONValue, SelectorsDict
 
-JSONPrimitive = Union[str, int, float, bool, None]
-JSONValue = Union[JSONPrimitive, Dict[str, "JSONValue"], List["JSONValue"]]
-JSONDict = Dict[str, JSONValue]
-SelectorsDict = JSONDict
+__all__ = ["JSONPrimitive", "JSONValue", "JSONDict", "SelectorsDict"]
+

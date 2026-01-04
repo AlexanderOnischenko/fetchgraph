@@ -4,13 +4,14 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from fetchgraph.relational_models import (
+from fetchgraph.relational import (
     AggregationSpec,
     ColumnDescriptor,
     ComparisonFilter,
     EntityDescriptor,
     GroupBySpec,
     LogicalFilter,
+    PandasRelationalDataProvider,
     RelationalQuery,
     RelationDescriptor,
     RelationJoin,
@@ -18,7 +19,6 @@ from fetchgraph.relational_models import (
     SemanticClause,
     SemanticMatch,
 )
-from fetchgraph.relational_pandas import PandasRelationalDataProvider
 
 
 class FakeSemanticBackend:

@@ -7,6 +7,6 @@ paths.
 
 from .relational import models as _models
 from .relational.models import *  # noqa: F401,F403
+from .relational.models import QueryResult
 
-__all__ = _models.__all__
-
+__all__ = [*_models.__all__, "QueryResult"]

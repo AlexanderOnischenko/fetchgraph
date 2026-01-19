@@ -19,6 +19,7 @@ from ..models import (
     SemanticOnlyRequest,
     SemanticOnlyResult,
 )
+from ..normalize import normalize_relational_selectors
 from ..types import SelectorsDict
 from .base import RelationalDataProvider
 
@@ -114,7 +115,8 @@ class CompositeRelationalProvider(RelationalDataProvider):
         op = selectors.get("op")
         if op != "query":
             return super().fetch(feature_name, selectors, **kwargs)
-        req = RelationalQuery.model_validate(selectors)
+        normalized = normalize_relational_selectors(selectors)
+        req = RelationalQuery.model_validate(normalized)
         child_choice = self._choose_child(req)
         if child_choice is None:
             return self._execute_cross_provider_query(req, feature_name, **kwargs)

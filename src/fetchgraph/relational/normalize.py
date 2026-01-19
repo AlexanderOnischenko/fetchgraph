@@ -12,13 +12,13 @@ def normalize_relational_selectors(selectors: SelectorsDict) -> SelectorsDict:
     if not isinstance(selectors, dict):
         return selectors
     normalized = dict(selectors)
-    if normalized.get("op") != "query":
-        return normalized
-    normalized["aggregations"] = _normalize_aggregations(normalized.get("aggregations"))
-    normalized["group_by"] = _normalize_group_by(normalized.get("group_by"))
-    normalized_filters = _normalize_filters(normalized.get("filters"))
-    normalized["filters"] = normalized_filters
-    normalized = _normalize_min_max_filter(normalized, normalized_filters)
+    # if normalized.get("op") != "query":
+    #     return normalized
+    # normalized["aggregations"] = _normalize_aggregations(normalized.get("aggregations"))
+    # normalized["group_by"] = _normalize_group_by(normalized.get("group_by"))
+    # normalized_filters = _normalize_filters(normalized.get("filters"))
+    # normalized["filters"] = normalized_filters
+    # normalized = _normalize_min_max_filter(normalized, normalized_filters)
     return normalized
 
 

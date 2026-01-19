@@ -1,0 +1,118 @@
+{
+  "stage": "before_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "select": [
+            {
+              "expr": "order_id"
+            }
+          ],
+          "filters": {
+            "type": "comparison",
+            "field": "channel",
+            "op": "=",
+            "value": "online"
+          },
+          "aggregations": [
+            {
+              "field": "order_id",
+              "agg": "count",
+              "alias": "order_count"
+            }
+          ],
+          "case_sensitivity": false
+        },
+        "max_tokens": 500
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": []
+  }
+}
+
+{
+  "stage": "after_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "select": [
+            {
+              "expr": "order_id"
+            }
+          ],
+          "filters": {
+            "type": "comparison",
+            "field": "channel",
+            "op": "=",
+            "value": "online"
+          },
+          "aggregations": [
+            {
+              "field": "order_id",
+              "agg": "count",
+              "alias": "order_count"
+            }
+          ],
+          "case_sensitivity": false
+        },
+        "max_tokens": 500
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": [],
+    "normalization_notes": []
+  }
+}
+
+{
+  "stage": "fetch_request",
+  "provider": "demo_qa",
+  "provider_class": "PandasRelationalDataProvider",
+  "mode": "slice",
+  "selectors": {
+    "op": "query",
+    "root_entity": "orders",
+    "select": [
+      {
+        "expr": "order_id"
+      }
+    ],
+    "filters": {
+      "type": "comparison",
+      "field": "channel",
+      "op": "=",
+      "value": "online"
+    },
+    "aggregations": [
+      {
+        "field": "order_id",
+        "agg": "count",
+        "alias": "order_count"
+      }
+    ],
+    "case_sensitivity": false
+  },
+  "max_tokens": 500
+}
+

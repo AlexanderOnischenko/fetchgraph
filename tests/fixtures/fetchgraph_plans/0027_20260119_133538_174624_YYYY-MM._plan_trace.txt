@@ -1,0 +1,130 @@
+{
+  "stage": "before_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "group_by": [
+            {
+              "field": "order_month",
+              "alias": "order_month"
+            }
+          ],
+          "aggregations": [
+            {
+              "field": "order_id",
+              "agg": "count",
+              "alias": "order_count"
+            }
+          ],
+          "select": [
+            {
+              "expr": "order_month"
+            },
+            {
+              "expr": "order_count"
+            }
+          ],
+          "limit": 1000,
+          "case_sensitivity": false
+        },
+        "max_tokens": 2000
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": []
+  }
+}
+
+{
+  "stage": "after_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "group_by": [
+            {
+              "field": "order_month",
+              "alias": "order_month"
+            }
+          ],
+          "aggregations": [
+            {
+              "field": "order_id",
+              "agg": "count",
+              "alias": "order_count"
+            }
+          ],
+          "select": [
+            {
+              "expr": "order_month"
+            },
+            {
+              "expr": "order_count"
+            }
+          ],
+          "limit": 1000,
+          "case_sensitivity": false
+        },
+        "max_tokens": 2000
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": [],
+    "normalization_notes": []
+  }
+}
+
+{
+  "stage": "fetch_request",
+  "provider": "demo_qa",
+  "provider_class": "PandasRelationalDataProvider",
+  "mode": "slice",
+  "selectors": {
+    "op": "query",
+    "root_entity": "orders",
+    "group_by": [
+      {
+        "field": "order_month",
+        "alias": "order_month"
+      }
+    ],
+    "aggregations": [
+      {
+        "field": "order_id",
+        "agg": "count",
+        "alias": "order_count"
+      }
+    ],
+    "select": [
+      {
+        "expr": "order_month"
+      },
+      {
+        "expr": "order_count"
+      }
+    ],
+    "limit": 1000,
+    "case_sensitivity": false
+  },
+  "max_tokens": 2000
+}
+

@@ -1,0 +1,109 @@
+{
+  "stage": "before_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "select": [
+            {
+              "expr": "count(order_id)",
+              "alias": "order_count"
+            }
+          ],
+          "filters": {
+            "type": "comparison",
+            "entity": "customers",
+            "field": "customer_id",
+            "op": "=",
+            "value": 692
+          },
+          "relations": [
+            "orders_to_customers"
+          ]
+        },
+        "max_tokens": 100
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": []
+  }
+}
+
+{
+  "stage": "after_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "select": [
+            {
+              "expr": "count(order_id)",
+              "alias": "order_count"
+            }
+          ],
+          "filters": {
+            "type": "comparison",
+            "entity": "customers",
+            "field": "customer_id",
+            "op": "=",
+            "value": 692
+          },
+          "relations": [
+            "orders_to_customers"
+          ]
+        },
+        "max_tokens": 100
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": [],
+    "normalization_notes": []
+  }
+}
+
+{
+  "stage": "fetch_request",
+  "provider": "demo_qa",
+  "provider_class": "PandasRelationalDataProvider",
+  "mode": "slice",
+  "selectors": {
+    "op": "query",
+    "root_entity": "orders",
+    "select": [
+      {
+        "expr": "count(order_id)",
+        "alias": "order_count"
+      }
+    ],
+    "filters": {
+      "type": "comparison",
+      "entity": "customers",
+      "field": "customer_id",
+      "op": "=",
+      "value": 692
+    },
+    "relations": [
+      "orders_to_customers"
+    ]
+  },
+  "max_tokens": 100
+}
+

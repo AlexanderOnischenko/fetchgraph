@@ -58,18 +58,21 @@ class TraceCase:
     provider: str
     mode: str
     selectors: Dict[str, Any]
+    bucket: str
 
     @property
     def case_id(self) -> str:
         # Важно: не использовать '::' — VSCode/pytest UI строят дерево по этому разделителю.
-        return f"{self.trace_name} | spec[{self.spec_idx}] | {self.provider}"
+        return f"{self.bucket} | {self.trace_name} | spec[{self.spec_idx}] | {self.provider}"
 
 
 def _load_trace_cases_from_fixtures() -> List[TraceCase]:
     """
-    Ищет:
-      - fixtures/fetchgraph_plans.zip
-      - fixtures/fetchgraph_plans/*.txt
+    Ищет по бакетам:
+      - fixtures/regressions_fixed/fetchgraph_plans.zip
+      - fixtures/regressions_fixed/fetchgraph_plans/*.txt
+      - fixtures/regressions_known_bad/fetchgraph_plans.zip
+      - fixtures/regressions_known_bad/fetchgraph_plans/*.txt
 
     Достаёт спецификации из stage=before_normalize (plan.context_plan[*]).
     """
@@ -78,35 +81,51 @@ def _load_trace_cases_from_fixtures() -> List[TraceCase]:
         pytest.skip("No fixtures dir found (expected .../fixtures).", allow_module_level=True)
         return []
 
-    zip_path = fixtures_dir / "fetchgraph_plans.zip"
-    dir_path = fixtures_dir / "fetchgraph_plans"
-
     cases: List[TraceCase] = []
+    buckets = ["regressions_fixed", "regressions_known_bad"]
+    for bucket in buckets:
+        zip_path = fixtures_dir / bucket / "fetchgraph_plans.zip"
+        dir_path = fixtures_dir / bucket / "fetchgraph_plans"
 
-    if zip_path.exists():
-        with zipfile.ZipFile(zip_path) as zf:
+        if zip_path.exists():
+            with zipfile.ZipFile(zip_path) as zf:
+                for name in sorted(zf.namelist()):
+                    if not name.endswith("_plan_trace.txt"):
+                        continue
+                    text = zf.read(name).decode("utf-8", errors="replace")
+                    cases.extend(_extract_before_specs(trace_name=name, text=text, bucket=bucket))
+            continue
+
+        if dir_path.exists():
+            for p in sorted(dir_path.glob("*_plan_trace.txt")):
+                text = p.read_text(encoding="utf-8", errors="replace")
+                cases.extend(_extract_before_specs(trace_name=p.name, text=text, bucket=bucket))
+
+    legacy_zip = fixtures_dir / "fetchgraph_plans.zip"
+    legacy_dir = fixtures_dir / "fetchgraph_plans"
+    if legacy_zip.exists():
+        with zipfile.ZipFile(legacy_zip) as zf:
             for name in sorted(zf.namelist()):
                 if not name.endswith("_plan_trace.txt"):
                     continue
                 text = zf.read(name).decode("utf-8", errors="replace")
-                cases.extend(_extract_before_specs(trace_name=name, text=text))
-        return cases
-
-    if dir_path.exists():
-        for p in sorted(dir_path.glob("*_plan_trace.txt")):
+                cases.extend(_extract_before_specs(trace_name=name, text=text, bucket="regressions_fixed"))
+    if legacy_dir.exists():
+        for p in sorted(legacy_dir.glob("*_plan_trace.txt")):
             text = p.read_text(encoding="utf-8", errors="replace")
-            cases.extend(_extract_before_specs(trace_name=p.name, text=text))
-        return cases
+            cases.extend(_extract_before_specs(trace_name=p.name, text=text, bucket="regressions_fixed"))
 
-    pytest.skip(
-        "No plan fixtures found. Put fetchgraph_plans.zip into fixtures/ "
-        "or unpack it to fixtures/fetchgraph_plans/.",
-        allow_module_level=True,
-    )
-    return []
+    if not cases:
+        pytest.skip(
+            "No plan fixtures found. Put fetchgraph_plans.zip into fixtures/regressions_fixed "
+            "or fixtures/regressions_known_bad, or unpack it to "
+            "fixtures/regressions_fixed/fetchgraph_plans or fixtures/regressions_known_bad/fetchgraph_plans.",
+            allow_module_level=True,
+        )
+    return cases
 
 
-def _extract_before_specs(trace_name: str, text: str) -> List[TraceCase]:
+def _extract_before_specs(trace_name: str, text: str, *, bucket: str) -> List[TraceCase]:
     before_objs = [
         obj for obj in _iter_json_objects_from_trace_text(text)
         if obj.get("stage") == "before_normalize"
@@ -133,6 +152,7 @@ def _extract_before_specs(trace_name: str, text: str) -> List[TraceCase]:
                     provider=provider,
                     mode=str(mode),
                     selectors=selectors,
+                    bucket=bucket,
                 )
             )
     return out
@@ -207,6 +227,8 @@ def test_plan_normalizer_contract_never_regresses_valid_inputs(case: TraceCase) 
     Это защищает от регрессий класса "ok -> error" и от неожиданных мутаций.
     """
     assert NORMALIZER is not None
+    if case.bucket != "regressions_fixed":
+        return
 
     rule = NORMALIZER.normalizer_registry.get(case.provider)
     assert rule is not None, f"No normalizer rule registered for provider={case.provider!r}"

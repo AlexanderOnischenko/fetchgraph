@@ -265,26 +265,6 @@ class PlanNormalizer:
             )
         return normalized
 
-    def _ensure_required_specs(
-        self,
-        required: Iterable[str],
-        context_plan: List[ContextFetchSpec],
-        notes: List[str],
-    ) -> List[ContextFetchSpec]:
-        existing = {spec.provider for spec in context_plan}
-        added = 0
-        for provider in required:
-            if provider in existing:
-                continue
-            context_plan.append(
-                ContextFetchSpec(provider=provider, mode=self.options.default_mode)
-            )
-            existing.add(provider)
-            added += 1
-        if added:
-            notes.append(f"context_plan_required_added:{added}")
-        return context_plan
-
     def _normalize_text_list(
         self,
         values: Optional[Iterable[Any]],

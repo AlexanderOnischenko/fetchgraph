@@ -486,9 +486,8 @@ class BaseGraphAgent:
             by_provider.setdefault(b.spec.provider, b.spec)
         for s in plan.context_plan or []:
             by_provider[s.provider] = s
-        if not plan.context_plan:
-            for p in plan.required_context or []:
-                by_provider.setdefault(p, ContextFetchSpec(provider=p, mode="full"))
+        for p in plan.required_context or []:
+            by_provider.setdefault(p, ContextFetchSpec(provider=p, mode="full"))
         specs = list(by_provider.values())
         logger.debug(
             "Merged baseline with plan: context_plan_nodes=%d, baseline_specs=%d, "

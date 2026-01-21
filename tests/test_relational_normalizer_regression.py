@@ -6,7 +6,7 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -15,8 +15,8 @@ from fetchgraph.core.models import ContextFetchSpec, ProviderInfo
 from fetchgraph.planning.normalize import (
     PlanNormalizer,
     PlanNormalizerOptions,
-    SelectorNormalizationRule,
 )
+from fetchgraph.planning.normalize.plan_normalizer import SelectorNormalizationRule
 from fetchgraph.relational.models import RelationalRequest
 from fetchgraph.relational.normalize import normalize_relational_selectors
 

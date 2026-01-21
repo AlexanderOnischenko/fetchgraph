@@ -24,8 +24,6 @@ class NormalizedPlan(Plan):
 class PlanNormalizerOptions:
     allow_unknown_providers: bool = False
     coerce_provider_case: bool = True
-    fill_missing_context_plan: bool = True
-    add_required_context_specs: bool = True
     dedupe_required_context: bool = True
     dedupe_context_plan: bool = True
     trim_text_fields: bool = True
@@ -95,18 +93,10 @@ class PlanNormalizer:
         required_context = self._normalize_required_context(plan.required_context, notes)
         context_plan = self._normalize_context_plan(plan.context_plan, notes)
 
-        if self.options.add_required_context_specs:
-            context_plan = self._ensure_required_specs(
-                required_context, context_plan, notes
-            )
-
-        if self.options.fill_missing_context_plan and not context_plan:
-            context_plan = [
-                ContextFetchSpec(provider=p, mode=self.options.default_mode)
-                for p in required_context
-            ]
-            if required_context:
-                notes.append("context_plan_filled_from_required_context")
+        # IMPORTANT:
+        # Do NOT synthesize ContextFetchSpec from required_context here.
+        # Baseline/plan merge owns "ensure required providers exist" logic,
+        # and must do it in a baseline-safe way (never overriding baseline selectors/mode).
 
         context_plan = self._normalize_specs(context_plan, notes)
 
@@ -275,34 +265,14 @@ class PlanNormalizer:
             )
         return normalized
 
-    def _ensure_required_specs(
-        self,
-        required: Iterable[str],
-        context_plan: List[ContextFetchSpec],
-        notes: List[str],
-    ) -> List[ContextFetchSpec]:
-        existing = {spec.provider for spec in context_plan}
-        added = 0
-        for provider in required:
-            if provider in existing:
-                continue
-            context_plan.append(
-                ContextFetchSpec(provider=provider, mode=self.options.default_mode)
-            )
-            existing.add(provider)
-            added += 1
-        if added:
-            notes.append(f"context_plan_required_added:{added}")
-        return context_plan
-
     def _normalize_text_list(
         self,
         values: Optional[Iterable[Any]],
         notes: List[str],
         label: str,
-    ) -> Optional[List[str]]:
+    ) -> List[str]:
         if values is None:
-            return None
+            return []
         normalized: List[str] = []
         for raw in values:
             if not isinstance(raw, str):

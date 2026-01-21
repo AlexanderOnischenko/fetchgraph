@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from ..parsing.plan_parser import PlanParser
+from ..planning.normalize import PlanNormalizer
 from .models import (
     BaselineSpec,
     ContextFetchSpec,
@@ -327,6 +328,7 @@ class BaseGraphAgent:
         verifiers: List[Verifier],
         packer: ContextPacker,
         plan_parser: Optional[Callable[[RawLLMOutput], Plan]] = None,
+        plan_normalizer: Optional[PlanNormalizer] = None,
         baseline: Optional[List[BaselineSpec]] = None,
         max_retries: int = 2,
         task_profile: Optional[TaskProfile] = None,
@@ -344,6 +346,9 @@ class BaseGraphAgent:
             self.plan_parser = PlanParser().parse
         else:
             self.plan_parser = plan_parser
+        self.plan_normalizer = plan_normalizer or PlanNormalizer.from_providers(
+            providers
+        )
         self.baseline = baseline or []
         self.max_retries = max_retries
         self.task_profile = task_profile or TaskProfile()
@@ -353,13 +358,15 @@ class BaseGraphAgent:
         logger.info(
             "BaseGraphAgent initialized "
             "(task_name=%r, providers=%d, verifiers=%d, "
-            "baseline_specs=%d, max_retries=%d, max_refetch_iters=%d)",
+            "baseline_specs=%d, max_retries=%d, max_refetch_iters=%d, "
+            "plan_normalizer=%s)",
             self.task_profile.task_name,
             len(self.providers),
             len(self.verifiers),
             len(self.baseline),
             self.max_retries,
             self.max_refetch_iters,
+            self.plan_normalizer.__class__.__name__ if self.plan_normalizer else None,
         )
 
     # ---- public API ----
@@ -485,6 +492,8 @@ class BaseGraphAgent:
     def _fetch(self, feature_name: str, plan: Plan) -> Dict[str, ContextItem]:
         t0 = time.perf_counter()
         specs = self._merge_baseline_with_plan(plan)
+        if self.plan_normalizer is not None:
+            specs = self.plan_normalizer.normalize_specs(specs)
         logger.info(
             "Fetching context for feature_name=%r using %d specs",
             feature_name,

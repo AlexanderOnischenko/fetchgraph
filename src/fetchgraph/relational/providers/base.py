@@ -18,7 +18,6 @@ from ..models import (
     SemanticOnlyRequest,
     SemanticOnlyResult,
 )
-from ..normalize import normalize_relational_selectors
 from ..types import SelectorsDict
 
 
@@ -81,8 +80,7 @@ class RelationalDataProvider(ContextProvider, SupportsDescribe):
             req = SemanticOnlyRequest.model_validate(selectors)
             return self._handle_semantic_only(req)
         if op == "query":
-            normalized = normalize_relational_selectors(selectors)
-            req = RelationalQuery.model_validate(normalized)
+            req = RelationalQuery.model_validate(selectors)
             return self._handle_query(req)
         raise ValueError(f"Unsupported op: {op}")
 

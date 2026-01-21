@@ -108,6 +108,8 @@ class PlanNormalizer:
             if required_context:
                 notes.append("context_plan_filled_from_required_context")
 
+        context_plan = self._normalize_specs(context_plan, notes)
+
         adr_queries = self._normalize_text_list(plan.adr_queries, notes, "adr_queries")
         constraints = self._normalize_text_list(
             plan.constraints, notes, "constraints"
@@ -146,14 +148,7 @@ class PlanNormalizer:
     ) -> List[ContextFetchSpec]:
         normalized: List[ContextFetchSpec] = []
         for spec in specs:
-            provider = self._resolve_provider(spec.provider)
-            if provider is None:
-                if self.options.allow_unknown_providers:
-                    provider = str(spec.provider)
-                else:
-                    normalized.append(spec)
-                    continue
-            rule = self.normalizer_registry.get(provider)
+            rule = self.normalizer_registry.get(spec.provider)
             if rule is None:
                 normalized.append(spec)
                 continue
@@ -168,9 +163,12 @@ class PlanNormalizer:
                 if after_ok:
                     decision = "use_normalized_fixed"
                     use = candidate
+                elif candidate != orig:
+                    decision = "use_normalized_unvalidated"
+                    use = candidate
             notes.append(
                 self._format_selectors_note(
-                    provider,
+                    spec.provider,
                     before_ok,
                     after_ok,
                     decision,

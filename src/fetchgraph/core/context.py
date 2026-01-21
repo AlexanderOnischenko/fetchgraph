@@ -350,6 +350,14 @@ class BaseGraphAgent:
             providers
         )
         self.baseline = baseline or []
+        if self.plan_normalizer is not None and self.baseline:
+            normalized_specs = self.plan_normalizer.normalize_specs(
+                [spec.spec for spec in self.baseline]
+            )
+            self.baseline = [
+                BaselineSpec(spec=normalized, required=baseline_spec.required)
+                for baseline_spec, normalized in zip(self.baseline, normalized_specs)
+            ]
         self.max_retries = max_retries
         self.task_profile = task_profile or TaskProfile()
         self.llm_refetch = llm_refetch
@@ -447,6 +455,8 @@ class BaseGraphAgent:
             plan = self.plan_parser(plan_raw)
         else:
             plan = Plan.model_validate_json(plan_raw.text)
+        if self.plan_normalizer is not None:
+            plan = self.plan_normalizer.normalize(plan)
         elapsed = time.perf_counter() - t0
         logger.info(
             "Planning finished for feature_name=%r in %.3fs "
@@ -492,8 +502,6 @@ class BaseGraphAgent:
     def _fetch(self, feature_name: str, plan: Plan) -> Dict[str, ContextItem]:
         t0 = time.perf_counter()
         specs = self._merge_baseline_with_plan(plan)
-        if self.plan_normalizer is not None:
-            specs = self.plan_normalizer.normalize_specs(specs)
         logger.info(
             "Fetching context for feature_name=%r using %d specs",
             feature_name,

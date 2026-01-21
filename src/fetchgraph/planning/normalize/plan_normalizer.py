@@ -146,7 +146,14 @@ class PlanNormalizer:
     ) -> List[ContextFetchSpec]:
         normalized: List[ContextFetchSpec] = []
         for spec in specs:
-            rule = self.normalizer_registry.get(spec.provider)
+            provider = self._resolve_provider(spec.provider)
+            if provider is None:
+                if self.options.allow_unknown_providers:
+                    provider = str(spec.provider)
+                else:
+                    normalized.append(spec)
+                    continue
+            rule = self.normalizer_registry.get(provider)
             if rule is None:
                 normalized.append(spec)
                 continue
@@ -163,7 +170,7 @@ class PlanNormalizer:
                     use = candidate
             notes.append(
                 self._format_selectors_note(
-                    spec.provider,
+                    provider,
                     before_ok,
                     after_ok,
                     decision,

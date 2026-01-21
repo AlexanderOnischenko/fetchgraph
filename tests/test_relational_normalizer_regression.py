@@ -6,12 +6,18 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from fetchgraph.relational.models import RelationalQuery
+from fetchgraph.core.models import ContextFetchSpec, ProviderInfo
+from fetchgraph.planning.normalize import (
+    PlanNormalizer,
+    PlanNormalizerOptions,
+    SelectorNormalizationRule,
+)
+from fetchgraph.relational.models import RelationalRequest
 from fetchgraph.relational.normalize import normalize_relational_selectors
 
 # -----------------------------
@@ -24,7 +30,6 @@ _JSON_SPLIT_RE = re.compile(r"\n\s*\n", re.MULTILINE)
 def _iter_json_objects_from_trace_text(text: str) -> Iterable[Dict[str, Any]]:
     parts = [p.strip() for p in _JSON_SPLIT_RE.split(text) if p.strip()]
     for part in parts:
-        # В trace-файлах обычно всё — чистый JSON.
         try:
             obj = json.loads(part)
         except json.JSONDecodeError:
@@ -33,21 +38,46 @@ def _iter_json_objects_from_trace_text(text: str) -> Iterable[Dict[str, Any]]:
             yield obj
 
 
+def _find_fixtures_dir() -> Optional[Path]:
+    """
+    Ищем папку `fixtures` вверх по дереву от текущего test-файла.
+    Это устойчиво к вложенности tests/...
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        cand = parent / "fixtures"
+        if cand.exists():
+            return cand
+    return None
+
+
 @dataclass(frozen=True)
 class TraceCase:
     trace_name: str
+    spec_idx: int
+    provider: str
+    mode: str
     selectors: Dict[str, Any]
+
+    @property
+    def case_id(self) -> str:
+        # Важно: не использовать '::' — VSCode/pytest UI строят дерево по этому разделителю.
+        return f"{self.trace_name} | spec[{self.spec_idx}] | {self.provider}"
 
 
 def _load_trace_cases_from_fixtures() -> List[TraceCase]:
     """
     Ищет:
-      - tests/fixtures/fetchgraph_plans.zip
-      - tests/fixtures/fetchgraph_plans/*.txt
-    Возвращает selectors из stage=before_normalize.
+      - fixtures/fetchgraph_plans.zip
+      - fixtures/fetchgraph_plans/*.txt
+
+    Достаёт спецификации из stage=before_normalize (plan.context_plan[*]).
     """
-    root = Path(__file__).resolve().parent
-    fixtures_dir = root / "fixtures"
+    fixtures_dir = _find_fixtures_dir()
+    if fixtures_dir is None:
+        pytest.skip("No fixtures dir found (expected .../fixtures).", allow_module_level=True)
+        return []
+
     zip_path = fixtures_dir / "fetchgraph_plans.zip"
     dir_path = fixtures_dir / "fetchgraph_plans"
 
@@ -59,24 +89,24 @@ def _load_trace_cases_from_fixtures() -> List[TraceCase]:
                 if not name.endswith("_plan_trace.txt"):
                     continue
                 text = zf.read(name).decode("utf-8", errors="replace")
-                cases.extend(_extract_before_selectors(name, text))
+                cases.extend(_extract_before_specs(trace_name=name, text=text))
         return cases
 
     if dir_path.exists():
         for p in sorted(dir_path.glob("*_plan_trace.txt")):
             text = p.read_text(encoding="utf-8", errors="replace")
-            cases.extend(_extract_before_selectors(p.name, text))
+            cases.extend(_extract_before_specs(trace_name=p.name, text=text))
         return cases
 
     pytest.skip(
-        "No plan fixtures found. Put fetchgraph_plans.zip into tests/fixtures/ "
-        "or unpack it to tests/fixtures/fetchgraph_plans/.",
+        "No plan fixtures found. Put fetchgraph_plans.zip into fixtures/ "
+        "or unpack it to fixtures/fetchgraph_plans/.",
         allow_module_level=True,
     )
     return []
 
 
-def _extract_before_selectors(trace_name: str, text: str) -> List[TraceCase]:
+def _extract_before_specs(trace_name: str, text: str) -> List[TraceCase]:
     before_objs = [
         obj for obj in _iter_json_objects_from_trace_text(text)
         if obj.get("stage") == "before_normalize"
@@ -87,118 +117,189 @@ def _extract_before_selectors(trace_name: str, text: str) -> List[TraceCase]:
         context_plan = plan.get("context_plan") or []
         if not isinstance(context_plan, list):
             continue
-        for item in context_plan:
+
+        for idx, item in enumerate(context_plan):
             if not isinstance(item, dict):
                 continue
+            provider = item.get("provider")
+            mode = item.get("mode") or "full"
             selectors = item.get("selectors")
-            if isinstance(selectors, dict):
-                out.append(TraceCase(trace_name=trace_name, selectors=selectors))
+            if not isinstance(provider, str) or not isinstance(selectors, dict):
+                continue
+            out.append(
+                TraceCase(
+                    trace_name=trace_name,
+                    spec_idx=idx,
+                    provider=provider,
+                    mode=str(mode),
+                    selectors=selectors,
+                )
+            )
     return out
 
 
-def _walk_filter_dicts(filters: Any) -> Iterable[Dict[str, Any]]:
-    """Рекурсивно обходит фильтры и возвращает все dict-узлы."""
-    if isinstance(filters, dict):
-        yield filters
-        clauses = filters.get("clauses")
-        if isinstance(clauses, list):
-            for c in clauses:
-                yield from _walk_filter_dicts(c)
-    elif isinstance(filters, list):
-        for x in filters:
-            yield from _walk_filter_dicts(x)
+# -----------------------------
+# Normalizer builder (for tests)
+# -----------------------------
 
 
-def _diagnose_known_validation_causes(normalized: Dict[str, Any], case: TraceCase) -> None:
+def _build_plan_normalizer(providers: Set[str]) -> PlanNormalizer:
     """
-    Вызывается ТОЛЬКО если RelationalQuery.model_validate(normalized) упал.
-    Здесь мы пытаемся найти “известную причину” и упасть с понятным сообщением.
-    Если ничего не нашли — НЕ падаем, это решит внешний обработчик (unknown error).
+    Строим PlanNormalizer, который умеет нормализовать selectors для заданных providers
+    по тому же контракту, что и в проде: validate -> normalize -> validate.
     """
+    provider_catalog: Dict[str, ProviderInfo] = {
+        name: ProviderInfo(name=name, capabilities=[]) for name in sorted(providers)
+    }
 
-    # A) legacy aggregate должен быть преобразован в query
-    op = normalized.get("op")
-    if op == "aggregate":
-        pytest.fail(
-            f"{case.trace_name}: legacy op='aggregate' must be normalized to op='query'."
-        )
+    relational_rule = SelectorNormalizationRule(
+        validator=TypeAdapter(RelationalRequest),
+        normalize_selectors=normalize_relational_selectors,
+    )
 
-    # B) после нормализации op обязан быть query (иначе непредвиденный формат)
-    if op != "query":
-        pytest.fail(f"{case.trace_name}: unexpected op={op!r} after normalization.")
+    normalizer_registry: Dict[str, SelectorNormalizationRule] = {
+        name: relational_rule for name in sorted(providers)
+    }
 
-    # C) list-поля не должны превращаться в None/не-листы
-    for key in ("group_by", "aggregations", "relations", "select", "semantic_clauses"):
-        if key in normalized and not isinstance(normalized[key], list):
-            pytest.fail(
-                f"{case.trace_name}: {key} must be list if present, "
-                f"got {type(normalized[key]).__name__}"
-            )
+    # В тесте schema-фильтрацию лучше выключить: это отдельная ответственность
+    # (и она может зависеть от selectors_schema в ProviderInfo, которого тут нет).
+    opts = PlanNormalizerOptions(filter_selectors_by_schema=False)
 
-    # D) ComparisonFilter.value обязателен по модели — должен присутствовать (хотя бы None)
-    filters = normalized.get("filters")
-    for node in _walk_filter_dicts(filters):
-        if node.get("type") == "comparison" and "value" not in node:
-            pytest.fail(
-                f"{case.trace_name}: comparison filter must include 'value' "
-                f"(model requires it). Filter node: {node}"
-            )
+    return PlanNormalizer(
+        provider_catalog,
+        normalizer_registry=normalizer_registry,
+        options=opts,
+    )
 
-    # E) “мина” про aggregations: строка/дикт не должны становиться list(chars)/list(keys)
-    aggs = normalized.get("aggregations")
-    if aggs is not None:
-        if not isinstance(aggs, list):
-            pytest.fail(f"{case.trace_name}: aggregations must be list, got {type(aggs).__name__}")
-        if any(not isinstance(x, dict) for x in aggs):
-            pytest.fail(f"{case.trace_name}: aggregations must be list[dict], got: {aggs}")
+
+def _validate(adapter: TypeAdapter[Any], selectors: Any) -> bool:
+    try:
+        adapter.validate_python(selectors)
+    except ValidationError:
+        return False
+    return True
+
+
+def _parse_note(note: str) -> Dict[str, Any]:
+    # notes в PlanNormalizer — это json строка
+    try:
+        obj = json.loads(note)
+    except Exception:
+        return {"raw": note}
+    return obj if isinstance(obj, dict) else {"raw": note}
+
 
 # -----------------------------
-# Tests
+# Tests (contract-driven)
 # -----------------------------
 
 CASES = _load_trace_cases_from_fixtures()
+NORMALIZER = _build_plan_normalizer({c.provider for c in CASES}) if CASES else None
 
-@pytest.mark.parametrize("case", CASES, ids=lambda c: c.trace_name)
-def test_normalizer_outputs_valid_relational_query(case: TraceCase) -> None:
-    selectors_in = copy.deepcopy(case.selectors)
-    normalized = normalize_relational_selectors(selectors_in)
 
-    # 1) “Честная” валидация: если проходит — тест сразу ок.
-    try:
-        RelationalQuery.model_validate(normalized)
-        return
-    except ValidationError as e:
-        # 2) Не прошло — пытаемся найти известную причину и дать осмысленный фейл.
-        _diagnose_known_validation_causes(normalized, case)
+@pytest.mark.parametrize("case", CASES, ids=lambda c: c.case_id)
+def test_plan_normalizer_contract_never_regresses_valid_inputs(case: TraceCase) -> None:
+    """
+    Контракт PlanNormalizer.normalize_specs():
+      - если selectors валидны ДО (по адаптеру провайдера) -> после normalize_specs
+        они должны остаться валидными и НЕ измениться.
 
-        # 3) Если диагностика не упала — значит причина неизвестна.
-        pytest.fail(
-            f"{case.trace_name}: RelationalQuery.model_validate failed for unknown reason.\n"
-            f"Errors: {e.errors()}\n"
-            f"Normalized selectors (truncated): {json.dumps(normalized, ensure_ascii=False)[:2000]}"
+    Это защищает от регрессий класса "ok -> error" и от неожиданных мутаций.
+    """
+    assert NORMALIZER is not None
+
+    rule = NORMALIZER.normalizer_registry.get(case.provider)
+    assert rule is not None, f"No normalizer rule registered for provider={case.provider!r}"
+
+    orig_selectors = copy.deepcopy(case.selectors)
+    spec = ContextFetchSpec(provider=case.provider, mode=case.mode, selectors=copy.deepcopy(case.selectors))
+
+    before_ok = _validate(rule.validator, spec.selectors)
+
+    notes: List[str] = []
+    out_specs = NORMALIZER.normalize_specs([spec], notes=notes)
+    assert len(out_specs) == 1
+    out = out_specs[0]
+
+    after_ok = _validate(rule.validator, out.selectors)
+
+    # 1) OK -> ERROR запрещено
+    assert not (before_ok and not after_ok), (
+        f"{case.case_id}: regression: selectors were valid before normalization "
+        f"but invalid after.\n"
+        f"Note: {_parse_note(notes[-1]) if notes else 'no_notes'}\n"
+        f"Selectors(before): {json.dumps(spec.selectors, ensure_ascii=False)[:2000]}\n"
+        f"Selectors(after):  {json.dumps(out.selectors, ensure_ascii=False)[:2000]}"
+    )
+
+    # 2) Если было валидно — normalize_specs не должен менять селекторы
+    if before_ok:
+        assert out.selectors == spec.selectors, (
+            f"{case.case_id}: valid selectors must not be changed by normalize_specs.\n"
+            f"Note: {_parse_note(notes[-1]) if notes else 'no_notes'}\n"
+            f"Selectors(before): {json.dumps(spec.selectors, ensure_ascii=False)[:2000]}\n"
+            f"Selectors(after):  {json.dumps(out.selectors, ensure_ascii=False)[:2000]}"
         )
 
+    # 3) normalize_specs не должен мутировать исходный dict (важно для повторного использования)
+    assert spec.selectors == orig_selectors, (
+        f"{case.case_id}: normalize_specs must not mutate input selectors in-place."
+    )
 
-# Этот тест кейс и раньше не работал, так что это не регрессия
 
-# def test_min_max_filter_normalization_does_not_corrupt_aggregations() -> None:
-#     selectors = {
-#         "op": "query",
-#         "root_entity": "orders",
-#         "aggregations": "count(order_id)",  # плохой вход (типичный LLM мусор)
-#         "filters": {"type": "comparison", "field": "order_total", "op": "min"},
-#     }
-#     normalized = normalize_relational_selectors(copy.deepcopy(selectors))
+@pytest.mark.parametrize("case", CASES, ids=lambda c: c.case_id)
+def test_regression_fixtures_invalid_inputs_are_fixed_by_plan_normalizer(case: TraceCase) -> None:
+    """
+    Регрессионный набор трактуем как: "эти кейсы раньше ломали пайплайн,
+    теперь не должны".
 
-#     # сначала пробуем “честно”
-#     try:
-#         RelationalQuery.model_validate(normalized)
-#         return
-#     except ValidationError:
-#         # затем проверяем ожидаемую “мину”
-#         aggs = normalized.get("aggregations")
-#         if aggs is not None:
-#             assert isinstance(aggs, list)
-#             assert all(isinstance(x, dict) for x in aggs), f"aggregations must be list[dict], got: {aggs}"
-#         pytest.fail("RelationalQuery.model_validate failed for unknown reason (not aggregations-shape).")
+    Поэтому:
+      - если ДО selectors невалидны -> ПОСЛЕ normalize_specs они должны стать валидными.
 
+    В будущем ты добавляешь кейсы "стало лучше" (error -> ok) — и этот тест
+    будет гарантом, что улучшение не пропадёт.
+    """
+    assert NORMALIZER is not None
+
+    rule = NORMALIZER.normalizer_registry.get(case.provider)
+    assert rule is not None, f"No normalizer rule registered for provider={case.provider!r}"
+
+    spec = ContextFetchSpec(provider=case.provider, mode=case.mode, selectors=copy.deepcopy(case.selectors))
+
+    before_ok = _validate(rule.validator, spec.selectors)
+    if before_ok:
+        # это не регресс-кейс "падает до", пропускаем: покрыто контрактным тестом выше
+        return
+
+    notes: List[str] = []
+    out_specs = NORMALIZER.normalize_specs([spec], notes=notes)
+    out = out_specs[0]
+
+    after_ok = _validate(rule.validator, out.selectors)
+    if after_ok:
+        return
+
+    # Если не починилось — даём максимально полезный фейл:
+    # показываем note (decision, before/after статусы и т.п.) + диагностику валидатора.
+    err_before: Optional[list] = None
+    err_after: Optional[list] = None
+
+    try:
+        rule.validator.validate_python(spec.selectors)
+    except ValidationError as e:
+        err_before = e.errors()
+
+    try:
+        rule.validator.validate_python(out.selectors)
+    except ValidationError as e:
+        err_after = e.errors()
+
+    pytest.fail(
+        f"{case.case_id}: expected PlanNormalizer to fix invalid selectors (error -> ok), "
+        f"but still invalid after normalization.\n"
+        f"Note: {_parse_note(notes[-1]) if notes else 'no_notes'}\n"
+        f"Errors(before): {err_before}\n"
+        f"Errors(after):  {err_after}\n"
+        f"Selectors(before): {json.dumps(spec.selectors, ensure_ascii=False)[:2000]}\n"
+        f"Selectors(after):  {json.dumps(out.selectors, ensure_ascii=False)[:2000]}"
+    )

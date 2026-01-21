@@ -12,10 +12,10 @@ WORKDIR=/Users/alexanderonishchenko/Documents/_Projects/fetchgraph
 LOG="$HOME/batch_tag.log"
 
 # Команда для ПЕРВОГО запуска
-FIRST_CMD='make batch-tag TAG=alina_final_2 -NOTE="прогон перед мерджем"'
+FIRST_CMD='make batch-tag TAG=my_tag NOTE="прогон перед мерджем"'
 
 # Команда для ПОВТОРНЫХ запусков
-REPEAT_CMD='make batch-tag TAG=alina_final_2 -NOTE="прогон перед мерджем"'
+REPEAT_CMD='make batch-tag TAG=my_tag NOTE="прогон перед мерджем"'
 ### ============================================================
 
 LOCKDIR="/tmp/batch_tag_runner.lock"

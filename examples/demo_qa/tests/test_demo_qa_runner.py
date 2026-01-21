@@ -32,7 +32,7 @@ def test_match_expected_coerces_non_string_expected_values() -> None:
 def test_match_expected_contains_pass_and_fail() -> None:
     case = Case(id="c2", question="Q", expected_contains="bar")
 
-    match = _match_expected(case, "value bar baz")
+    match = _match_expected(case, "value BAR baz")
     assert match is not None
     assert match.passed is True
 
@@ -45,6 +45,26 @@ def test_match_expected_contains_pass_and_fail() -> None:
     assert missing_answer is not None
     assert missing_answer.passed is False
     assert missing_answer.detail == "no answer"
+
+
+def test_match_expected_equals_is_case_insensitive() -> None:
+    case = Case(id="c3", question="Q", expected="Alpha")
+
+    match = _match_expected(case, "alpha")
+    assert match is not None
+    assert match.passed is True
+
+
+def test_match_expected_list_comparison_normalizes_elements() -> None:
+    case = Case(id="c4", question="Q", expected=["Foo", "Bar"])
+
+    match = _match_expected(case, cast(str, ["foo", "bar"]))
+    assert match is not None
+    assert match.passed is True
+
+    mismatch = _match_expected(case, cast(str, ["foo", "baz"]))
+    assert mismatch is not None
+    assert mismatch.passed is False
 
 
 def test_diff_runs_tracks_regressions_and_improvements() -> None:

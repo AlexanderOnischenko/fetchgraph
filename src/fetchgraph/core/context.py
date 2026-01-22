@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from ..parsing.plan_parser import PlanParser
+from ..planning.normalize import PlanNormalizer
 from .models import (
     BaselineSpec,
     ContextFetchSpec,
@@ -327,6 +328,7 @@ class BaseGraphAgent:
         verifiers: List[Verifier],
         packer: ContextPacker,
         plan_parser: Optional[Callable[[RawLLMOutput], Plan]] = None,
+        plan_normalizer: Optional[PlanNormalizer] = None,
         baseline: Optional[List[BaselineSpec]] = None,
         max_retries: int = 2,
         task_profile: Optional[TaskProfile] = None,
@@ -344,7 +346,18 @@ class BaseGraphAgent:
             self.plan_parser = PlanParser().parse
         else:
             self.plan_parser = plan_parser
+        self.plan_normalizer = plan_normalizer or PlanNormalizer.from_providers(
+            providers
+        )
         self.baseline = baseline or []
+        if self.plan_normalizer is not None and self.baseline:
+            normalized_specs = self.plan_normalizer.normalize_specs(
+                [spec.spec for spec in self.baseline]
+            )
+            self.baseline = [
+                BaselineSpec(spec=normalized, required=baseline_spec.required)
+                for baseline_spec, normalized in zip(self.baseline, normalized_specs)
+            ]
         self.max_retries = max_retries
         self.task_profile = task_profile or TaskProfile()
         self.llm_refetch = llm_refetch
@@ -353,13 +366,15 @@ class BaseGraphAgent:
         logger.info(
             "BaseGraphAgent initialized "
             "(task_name=%r, providers=%d, verifiers=%d, "
-            "baseline_specs=%d, max_retries=%d, max_refetch_iters=%d)",
+            "baseline_specs=%d, max_retries=%d, max_refetch_iters=%d, "
+            "plan_normalizer=%s)",
             self.task_profile.task_name,
             len(self.providers),
             len(self.verifiers),
             len(self.baseline),
             self.max_retries,
             self.max_refetch_iters,
+            self.plan_normalizer.__class__.__name__ if self.plan_normalizer else None,
         )
 
     # ---- public API ----
@@ -440,6 +455,8 @@ class BaseGraphAgent:
             plan = self.plan_parser(plan_raw)
         else:
             plan = Plan.model_validate_json(plan_raw.text)
+        if self.plan_normalizer is not None:
+            plan = self.plan_normalizer.normalize(plan)
         elapsed = time.perf_counter() - t0
         logger.info(
             "Planning finished for feature_name=%r in %.3fs "
@@ -469,9 +486,8 @@ class BaseGraphAgent:
             by_provider.setdefault(b.spec.provider, b.spec)
         for s in plan.context_plan or []:
             by_provider[s.provider] = s
-        if not plan.context_plan:
-            for p in plan.required_context or []:
-                by_provider.setdefault(p, ContextFetchSpec(provider=p, mode="full"))
+        for p in plan.required_context or []:
+            by_provider.setdefault(p, ContextFetchSpec(provider=p, mode="full"))
         specs = list(by_provider.values())
         logger.debug(
             "Merged baseline with plan: context_plan_nodes=%d, baseline_specs=%d, "

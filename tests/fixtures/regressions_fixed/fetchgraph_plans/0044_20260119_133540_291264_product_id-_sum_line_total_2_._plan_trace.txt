@@ -1,0 +1,136 @@
+{
+  "stage": "before_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "order_items",
+          "select": [
+            {
+              "expr": "order_items.product_id",
+              "alias": "product_id"
+            },
+            {
+              "expr": "order_items.line_total",
+              "alias": "line_total"
+            }
+          ],
+          "group_by": [
+            {
+              "entity": "order_items",
+              "field": "product_id",
+              "alias": "product_id"
+            }
+          ],
+          "aggregations": [
+            {
+              "field": "line_total",
+              "agg": "sum",
+              "alias": "total_revenue"
+            }
+          ],
+          "limit": 1
+        },
+        "max_tokens": 100
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": []
+  }
+}
+
+{
+  "stage": "after_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "order_items",
+          "select": [
+            {
+              "expr": "order_items.product_id",
+              "alias": "product_id"
+            },
+            {
+              "expr": "order_items.line_total",
+              "alias": "line_total"
+            }
+          ],
+          "group_by": [
+            {
+              "entity": "order_items",
+              "field": "product_id",
+              "alias": "product_id"
+            }
+          ],
+          "aggregations": [
+            {
+              "field": "line_total",
+              "agg": "sum",
+              "alias": "total_revenue"
+            }
+          ],
+          "limit": 1
+        },
+        "max_tokens": 100
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": [],
+    "normalization_notes": []
+  }
+}
+
+{
+  "stage": "fetch_request",
+  "provider": "demo_qa",
+  "provider_class": "PandasRelationalDataProvider",
+  "mode": "slice",
+  "selectors": {
+    "op": "query",
+    "root_entity": "order_items",
+    "select": [
+      {
+        "expr": "order_items.product_id",
+        "alias": "product_id"
+      },
+      {
+        "expr": "order_items.line_total",
+        "alias": "line_total"
+      }
+    ],
+    "group_by": [
+      {
+        "entity": "order_items",
+        "field": "product_id",
+        "alias": "product_id"
+      }
+    ],
+    "aggregations": [
+      {
+        "field": "line_total",
+        "agg": "sum",
+        "alias": "total_revenue"
+      }
+    ],
+    "limit": 1
+  },
+  "max_tokens": 100
+}
+

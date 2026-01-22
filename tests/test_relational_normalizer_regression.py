@@ -214,21 +214,31 @@ def _parse_note(note: str) -> Dict[str, Any]:
 # -----------------------------
 
 CASES = _load_trace_cases_from_fixtures()
+
+# 1) Контрактный тест запускаем ТОЛЬКО на regressions_fixed
+CASES_FIXED = [c for c in CASES if c.bucket == "regressions_fixed"]
+
+# 2) Для общего набора — автоматически проставляем marks по bucket
+CASES_ALL = [
+    pytest.param(
+        c,
+        id=c.case_id,
+        marks=(pytest.mark.known_bad,) if c.bucket == "regressions_known_bad" else (),
+    )
+    for c in CASES
+]
+
 NORMALIZER = _build_plan_normalizer({c.provider for c in CASES}) if CASES else None
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda c: c.case_id)
+@pytest.mark.parametrize("case", CASES_FIXED, ids=lambda c: c.case_id)
 def test_plan_normalizer_contract_never_regresses_valid_inputs(case: TraceCase) -> None:
     """
     Контракт PlanNormalizer.normalize_specs():
-      - если selectors валидны ДО (по адаптеру провайдера) -> после normalize_specs
+      - если selectors валидны ДО -> после normalize_specs
         они должны остаться валидными и НЕ измениться.
-
-    Это защищает от регрессий класса "ok -> error" и от неожиданных мутаций.
     """
     assert NORMALIZER is not None
-    if case.bucket != "regressions_fixed":
-        return
 
     rule = NORMALIZER.normalizer_registry.get(case.provider)
     assert rule is not None, f"No normalizer rule registered for provider={case.provider!r}"
@@ -245,7 +255,6 @@ def test_plan_normalizer_contract_never_regresses_valid_inputs(case: TraceCase) 
 
     after_ok = _validate(rule.validator, out.selectors)
 
-    # 1) OK -> ERROR запрещено
     assert not (before_ok and not after_ok), (
         f"{case.case_id}: regression: selectors were valid before normalization "
         f"but invalid after.\n"
@@ -254,7 +263,6 @@ def test_plan_normalizer_contract_never_regresses_valid_inputs(case: TraceCase) 
         f"Selectors(after):  {json.dumps(out.selectors, ensure_ascii=False)[:2000]}"
     )
 
-    # 2) Если было валидно — normalize_specs не должен менять селекторы
     if before_ok:
         assert out.selectors == spec.selectors, (
             f"{case.case_id}: valid selectors must not be changed by normalize_specs.\n"
@@ -263,23 +271,18 @@ def test_plan_normalizer_contract_never_regresses_valid_inputs(case: TraceCase) 
             f"Selectors(after):  {json.dumps(out.selectors, ensure_ascii=False)[:2000]}"
         )
 
-    # 3) normalize_specs не должен мутировать исходный dict (важно для повторного использования)
     assert spec.selectors == orig_selectors, (
         f"{case.case_id}: normalize_specs must not mutate input selectors in-place."
     )
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda c: c.case_id)
+@pytest.mark.parametrize("case", CASES_ALL)
 def test_regression_fixtures_invalid_inputs_are_fixed_by_plan_normalizer(case: TraceCase) -> None:
     """
-    Регрессионный набор трактуем как: "эти кейсы раньше ломали пайплайн,
-    теперь не должны".
+    Если ДО selectors невалидны -> ПОСЛЕ normalize_specs они должны стать валидными.
 
-    Поэтому:
-      - если ДО selectors невалидны -> ПОСЛЕ normalize_specs они должны стать валидными.
-
-    В будущем ты добавляешь кейсы "стало лучше" (error -> ok) — и этот тест
-    будет гарантом, что улучшение не пропадёт.
+    Важно: known_bad здесь будут (пока) красными — и это ок.
+    В CI они исключаются через -m "not known_bad".
     """
     assert NORMALIZER is not None
 
@@ -290,7 +293,6 @@ def test_regression_fixtures_invalid_inputs_are_fixed_by_plan_normalizer(case: T
 
     before_ok = _validate(rule.validator, spec.selectors)
     if before_ok:
-        # это не регресс-кейс "падает до", пропускаем: покрыто контрактным тестом выше
         return
 
     notes: List[str] = []
@@ -301,8 +303,6 @@ def test_regression_fixtures_invalid_inputs_are_fixed_by_plan_normalizer(case: T
     if after_ok:
         return
 
-    # Если не починилось — даём максимально полезный фейл:
-    # показываем note (decision, before/after статусы и т.п.) + диагностику валидатора.
     err_before: Optional[list] = None
     err_after: Optional[list] = None
 
@@ -325,3 +325,4 @@ def test_regression_fixtures_invalid_inputs_are_fixed_by_plan_normalizer(case: T
         f"Selectors(before): {json.dumps(spec.selectors, ensure_ascii=False)[:2000]}\n"
         f"Selectors(after):  {json.dumps(out.selectors, ensure_ascii=False)[:2000]}"
     )
+

@@ -1,0 +1,49 @@
+{
+  "stage": "before_normalize",
+  "plan": {
+  "required_context": [
+    "demo_qa"
+  ],
+  "context_plan": [
+    {
+      "provider": "demo_qa",
+      "mode": "slice",
+      "selectors": {
+        "op": "query",
+        "root_entity": "customers",
+        "select": [
+          {
+            "expr": "customers.customer_id",
+            "alias": "customer_id"
+          }
+        ],
+        "relations": [
+          "orders_to_customers"
+        ],
+        "aggregations": [
+          {
+            "field": "customer_id",
+            "agg": "count_distinct",
+            "alias": "unique_customers"
+          }
+        ],
+        "filters": {
+          "type": "comparison",
+          "entity": "orders",
+          "field": "order_id",
+          "op": "is_not_null"
+        },
+        "group_by": []
+      },
+      "max_tokens": 1000
+    }
+  ],
+  "adr_queries": [],
+  "constraints": [],
+  "entities": [],
+  "dtos": [],
+  "normalization_notes": [
+    "{\"provider\": \"demo_qa\", \"selectors_validate_before\": \"error\", \"selectors_validate_after\": \"error\", \"selectors_normalization_decision\": \"use_normalized_unvalidated\", \"selectors_before\": {\"op\": \"query\", \"root_entity\": \"customers\", \"select\": [{\"expr\": \"customers.customer_id\", \"alias\": \"customer_id\"}], \"relations\": [\"orders_to_customers\"], \"aggregations\": [{\"field\": \"customer_id\", \"agg\": \"count_distinct\", \"alias\": \"unique_customers\"}], \"filters\": {\"type\": \"comparison\", \"entity\": \"orders\", \"field\": \"order_id\", \"op\": \"is_not_null\"}}, \"selectors_after\": {\"op\": \"query\", \"root_entity\": \"customers\", \"select\": [{\"expr\": \"customers.customer_id\", \"alias\": \"customer_id\"}], \"relations\": [\"orders_to_customers\"], \"aggregations\": [{\"field\": \"customer_id\", \"agg\": \"count_distinct\", \"alias\": \"unique_customers\"}], \"filters\": {\"type\": \"comparison\", \"entity\": \"orders\", \"field\": \"order_id\", \"op\": \"is_not_null\"}, \"group_by\": []}}"
+  ]
+ }
+}

@@ -112,7 +112,15 @@ def start_repl(
         artifacts: RunArtifacts | None = None
         try:
             case = Case(id=run_id, question=line, tags=[])
-            result = run_one(case, runner, runs_root, plan_only=False, event_logger=event_logger, run_dir=run_dir)
+            result = run_one(
+                case,
+                runner,
+                runs_root,
+                plan_only=False,
+                event_logger=event_logger,
+                run_dir=run_dir,
+                schema_path=None,
+            )
             plan_obj = _load_json(Path(result.artifacts_dir) / "plan.json")
             ctx_obj = _load_json(Path(result.artifacts_dir) / "context.json") or {}
             artifacts = RunArtifacts(

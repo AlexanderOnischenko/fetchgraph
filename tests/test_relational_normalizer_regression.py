@@ -173,6 +173,7 @@ def _build_plan_normalizer(providers: Set[str]) -> PlanNormalizer:
     }
 
     relational_rule = SelectorNormalizationRule(
+        kind="relational_v1",
         validator=TypeAdapter(RelationalRequest),
         normalize_selectors=normalize_relational_selectors,
     )
@@ -325,4 +326,3 @@ def test_regression_fixtures_invalid_inputs_are_fixed_by_plan_normalizer(case: T
         f"Selectors(before): {json.dumps(spec.selectors, ensure_ascii=False)[:2000]}\n"
         f"Selectors(after):  {json.dumps(out.selectors, ensure_ascii=False)[:2000]}"
     )
-

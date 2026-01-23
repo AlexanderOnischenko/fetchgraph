@@ -441,7 +441,7 @@ def test_format_healed_explain_includes_key_lines() -> None:
     assert any("run_id=r2" in line and "status=ok" in line for line in lines)
 
 
-def _stubbed_run_one(case, runner, artifacts_root, *, plan_only=False, event_logger=None):
+def _stubbed_run_one(case, runner, artifacts_root, *, plan_only=False, event_logger=None, schema_path=None):
     run_dir = artifacts_root / f"{case.id}_stub"
     run_dir.mkdir(parents=True, exist_ok=True)
     return RunResult(

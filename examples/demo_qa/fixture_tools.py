@@ -33,9 +33,13 @@ def _is_git_repo() -> bool:
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
+def _git_path(path: Path) -> str:
+    return str(path.relative_to(REPO_ROOT))
+
+
 def _git_tracked(path: Path) -> bool:
     result = subprocess.run(
-        ["git", "ls-files", "--error-unmatch", str(path)],
+        ["git", "ls-files", "--error-unmatch", _git_path(path)],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -50,7 +54,7 @@ def _remove_file(path: Path, *, use_git: bool, dry_run: bool) -> None:
         return
     if use_git and _git_tracked(path):
         try:
-            subprocess.run(["git", "rm", "-f", str(path)], cwd=REPO_ROOT, check=True)
+            subprocess.run(["git", "rm", "-f", _git_path(path)], cwd=REPO_ROOT, check=True)
             return
         except subprocess.CalledProcessError:
             pass
@@ -64,7 +68,7 @@ def _move_file(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     if use_git and _git_tracked(src):
         try:
-            subprocess.run(["git", "mv", str(src), str(dst)], cwd=REPO_ROOT, check=True)
+            subprocess.run(["git", "mv", _git_path(src), _git_path(dst)], cwd=REPO_ROOT, check=True)
             return
         except subprocess.CalledProcessError:
             pass
@@ -263,21 +267,19 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("DRY: plan traces would also be promoted if found.")
         return 0
 
+    case_ids: set[str] = set()
+    if move_traces:
+        for src in candidates:
+            resolved_case_id = case_id or _load_case_id(src)
+            if resolved_case_id:
+                case_ids.add(resolved_case_id)
+
     for src, dst in dests:
         _move_file(src, dst, use_git=use_git, dry_run=False)
 
     print(f"Promoted {len(candidates)} replay fixtures to fixed.")
 
     if move_traces:
-        case_ids: set[str] = set()
-        for src in candidates:
-            if case_id:
-                case_ids.add(case_id)
-                continue
-            loaded_case_id = _load_case_id(src)
-            if loaded_case_id:
-                case_ids.add(loaded_case_id)
-
         promoted_traces: list[Path] = []
         for cid in sorted(case_ids):
             promoted_traces.extend(_collect_traces_for_case(cid))

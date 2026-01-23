@@ -83,15 +83,24 @@ def _remove_tree(path: Path, *, use_git: bool, dry_run: bool) -> None:
     if not path.exists():
         return
     if dry_run:
-        print(f"DRY: remove tree {path}")
+        if use_git and _git_has_tracked(path):
+            print(f"DRY: git rm -r -f {_git_path(path)}")
+            print(f"DRY: rmtree (cleanup untracked) {path}")
+        else:
+            print(f"DRY: remove tree {path}")
         return
+
+    # If directory contains tracked files, remove them via git rm first.
     if use_git and _git_has_tracked(path):
         try:
             subprocess.run(["git", "rm", "-r", "-f", _git_path(path)], cwd=REPO_ROOT, check=True)
-            return
         except subprocess.CalledProcessError:
+            # Fall back to filesystem removal below.
             pass
-    shutil.rmtree(path, ignore_errors=True)
+
+    # git rm deletes only tracked files; remove any remaining untracked files/dirs.
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _move_file(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:

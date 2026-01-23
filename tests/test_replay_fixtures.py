@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 import pytest
+from _pytest.mark.structures import ParameterSet
 from pydantic import TypeAdapter
 
 import fetchgraph.replay.handlers.plan_normalize  # noqa: F401
@@ -64,27 +65,22 @@ def _parse_fixture(event: dict) -> tuple[dict, ReplayContext]:
     return event, ReplayContext()
 
 
-def _fixture_paths() -> list[pytest.ParameterSet]:
+def _fixture_paths() -> list[ParameterSet]:
     paths = list(_iter_fixture_paths())
     if not paths:
         pytest.skip(
             "No replay fixtures found in tests/fixtures/replay_points/{fixed,known_bad}",
             allow_module_level=True,
         )
-    params: list[pytest.ParameterSet] = []
+    params: list[ParameterSet] = []
     for bucket, path in paths:
         marks = (pytest.mark.known_bad,) if bucket == "known_bad" else ()
         params.append(pytest.param(path, id=f"{bucket}/{path.name}", marks=marks))
     return params
 
 
-def _bucket_from_path(path: Path) -> str:
-    return path.relative_to(FIXTURES_ROOT).parts[0]
-
-
 @pytest.mark.parametrize("path", _fixture_paths())
 def test_replay_fixture(path: Path) -> None:
-    bucket = _bucket_from_path(path)
     raw = _load_fixture(path)
     event, ctx = _parse_fixture(raw)
     assert event.get("type") == "replay_point"

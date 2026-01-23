@@ -345,7 +345,7 @@ fixture: check
 	  $(TAG_FLAG) $(if $(strip $(RUN_ID)),--run-id "$(RUN_ID)",) $(if $(strip $(REPLAY_ID)),--id "$(REPLAY_ID)",) \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
 	  $(if $(strip $(OUT_DIR)),--out-dir "$(OUT_DIR)",) \
-	  $(if $(strip $(ALL)),--all,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
 	  $(if $(filter requires,$(WITH)),--with-requires,)
 
 # compare (diff.md + junit)

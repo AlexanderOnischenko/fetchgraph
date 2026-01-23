@@ -75,6 +75,29 @@ def _move_file(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:
     shutil.move(str(src), str(dst))
 
 
+def _rollback_moves(moves_done: list[tuple[Path, Path]], *, use_git: bool) -> None:
+    """
+    Best-effort rollback of already executed moves.
+    moves_done: list of (src, dst) that were successfully moved src -> dst.
+    Rollback tries to move dst -> src in reverse order.
+    """
+    if not moves_done:
+        return
+    print("Rolling back already moved files...", file=sys.stderr)
+    for src, dst in reversed(moves_done):
+        try:
+            if not dst.exists():
+                print(f"ROLLBACK: skip (missing) {dst}", file=sys.stderr)
+                continue
+            if src.exists():
+                print(f"ROLLBACK: skip (src exists) {src} <- {dst}", file=sys.stderr)
+                continue
+            _move_file(dst, src, use_git=use_git, dry_run=False)
+            print(f"ROLLBACK: {dst} -> {src}", file=sys.stderr)
+        except Exception as exc:
+            print(f"ROLLBACK ERROR: failed {dst} -> {src}: {exc}", file=sys.stderr)
+
+
 def _matches_filters(path: Path, *, name: Optional[str], pattern: Optional[str]) -> bool:
     if name and path.name != name and path.stem != name:
         return False
@@ -261,45 +284,62 @@ def cmd_fix(args: argparse.Namespace) -> int:
         dst = REPLAY_ROOT / "fixed" / src.name
         print(f"- {_relative(src)} -> {_relative(dst)}")
 
-    if dry_run:
-        print(f"DRY: would promote {len(candidates)} replay fixtures.")
-        if move_traces:
-            print("DRY: plan traces would also be promoted if found.")
-        return 0
-
     case_ids: set[str] = set()
+    promoted_traces: list[Path] = []
+    trace_dests: list[tuple[Path, Path]] = []
     if move_traces:
         for src in candidates:
             resolved_case_id = case_id or _load_case_id(src)
             if resolved_case_id:
                 case_ids.add(resolved_case_id)
 
-    for src, dst in dests:
-        _move_file(src, dst, use_git=use_git, dry_run=False)
-
-    print(f"Promoted {len(candidates)} replay fixtures to fixed.")
-
-    if move_traces:
-        promoted_traces: list[Path] = []
         for cid in sorted(case_ids):
             promoted_traces.extend(_collect_traces_for_case(cid))
 
-        if not promoted_traces:
-            print("No plan traces found to promote.")
-            return 0
-
         for trace in promoted_traces:
-            dst = TRACE_ROOT / "fixed" / trace.name
-            if dst.exists():
-                print(f"Конфликт trace в fixed: {_relative(dst)}", file=sys.stderr)
-                return 1
+            trace_dests.append((trace, TRACE_ROOT / "fixed" / trace.name))
 
-        for trace in promoted_traces:
-            _move_file(trace, TRACE_ROOT / "fixed" / trace.name, use_git=use_git, dry_run=False)
+        trace_conflicts = [dst for _, dst in trace_dests if dst.exists()]
+        if trace_conflicts:
+            print("Конфликт trace в fixed:", file=sys.stderr)
+            for conflict in trace_conflicts:
+                print(f"- {_relative(conflict)}", file=sys.stderr)
+            return 1
 
-        print(f"Also promoted {len(promoted_traces)} plan traces.")
+    if dry_run:
+        print(f"DRY: would promote {len(candidates)} replay fixtures.")
+        if move_traces:
+            if not promoted_traces:
+                print("DRY: no plan traces found to promote.")
+            else:
+                print(f"DRY: would also promote {len(promoted_traces)} plan traces:")
+                for src, dst in trace_dests:
+                    print(f"- {_relative(src)} -> {_relative(dst)}")
+        return 0
 
-    return 0
+    moves_done: list[tuple[Path, Path]] = []
+    try:
+        for src, dst in dests:
+            _move_file(src, dst, use_git=use_git, dry_run=False)
+            moves_done.append((src, dst))
+
+        print(f"Promoted {len(candidates)} replay fixtures to fixed.")
+
+        if move_traces:
+            if not promoted_traces:
+                print("No plan traces found to promote.")
+                return 0
+            for src, dst in trace_dests:
+                _move_file(src, dst, use_git=use_git, dry_run=False)
+                moves_done.append((src, dst))
+            print(f"Also promoted {len(promoted_traces)} plan traces.")
+
+        return 0
+    except Exception as exc:
+        print("ERROR: fix failed during move. State may be partial; attempting rollback.", file=sys.stderr)
+        print(f"Cause: {exc}", file=sys.stderr)
+        _rollback_moves(moves_done, use_git=use_git)
+        return 1
 
 
 def build_parser() -> argparse.ArgumentParser:

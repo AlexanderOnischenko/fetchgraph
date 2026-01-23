@@ -57,6 +57,7 @@ PROVIDER ?=
 BUCKET ?= fixed
 OUT_DIR ?= tests/fixtures/replay_points/$(BUCKET)
 SCOPE ?= both
+WITH_RESOURCES ?= 1
 ALL ?=
 LIMIT ?= 50
 CHANGES ?= 10
@@ -111,7 +112,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open fixture fixture-rm fixture-fix compare compare-tag
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open fixture fixture-rm fixture-fix fixture-migrate compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -159,8 +160,10 @@ help:
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
 	@echo "  make fixture CASE=agg_01 [TAG=...] [RUN_ID=...] [REPLAY_ID=plan_normalize.spec_v1] [WITH=requires] [SPEC_IDX=0] [PROVIDER=relational] [BUCKET=fixed|known_bad] [OUT_DIR=tests/fixtures/replay_points/$$(BUCKET)] [ALL=1]"
-	@echo "  make fixture-rm NAME=... [PATTERN=...] [BUCKET=fixed|known_bad] [SCOPE=replay|traces|both] [DRY=1]"
-	@echo "  make fixture-fix NAME=... [PATTERN=...] [CASE=...] [MOVE_TRACES=1] [DRY=1]"
+	@echo "  fixtures layout: replay_points/<bucket>/<name>.json, resources: replay_points/<bucket>/resources/<key>/..."
+	@echo "  make fixture-rm NAME=... [PATTERN=...] [BUCKET=fixed|known_bad] [SCOPE=replay|traces|both] [WITH_RESOURCES=1] [DRY=1] (удаляет fixture и resources)"
+	@echo "  make fixture-fix NAME=... [PATTERN=...] [CASE=...] [MOVE_TRACES=1] [DRY=1] (переносит fixture и resources)"
+	@echo "  make fixture-migrate [BUCKET=fixed|known_bad] [DRY=1] (миграция ресурсов в resources/<key>/)"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
@@ -357,10 +360,13 @@ fixture: check
 
 # 12) Fixture tools
 fixture-rm:
-	@$(CLI_FIXT) rm --name "$(NAME)" --pattern "$(PATTERN)" --bucket "$(BUCKET)" --scope "$(SCOPE)" --dry "$(DRY)"
+	@$(CLI_FIXT) rm --name "$(NAME)" --pattern "$(PATTERN)" --bucket "$(BUCKET)" --scope "$(SCOPE)" --with-resources "$(WITH_RESOURCES)" --dry "$(DRY)"
 
 fixture-fix:
 	@$(CLI_FIXT) fix --name "$(NAME)" --pattern "$(PATTERN)" --case "$(CASE)" --move-traces "$(MOVE_TRACES)" --dry "$(DRY)"
+
+fixture-migrate:
+	@$(CLI_FIXT) migrate --bucket "$(BUCKET)" --dry "$(DRY)"
 
 # compare (diff.md + junit)
 compare: check

@@ -48,6 +48,24 @@ def _git_tracked(path: Path) -> bool:
     return result.returncode == 0
 
 
+def _git_has_tracked(path: Path) -> bool:
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", _git_path(path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0 and bool(result.stdout)
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
 def _remove_file(path: Path, *, use_git: bool, dry_run: bool) -> None:
     if dry_run:
         print(f"DRY: remove {path}")
@@ -59,6 +77,21 @@ def _remove_file(path: Path, *, use_git: bool, dry_run: bool) -> None:
         except subprocess.CalledProcessError:
             pass
     path.unlink(missing_ok=True)
+
+
+def _remove_tree(path: Path, *, use_git: bool, dry_run: bool) -> None:
+    if not path.exists():
+        return
+    if dry_run:
+        print(f"DRY: remove tree {path}")
+        return
+    if use_git and _git_has_tracked(path):
+        try:
+            subprocess.run(["git", "rm", "-r", "-f", _git_path(path)], cwd=REPO_ROOT, check=True)
+            return
+        except subprocess.CalledProcessError:
+            pass
+    shutil.rmtree(path, ignore_errors=True)
 
 
 def _move_file(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:
@@ -75,16 +108,30 @@ def _move_file(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:
     shutil.move(str(src), str(dst))
 
 
-def _rollback_moves(moves_done: list[tuple[Path, Path]], *, use_git: bool) -> None:
+def _move_tree(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:
+    if dry_run:
+        print(f"DRY: move tree {src} -> {dst}")
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if use_git and (_git_has_tracked(src) or _git_has_tracked(dst)):
+        try:
+            subprocess.run(["git", "mv", _git_path(src), _git_path(dst)], cwd=REPO_ROOT, check=True)
+            return
+        except subprocess.CalledProcessError:
+            pass
+    shutil.move(str(src), str(dst))
+
+
+def _rollback_moves(moves_done: list[tuple[Path, Path, bool]], *, use_git: bool) -> None:
     """
     Best-effort rollback of already executed moves.
-    moves_done: list of (src, dst) that were successfully moved src -> dst.
+    moves_done: list of (src, dst, is_dir) that were successfully moved src -> dst.
     Rollback tries to move dst -> src in reverse order.
     """
     if not moves_done:
         return
     print("Rolling back already moved files...", file=sys.stderr)
-    for src, dst in reversed(moves_done):
+    for src, dst, is_dir in reversed(moves_done):
         try:
             if not dst.exists():
                 print(f"ROLLBACK: skip (missing) {dst}", file=sys.stderr)
@@ -92,7 +139,10 @@ def _rollback_moves(moves_done: list[tuple[Path, Path]], *, use_git: bool) -> No
             if src.exists():
                 print(f"ROLLBACK: skip (src exists) {src} <- {dst}", file=sys.stderr)
                 continue
-            _move_file(dst, src, use_git=use_git, dry_run=False)
+            if is_dir:
+                _move_tree(dst, src, use_git=use_git, dry_run=False)
+            else:
+                _move_file(dst, src, use_git=use_git, dry_run=False)
             print(f"ROLLBACK: {dst} -> {src}", file=sys.stderr)
         except Exception as exc:
             print(f"ROLLBACK ERROR: failed {dst} -> {src}: {exc}", file=sys.stderr)
@@ -112,7 +162,10 @@ def _iter_replay_paths(bucket: Optional[str]) -> Iterable[Path]:
         root = REPLAY_ROOT / bkt
         if not root.exists():
             continue
-        yield from root.rglob("*.json")
+        for path in root.rglob("*.json"):
+            if "resources" in path.parts:
+                continue
+            yield path
 
 
 def _iter_trace_paths(bucket: Optional[str]) -> Iterable[Path]:
@@ -129,6 +182,54 @@ def _relative(path: Path) -> str:
         return str(path.relative_to(REPO_ROOT))
     except ValueError:
         return str(path)
+
+
+def _resource_key_for_fixture(fixture_path: Path) -> str:
+    if _is_relative_to(fixture_path, REPLAY_ROOT):
+        rel = fixture_path.relative_to(REPLAY_ROOT)
+        if len(rel.parts) >= 2:
+            bucket = rel.parts[0]
+            fixture_rel = fixture_path.relative_to(REPLAY_ROOT / bucket).with_suffix("")
+            return "__".join(fixture_rel.parts)
+    return fixture_path.stem
+
+
+def _resources_dir_for_fixture(fixture_path: Path) -> Path:
+    if _is_relative_to(fixture_path, REPLAY_ROOT):
+        rel = fixture_path.relative_to(REPLAY_ROOT)
+        if len(rel.parts) >= 2:
+            bucket = rel.parts[0]
+            return REPLAY_ROOT / bucket / "resources" / _resource_key_for_fixture(fixture_path)
+    return fixture_path.parent / "resources" / _resource_key_for_fixture(fixture_path)
+
+
+def _canonical_json(payload: object) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _resource_destination(
+    fixture_path: Path,
+    file_name: str,
+    resource_key: str,
+    used_paths: set[Path],
+) -> Path:
+    rel_path = Path(file_name)
+    if rel_path.is_absolute() or ".." in rel_path.parts:
+        raise ValueError(f"Invalid resource path: {file_name}")
+    base_dir = Path("resources") / _resource_key_for_fixture(fixture_path)
+    if rel_path.parent != Path("."):
+        dest_rel = base_dir / rel_path
+    else:
+        dest_rel = base_dir / rel_path.name
+    if dest_rel in used_paths:
+        prefix = resource_key or "resource"
+        dest_rel = base_dir / f"{prefix}__{rel_path.name}"
+        suffix = 1
+        while dest_rel in used_paths:
+            dest_rel = base_dir / f"{prefix}_{suffix}__{rel_path.name}"
+            suffix += 1
+    used_paths.add(dest_rel)
+    return dest_rel
 
 
 def _bucket_from_path(path: Path, root: Path) -> str:
@@ -198,6 +299,7 @@ def cmd_rm(args: argparse.Namespace) -> int:
     bucket = _normalize(args.bucket)
     scope = _normalize(args.scope) or "both"
     dry_run = bool(args.dry)
+    with_resources = bool(args.with_resources)
 
     if bucket and bucket not in BUCKETS:
         print(f"Неизвестный BUCKET: {bucket}", file=sys.stderr)
@@ -220,17 +322,34 @@ def cmd_rm(args: argparse.Namespace) -> int:
     use_git = _is_git_repo()
     print("Found files to remove:")
     for path in candidates:
-        root = REPLAY_ROOT if path.is_relative_to(REPLAY_ROOT) else TRACE_ROOT
+        root = REPLAY_ROOT if _is_relative_to(path, REPLAY_ROOT) else TRACE_ROOT
         print(f"- {_bucket_from_path(path, root)}: {_relative(path)}")
+        if with_resources and _is_relative_to(path, REPLAY_ROOT):
+            resources_dir = _resources_dir_for_fixture(path)
+            if resources_dir.exists():
+                print(f"  - resources: {_relative(resources_dir)}")
 
     if dry_run:
         print(f"DRY: would remove {len(candidates)} files.")
         return 0
 
+    resource_dirs: list[Path] = []
+    if with_resources and scope in ("replay", "both"):
+        for path in candidates:
+            if _is_relative_to(path, REPLAY_ROOT):
+                resources_dir = _resources_dir_for_fixture(path)
+                if resources_dir.exists():
+                    resource_dirs.append(resources_dir)
+
+    for resource_dir in sorted(set(resource_dirs), key=lambda p: _relative(p)):
+        _remove_tree(resource_dir, use_git=use_git, dry_run=False)
     for path in candidates:
         _remove_file(path, use_git=use_git, dry_run=False)
 
-    print(f"Removed {len(candidates)} files.")
+    if resource_dirs:
+        print(f"Removed {len(candidates)} files and {len(set(resource_dirs))} resource trees.")
+    else:
+        print(f"Removed {len(candidates)} files.")
     return 0
 
 
@@ -272,6 +391,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
         return 1
 
     dests = []
+    resource_moves: list[tuple[Path, Path]] = []
     conflicts = []
     dst_seen: dict[Path, Path] = {}
     for src in candidates:
@@ -283,6 +403,12 @@ def cmd_fix(args: argparse.Namespace) -> int:
             conflicts.append(dst)
         dst_seen[dst] = src
         dests.append((src, dst))
+        src_resources = _resources_dir_for_fixture(src)
+        if src_resources.exists():
+            dst_resources = _resources_dir_for_fixture(dst)
+            if dst_resources.exists():
+                conflicts.append(dst_resources)
+            resource_moves.append((src_resources, dst_resources))
     if conflicts:
         print("Конфликт имён в fixed:", file=sys.stderr)
         for conflict in conflicts:
@@ -293,6 +419,8 @@ def cmd_fix(args: argparse.Namespace) -> int:
     print("Found replay fixtures to promote:")
     for src, dst in dests:
         print(f"- {_relative(src)} -> {_relative(dst)}")
+    for src, dst in resource_moves:
+        print(f"  - resources: {_relative(src)} -> {_relative(dst)}")
 
     case_ids: set[str] = set()
     promoted_traces: list[Path] = []
@@ -327,11 +455,14 @@ def cmd_fix(args: argparse.Namespace) -> int:
                     print(f"- {_relative(src)} -> {_relative(dst)}")
         return 0
 
-    moves_done: list[tuple[Path, Path]] = []
+    moves_done: list[tuple[Path, Path, bool]] = []
     try:
         for src, dst in dests:
             _move_file(src, dst, use_git=use_git, dry_run=False)
-            moves_done.append((src, dst))
+            moves_done.append((src, dst, False))
+        for src, dst in resource_moves:
+            _move_tree(src, dst, use_git=use_git, dry_run=False)
+            moves_done.append((src, dst, True))
 
         print(f"Promoted {len(candidates)} replay fixtures to fixed.")
 
@@ -341,7 +472,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
                 return 0
             for src, dst in trace_dests:
                 _move_file(src, dst, use_git=use_git, dry_run=False)
-                moves_done.append((src, dst))
+                moves_done.append((src, dst, False))
             print(f"Also promoted {len(promoted_traces)} plan traces.")
 
         return 0
@@ -350,6 +481,136 @@ def cmd_fix(args: argparse.Namespace) -> int:
         print(f"Cause: {exc}", file=sys.stderr)
         _rollback_moves(moves_done, use_git=use_git)
         return 1
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    bucket = _normalize(args.bucket)
+    dry_run = bool(args.dry)
+    if bucket and bucket not in BUCKETS:
+        print(f"Неизвестный BUCKET: {bucket}", file=sys.stderr)
+        return 1
+
+    buckets = [bucket] if bucket else BUCKETS
+    use_git = _is_git_repo()
+    total_moves = 0
+    total_updates = 0
+
+    for bkt in buckets:
+        root = REPLAY_ROOT / bkt
+        if not root.exists():
+            continue
+        fixture_candidates = [path for path in root.rglob("*.json") if "resources" not in path.parts]
+        for fixture_path in sorted(fixture_candidates, key=lambda p: _relative(p)):
+            original_text: str | None = None
+            try:
+                original_text = fixture_path.read_text(encoding="utf-8")
+                data = json.loads(original_text)
+            except (json.JSONDecodeError, OSError) as exc:
+                print(f"Skip invalid json {_relative(fixture_path)}: {exc}", file=sys.stderr)
+                continue
+            if data.get("type") != "replay_bundle":
+                continue
+            resources = data.get("resources")
+            if not isinstance(resources, dict):
+                continue
+            used_paths: set[Path] = set()
+            moves: list[tuple[Path, Path]] = []
+            changes = False
+            conflicts: list[Path] = []
+            for rid, resource in resources.items():
+                if not isinstance(resource, dict):
+                    continue
+                data_ref = resource.get("data_ref")
+                if not isinstance(data_ref, dict):
+                    continue
+                file_name = data_ref.get("file")
+                if not isinstance(file_name, str) or not file_name:
+                    continue
+                rel_path = Path(file_name)
+                if rel_path.is_absolute() or ".." in rel_path.parts:
+                    print(
+                        f"Skip invalid resource path {_relative(fixture_path)}: {file_name}",
+                        file=sys.stderr,
+                    )
+                    continue
+                if (
+                    len(rel_path.parts) >= 2
+                    and rel_path.parts[0] == "resources"
+                    and rel_path.parts[1] == _resource_key_for_fixture(fixture_path)
+                ):
+                    used_paths.add(rel_path)
+                    continue
+                try:
+                    dest_rel = _resource_destination(fixture_path, file_name, rid, used_paths)
+                except ValueError as exc:
+                    print(f"Skip resource in {_relative(fixture_path)}: {exc}", file=sys.stderr)
+                    continue
+                src_path = fixture_path.parent / file_name
+                dst_path = fixture_path.parent / dest_rel
+                if dst_path.exists():
+                    conflicts.append(dst_path)
+                    continue
+                if not src_path.exists():
+                    print(
+                        f"Missing resource for {_relative(fixture_path)}: {_relative(src_path)}",
+                        file=sys.stderr,
+                    )
+                    continue
+                moves.append((src_path, dst_path))
+                updated_resource = dict(resource)
+                updated_data_ref = dict(data_ref)
+                updated_data_ref["file"] = dest_rel.as_posix()
+                updated_resource["data_ref"] = updated_data_ref
+                resources[rid] = updated_resource
+                changes = True
+
+            if conflicts:
+                print(f"Conflicts for {_relative(fixture_path)}:", file=sys.stderr)
+                for conflict in conflicts:
+                    print(f"- {_relative(conflict)}", file=sys.stderr)
+                continue
+
+            if not moves and not changes:
+                continue
+
+            print(f"Migrate resources for {_relative(fixture_path)}:")
+            for src, dst in moves:
+                print(f"- {_relative(src)} -> {_relative(dst)}")
+
+            if dry_run:
+                continue
+
+            moves_done: list[tuple[Path, Path, bool]] = []
+            try:
+                for src, dst in moves:
+                    _move_file(src, dst, use_git=use_git, dry_run=False)
+                    moves_done.append((src, dst, False))
+
+                if changes:
+                    data["resources"] = resources
+                    fixture_path.write_text(_canonical_json(data), encoding="utf-8")
+                    total_updates += 1
+                    total_moves += len(moves)
+            except Exception as exc:
+                print(
+                    f"ERROR: migrate failed for {_relative(fixture_path)}: {exc}",
+                    file=sys.stderr,
+                )
+                _rollback_moves(moves_done, use_git=use_git)
+                if original_text is not None:
+                    try:
+                        fixture_path.write_text(original_text, encoding="utf-8")
+                    except Exception as rollback_exc:
+                        print(
+                            f"ROLLBACK ERROR: failed to restore {_relative(fixture_path)}: {rollback_exc}",
+                            file=sys.stderr,
+                        )
+
+    if dry_run:
+        print("DRY: migration scan complete.")
+    else:
+        print(f"Migrated {total_moves} resources across {total_updates} fixtures.")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -361,6 +622,7 @@ def build_parser() -> argparse.ArgumentParser:
     rm_parser.add_argument("--pattern", default="")
     rm_parser.add_argument("--bucket", default="")
     rm_parser.add_argument("--scope", default="both")
+    rm_parser.add_argument("--with-resources", type=int, default=1)
     rm_parser.add_argument("--dry", type=int, default=0)
     rm_parser.set_defaults(func=cmd_rm)
 
@@ -371,6 +633,11 @@ def build_parser() -> argparse.ArgumentParser:
     fix_parser.add_argument("--move-traces", type=int, default=0)
     fix_parser.add_argument("--dry", type=int, default=0)
     fix_parser.set_defaults(func=cmd_fix)
+
+    migrate_parser = sub.add_parser("migrate", help="Migrate replay bundle resources into resources/<fixture>/")
+    migrate_parser.add_argument("--bucket", default="")
+    migrate_parser.add_argument("--dry", type=int, default=0)
+    migrate_parser.set_defaults(func=cmd_migrate)
 
     return parser
 

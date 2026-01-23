@@ -56,7 +56,10 @@ def _parse_fixture(event: dict) -> tuple[dict, ReplayContext]:
 def _fixture_paths() -> list[Path]:
     paths = list(_iter_fixture_paths())
     if not paths:
-        pytest.skip("No replay fixtures found in tests/fixtures/replay_points")
+        pytest.skip(
+            "No replay fixtures found in tests/fixtures/replay_points",
+            allow_module_level=True,
+        )
     return paths
 
 

@@ -356,10 +356,10 @@ fixture: check
 	  $(if $(filter requires,$(WITH)),--with-requires,)
 
 # 12) Fixture tools
-fixture-rm: check
+fixture-rm:
 	@$(CLI_FIXT) rm --name "$(NAME)" --pattern "$(PATTERN)" --bucket "$(BUCKET)" --scope "$(SCOPE)" --dry "$(DRY)"
 
-fixture-fix: check
+fixture-fix:
 	@$(CLI_FIXT) fix --name "$(NAME)" --pattern "$(PATTERN)" --case "$(CASE)" --move-traces "$(MOVE_TRACES)" --dry "$(DRY)"
 
 # compare (diff.md + junit)

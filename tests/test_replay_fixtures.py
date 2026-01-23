@@ -11,7 +11,6 @@ from _pytest.mark.structures import ParameterSet
 from pydantic import TypeAdapter
 
 import fetchgraph.replay.handlers.plan_normalize  # noqa: F401
-
 from fetchgraph.relational.models import RelationalRequest
 from fetchgraph.replay.runtime import REPLAY_HANDLERS, ReplayContext
 

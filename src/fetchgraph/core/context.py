@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..parsing.plan_parser import PlanParser
 from ..planning.normalize import PlanNormalizer
+from ..replay.log import EventLoggerLike
 from .models import (
     BaselineSpec,
     ContextFetchSpec,
@@ -26,7 +27,6 @@ from .protocols import (
     SupportsFilter,
     Verifier,
 )
-from ..replay.log import EventLoggerLike
 from .utils import load_pkg_text, render_prompt
 
 logger = logging.getLogger(__name__)

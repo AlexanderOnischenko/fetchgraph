@@ -46,6 +46,13 @@ OUT    ?= $(DATA)/.runs/results.jsonl
 TAG   ?=
 NOTE  ?=
 CASE  ?=
+RUN_ID ?=
+REPLAY_ID ?= plan_normalize.spec_v1
+WITH ?=
+SPEC_IDX ?=
+PROVIDER ?=
+OUT_DIR ?=
+ALL ?=
 LIMIT ?= 50
 CHANGES ?= 10
 NEW_TAG ?=
@@ -99,7 +106,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open compare compare-tag
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open fixture compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -146,6 +153,7 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
+	@echo "  make fixture CASE=agg_01 [TAG=...] [RUN_ID=...] [REPLAY_ID=plan_normalize.spec_v1] [WITH=requires] [SPEC_IDX=0] [PROVIDER=relational] [OUT_DIR=tests/fixtures/replay_points] [ALL=1]"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
@@ -330,6 +338,16 @@ case-open: check
 	@test -n "$(strip $(CASE))" || (echo "Нужно задать CASE=case_42" && exit 1)
 	@$(CLI) case open "$(CASE)" --data "$(DATA)"
 
+# 11) Replay fixtures
+fixture: check
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture CASE=agg_01" && exit 1)
+	@$(PYTHON) -m examples.demo_qa.fixture_cli --case "$(CASE)" --data "$(DATA)" \
+	  $(TAG_FLAG) $(if $(strip $(RUN_ID)),--run-id "$(RUN_ID)",) $(if $(strip $(REPLAY_ID)),--id "$(REPLAY_ID)",) \
+	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
+	  $(if $(strip $(OUT_DIR)),--out-dir "$(OUT_DIR)",) \
+	  $(if $(strip $(ALL)),--all,) \
+	  $(if $(filter requires,$(WITH)),--with-requires,)
+
 # compare (diff.md + junit)
 compare: check
 	@test -n "$(strip $(BASE))" || (echo "Нужно задать BASE=.../results_prev.jsonl" && exit 1)
@@ -359,8 +377,3 @@ compare-tag: check
 tag-rm:
 	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make tag-rm TAG=..." && exit 1)
 	@TAG="$(TAG)" DATA="$(DATA)" PURGE_RUNS="$(PURGE_RUNS)" PRUNE_HISTORY="$(PRUNE_HISTORY)" PRUNE_CASE_HISTORY="$(PRUNE_CASE_HISTORY)" DRY="$(DRY)" $(PYTHON) -m scripts.tag_rm
-
-
-
-
-

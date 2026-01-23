@@ -31,16 +31,17 @@ def _is_replay_payload(payload: object) -> bool:
     return False
 
 
-def _iter_fixture_paths() -> tuple[list[tuple[str, Path]], list[Path]]:
+def _iter_fixture_paths() -> tuple[list[tuple[str, Path]], list[Path], list[tuple[Path, str]]]:
     if not FIXTURES_ROOT.exists():
-        return [], []
+        return [], [], []
     paths: list[tuple[str, Path]] = []
     ignored: list[Path] = []
+    invalid_json: list[tuple[Path, str]] = []
     for path in FIXTURES_ROOT.glob("*.json"):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            ignored.append(path)
+        except json.JSONDecodeError as exc:
+            invalid_json.append((path, f"{exc.msg} (line {exc.lineno}, col {exc.colno})"))
             continue
         if _is_replay_payload(payload):
             paths.append(("root", path))
@@ -56,14 +57,14 @@ def _iter_fixture_paths() -> tuple[list[tuple[str, Path]], list[Path]]:
                 continue
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                ignored.append(path)
+            except json.JSONDecodeError as exc:
+                invalid_json.append((path, f"{exc.msg} (line {exc.lineno}, col {exc.colno})"))
                 continue
             if _is_replay_payload(payload):
                 paths.append((bucket, path))
             else:
                 ignored.append(path)
-    return sorted(paths), sorted(ignored)
+    return sorted(paths), sorted(ignored), sorted(invalid_json)
 
 
 def _format_json(payload: object) -> str:
@@ -101,7 +102,7 @@ def _parse_fixture(event: dict, *, base_dir: Path) -> tuple[dict, ReplayContext]
 
 
 def _fixture_paths() -> list[ParameterSet]:
-    paths, ignored = _iter_fixture_paths()
+    paths, ignored, invalid_json = _iter_fixture_paths()
     if not paths:
         pytest.skip(
             "No replay fixtures found in tests/fixtures/replay_points/{fixed,known_bad}",
@@ -110,6 +111,9 @@ def _fixture_paths() -> list[ParameterSet]:
     if DEBUG_REPLAY and ignored:
         ignored_list = "\n".join(f"- {path}" for path in ignored)
         print(f"\n=== DEBUG ignored json files ===\n{ignored_list}")
+    if DEBUG_REPLAY and invalid_json:
+        invalid_list = "\n".join(f"- {path}: {error}" for path, error in invalid_json)
+        print(f"\n=== DEBUG invalid json files ===\n{invalid_list}")
     params: list[ParameterSet] = []
     for bucket, path in paths:
         marks = (pytest.mark.known_bad,) if bucket == "known_bad" else ()
@@ -171,7 +175,7 @@ def test_replay_fixture(fixture_info: tuple[str, Path]) -> None:
 
 
 def test_replay_fixture_resources_exist() -> None:
-    paths, _ = _iter_fixture_paths()
+    paths, _, _ = _iter_fixture_paths()
     resource_checks: list[tuple[Path, Path]] = []
     for _, path in paths:
         raw = _load_fixture(path)
@@ -200,3 +204,11 @@ def test_replay_fixture_resources_exist() -> None:
     if missing:
         details = "\n".join(f"- {fixture}: {resource}" for fixture, resource in missing)
         pytest.fail(f"Missing replay resources:\n{details}")
+
+
+def test_replay_fixture_json_valid() -> None:
+    _, _, invalid_json = _iter_fixture_paths()
+    if not invalid_json:
+        return
+    details = "\n".join(f"- {path}: {error}" for path, error in invalid_json)
+    pytest.fail(f"Invalid replay fixture JSON:\n{details}")

@@ -25,6 +25,8 @@ def _iter_fixture_paths() -> Iterable[tuple[str, Path]]:
     if not FIXTURES_ROOT.exists():
         return []
     paths: list[tuple[str, Path]] = []
+    for path in FIXTURES_ROOT.glob("*.json"):
+        paths.append(("root", path))
     for bucket in _BUCKETS:
         bucket_dir = FIXTURES_ROOT / bucket
         if not bucket_dir.exists():

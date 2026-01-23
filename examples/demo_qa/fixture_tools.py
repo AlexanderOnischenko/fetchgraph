@@ -66,7 +66,7 @@ def _move_file(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:
         print(f"DRY: move {src} -> {dst}")
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
-    if use_git and _git_tracked(src):
+    if use_git and (_git_tracked(src) or _git_tracked(dst)):
         try:
             subprocess.run(["git", "mv", _git_path(src), _git_path(dst)], cwd=REPO_ROOT, check=True)
             return
@@ -273,10 +273,15 @@ def cmd_fix(args: argparse.Namespace) -> int:
 
     dests = []
     conflicts = []
+    dst_seen: dict[Path, Path] = {}
     for src in candidates:
-        dst = REPLAY_ROOT / "fixed" / src.name
+        rel_path = src.relative_to(REPLAY_ROOT / "known_bad")
+        dst = REPLAY_ROOT / "fixed" / rel_path
+        if dst in dst_seen and dst_seen[dst] != src:
+            conflicts.append(dst)
         if dst.exists():
             conflicts.append(dst)
+        dst_seen[dst] = src
         dests.append((src, dst))
     if conflicts:
         print("Конфликт имён в fixed:", file=sys.stderr)
@@ -286,8 +291,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
 
     use_git = _is_git_repo()
     print("Found replay fixtures to promote:")
-    for src in candidates:
-        dst = REPLAY_ROOT / "fixed" / src.name
+    for src, dst in dests:
         print(f"- {_relative(src)} -> {_relative(dst)}")
 
     case_ids: set[str] = set()

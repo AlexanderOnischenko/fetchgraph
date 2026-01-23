@@ -6,13 +6,16 @@ from pathlib import Path
 from typing import Iterable
 
 import pytest
+from pydantic import TypeAdapter
 
 import fetchgraph.replay.handlers.plan_normalize  # noqa: F401
 
+from fetchgraph.relational.models import RelationalRequest
 from fetchgraph.replay.runtime import REPLAY_HANDLERS, ReplayContext
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "replay_points"
 _BUCKETS = ("fixed", "known_bad")
+_REL_ADAPTER = TypeAdapter(RelationalRequest)
 
 
 def _iter_fixture_paths() -> Iterable[tuple[str, Path]]:
@@ -75,8 +78,13 @@ def _fixture_paths() -> list[pytest.ParameterSet]:
     return params
 
 
+def _bucket_from_path(path: Path) -> str:
+    return path.relative_to(FIXTURES_ROOT).parts[0]
+
+
 @pytest.mark.parametrize("path", _fixture_paths())
 def test_replay_fixture(path: Path) -> None:
+    bucket = _bucket_from_path(path)
     raw = _load_fixture(path)
     event, ctx = _parse_fixture(raw)
     assert event.get("type") == "replay_point"
@@ -106,3 +114,9 @@ def test_replay_fixture(path: Path) -> None:
                 ]
             )
         )
+
+    if event_id == "plan_normalize.spec_v1":
+        provider = actual_spec.get("provider") or event["input"]["spec"]["provider"]
+        rule_kind = (event["input"].get("normalizer_rules") or {}).get(provider)
+        if rule_kind == "relational_v1":
+            _REL_ADAPTER.validate_python(actual_spec["selectors"])

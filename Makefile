@@ -66,11 +66,6 @@ COMPARE_TAG_JUNIT ?= $(DATA)/.runs/diff.tags.junit.xml
 
 MAX_FAILS ?= 5
 
-PURGE_RUNS ?= 0
-PRUNE_HISTORY ?= 0
-PRUNE_CASE_HISTORY ?= 0
-DRY ?= 0
-
 # ==============================================================================
 # 6) Настройки LLM-конфига (редактирование/просмотр)
 # ==============================================================================
@@ -99,7 +94,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open compare compare-tag
+        stats history-case report-tag report-tag-changes tags case-run case-open compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -146,14 +141,6 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo ""
-	@echo "Уборка:"
-	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
-	@echo "    - удаляет effective snapshot тега и tag-latest* указатели"
-	@echo "    DRY=1                - dry-run: только показать, что будет удалено"
-	@echo "    PURGE_RUNS=1          - дополнительно удалить все runs, где run_meta.tag == TAG"
-	@echo "    PRUNE_HISTORY=1       - вычистить записи с этим тегом из $${DATA}/.runs/history.jsonl"
-	@echo "    PRUNE_CASE_HISTORY=1  - вычистить записи с этим тегом из $${DATA}/.runs/runs/cases/*.jsonl"
 	@echo ""
 	@echo "Сравнение результатов:"
 	@echo "  make compare BASE=... NEW=... [DIFF_OUT=...] [JUNIT=...]"
@@ -353,14 +340,3 @@ compare-tag: check
 	  --new-tag "$(NEW_TAG)" \
 	  --out  "$(OUT)" \
 	  --junit "$(JUNIT)"
-
-# команды очистки
-
-tag-rm:
-	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make tag-rm TAG=..." && exit 1)
-	@TAG="$(TAG)" DATA="$(DATA)" PURGE_RUNS="$(PURGE_RUNS)" PRUNE_HISTORY="$(PRUNE_HISTORY)" PRUNE_CASE_HISTORY="$(PRUNE_CASE_HISTORY)" DRY="$(DRY)" $(PYTHON) -m scripts.tag_rm
-
-
-
-
-

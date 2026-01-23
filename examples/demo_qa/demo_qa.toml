@@ -1,5 +1,5 @@
 [llm]
-base_url = "http://localhost:8002/v1"
+base_url = "http://localhost:8000/v1"
 plan_model = "default"
 synth_model = "default"
 plan_temperature = 0.0

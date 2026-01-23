@@ -210,14 +210,6 @@ def _stringify(value: object | None) -> str | None:
     return str(value)
 
 
-def _normalize_text(value: str) -> str:
-    return value.strip().casefold()
-
-
-def _normalize_strings(values: Iterable[object]) -> list[str]:
-    return [_normalize_text(str(value)) for value in values]
-
-
 def _match_expected(case: Case, answer: str | None) -> ExpectedCheck | None:
     if not case.has_asserts:
         return None
@@ -226,15 +218,7 @@ def _match_expected(case: Case, answer: str | None) -> ExpectedCheck | None:
         return ExpectedCheck(mode="none", expected=expected_value, passed=False, detail="no answer")
     if case.expected is not None:
         expected_str = _stringify(case.expected) or ""
-        if isinstance(case.expected, (list, tuple, set)):
-            expected_items = _normalize_strings(case.expected)
-            answer_items = _normalize_strings(answer) if isinstance(answer, (list, tuple, set)) else []
-            if isinstance(case.expected, set) or isinstance(answer, set):
-                passed = set(expected_items) == set(answer_items)
-            else:
-                passed = expected_items == answer_items
-        else:
-            passed = _normalize_text(answer) == _normalize_text(expected_str)
+        passed = answer.strip() == expected_str.strip()
         detail = None if passed else f"expected={expected_str!r}, got={answer!r}"
         return ExpectedCheck(mode="exact", expected=expected_str, passed=passed, detail=detail)
     if case.expected_regex is not None:
@@ -245,7 +229,7 @@ def _match_expected(case: Case, answer: str | None) -> ExpectedCheck | None:
         return ExpectedCheck(mode="regex", expected=expected_regex, passed=passed, detail=detail)
     if case.expected_contains is not None:
         expected_contains = _stringify(case.expected_contains) or ""
-        passed = _normalize_text(expected_contains) in _normalize_text(answer)
+        passed = expected_contains in answer
         detail = None if passed else f"expected to contain {expected_contains!r}"
         return ExpectedCheck(mode="contains", expected=expected_contains, passed=passed, detail=detail)
     return None

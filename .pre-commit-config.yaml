@@ -5,4 +5,4 @@ repos:
         name: pytest
         language: system
         pass_filenames: false
-        entry: bash -lc 'source .venv/bin/activate PYTHONPATH=".:src:${PYTHONPATH}"; python -m pytest -q -m "not slow and not known_bad"'
+        entry: bash -lc 'source .venv/bin/activate PYTHONPATH=".:src:${PYTHONPATH}"; python -m pytest -q -m "not slow"'

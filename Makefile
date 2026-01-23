@@ -51,7 +51,8 @@ REPLAY_ID ?= plan_normalize.spec_v1
 WITH ?=
 SPEC_IDX ?=
 PROVIDER ?=
-OUT_DIR ?=
+BUCKET ?= fixed
+OUT_DIR ?= tests/fixtures/replay_points/$(BUCKET)
 ALL ?=
 LIMIT ?= 50
 CHANGES ?= 10
@@ -153,7 +154,7 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make fixture CASE=agg_01 [TAG=...] [RUN_ID=...] [REPLAY_ID=plan_normalize.spec_v1] [WITH=requires] [SPEC_IDX=0] [PROVIDER=relational] [OUT_DIR=tests/fixtures/replay_points] [ALL=1]"
+	@echo "  make fixture CASE=agg_01 [TAG=...] [RUN_ID=...] [REPLAY_ID=plan_normalize.spec_v1] [WITH=requires] [SPEC_IDX=0] [PROVIDER=relational] [BUCKET=fixed|known_bad] [OUT_DIR=tests/fixtures/replay_points/$$(BUCKET)] [ALL=1]"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"

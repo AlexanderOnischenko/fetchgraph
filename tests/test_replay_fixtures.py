@@ -12,12 +12,20 @@ import fetchgraph.replay.handlers.plan_normalize  # noqa: F401
 from fetchgraph.replay.runtime import REPLAY_HANDLERS, ReplayContext
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "replay_points"
+_BUCKETS = ("fixed", "known_bad")
 
 
-def _iter_fixture_paths() -> Iterable[Path]:
+def _iter_fixture_paths() -> Iterable[tuple[Path, str]]:
     if not FIXTURES_ROOT.exists():
         return []
-    return sorted(FIXTURES_ROOT.glob("*.json"))
+    paths: list[tuple[Path, str]] = []
+    for bucket in _BUCKETS:
+        bucket_dir = FIXTURES_ROOT / bucket
+        if not bucket_dir.exists():
+            continue
+        for path in sorted(bucket_dir.rglob("*.json")):
+            paths.append((path, bucket))
+    return paths
 
 
 def _format_json(payload: object) -> str:
@@ -53,17 +61,21 @@ def _parse_fixture(event: dict) -> tuple[dict, ReplayContext]:
     return event, ReplayContext()
 
 
-def _fixture_paths() -> list[Path]:
+def _fixture_paths() -> list[pytest.ParameterSet]:
     paths = list(_iter_fixture_paths())
     if not paths:
         pytest.skip(
-            "No replay fixtures found in tests/fixtures/replay_points",
+            "No replay fixtures found in tests/fixtures/replay_points/{fixed,known_bad}",
             allow_module_level=True,
         )
-    return paths
+    params: list[pytest.ParameterSet] = []
+    for path, bucket in paths:
+        marks = (pytest.mark.known_bad,) if bucket == "known_bad" else ()
+        params.append(pytest.param(path, id=path.name, marks=marks))
+    return params
 
 
-@pytest.mark.parametrize("path", _fixture_paths(), ids=lambda p: p.name)
+@pytest.mark.parametrize("path", _fixture_paths())
 def test_replay_fixture(path: Path) -> None:
     raw = _load_fixture(path)
     event, ctx = _parse_fixture(raw)

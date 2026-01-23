@@ -38,17 +38,8 @@ def _iter_json_objects_from_trace_text(text: str) -> Iterable[Dict[str, Any]]:
             yield obj
 
 
-def _find_fixtures_dir() -> Optional[Path]:
-    """
-    Ищем папку `fixtures` вверх по дереву от текущего test-файла.
-    Это устойчиво к вложенности tests/...
-    """
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        cand = parent / "fixtures"
-        if cand.exists():
-            return cand
-    return None
+def _fixtures_root() -> Path:
+    return Path(__file__).parent / "fixtures" / "plan_traces"
 
 
 @dataclass(frozen=True)
@@ -69,24 +60,32 @@ class TraceCase:
 def _load_trace_cases_from_fixtures() -> List[TraceCase]:
     """
     Ищет по бакетам:
-      - fixtures/regressions_fixed/fetchgraph_plans.zip
-      - fixtures/regressions_fixed/fetchgraph_plans/*.txt
-      - fixtures/regressions_known_bad/fetchgraph_plans.zip
-      - fixtures/regressions_known_bad/fetchgraph_plans/*.txt
+      - fixtures/plan_traces/fixed/*.txt
+      - fixtures/plan_traces/known_bad/*.txt
+      - fixtures/plan_traces/{bucket}/fetchgraph_plans.zip (опционально)
 
     Достаёт спецификации из stage=before_normalize (plan.context_plan[*]).
     """
-    fixtures_dir = _find_fixtures_dir()
-    if fixtures_dir is None:
-        pytest.skip("No fixtures dir found (expected .../fixtures).", allow_module_level=True)
+    fixtures_root = _fixtures_root()
+    if not fixtures_root.exists():
+        pytest.skip(
+            "No plan fixtures found in tests/fixtures/plan_traces.",
+            allow_module_level=True,
+        )
         return []
 
     cases: List[TraceCase] = []
-    buckets = ["regressions_fixed", "regressions_known_bad"]
+    buckets = ["fixed", "known_bad"]
     for bucket in buckets:
-        zip_path = fixtures_dir / bucket / "fetchgraph_plans.zip"
-        dir_path = fixtures_dir / bucket / "fetchgraph_plans"
+        bucket_dir = fixtures_root / bucket
+        txt_paths = list(sorted(bucket_dir.glob("*_plan_trace.txt")))
+        if txt_paths:
+            for p in txt_paths:
+                text = p.read_text(encoding="utf-8", errors="replace")
+                cases.extend(_extract_before_specs(trace_name=p.name, text=text, bucket=bucket))
+            continue
 
+        zip_path = bucket_dir / "fetchgraph_plans.zip"
         if zip_path.exists():
             with zipfile.ZipFile(zip_path) as zf:
                 for name in sorted(zf.namelist()):
@@ -94,32 +93,11 @@ def _load_trace_cases_from_fixtures() -> List[TraceCase]:
                         continue
                     text = zf.read(name).decode("utf-8", errors="replace")
                     cases.extend(_extract_before_specs(trace_name=name, text=text, bucket=bucket))
-            continue
-
-        if dir_path.exists():
-            for p in sorted(dir_path.glob("*_plan_trace.txt")):
-                text = p.read_text(encoding="utf-8", errors="replace")
-                cases.extend(_extract_before_specs(trace_name=p.name, text=text, bucket=bucket))
-
-    legacy_zip = fixtures_dir / "fetchgraph_plans.zip"
-    legacy_dir = fixtures_dir / "fetchgraph_plans"
-    if legacy_zip.exists():
-        with zipfile.ZipFile(legacy_zip) as zf:
-            for name in sorted(zf.namelist()):
-                if not name.endswith("_plan_trace.txt"):
-                    continue
-                text = zf.read(name).decode("utf-8", errors="replace")
-                cases.extend(_extract_before_specs(trace_name=name, text=text, bucket="regressions_fixed"))
-    if legacy_dir.exists():
-        for p in sorted(legacy_dir.glob("*_plan_trace.txt")):
-            text = p.read_text(encoding="utf-8", errors="replace")
-            cases.extend(_extract_before_specs(trace_name=p.name, text=text, bucket="regressions_fixed"))
 
     if not cases:
         pytest.skip(
-            "No plan fixtures found. Put fetchgraph_plans.zip into fixtures/regressions_fixed "
-            "or fixtures/regressions_known_bad, or unpack it to "
-            "fixtures/regressions_fixed/fetchgraph_plans or fixtures/regressions_known_bad/fetchgraph_plans.",
+            "No plan fixtures found. Put *_plan_trace.txt into "
+            "tests/fixtures/plan_traces/{fixed,known_bad} or add fetchgraph_plans.zip there.",
             allow_module_level=True,
         )
     return cases
@@ -216,15 +194,15 @@ def _parse_note(note: str) -> Dict[str, Any]:
 
 CASES = _load_trace_cases_from_fixtures()
 
-# 1) Контрактный тест запускаем ТОЛЬКО на regressions_fixed
-CASES_FIXED = [c for c in CASES if c.bucket == "regressions_fixed"]
+# 1) Контрактный тест запускаем ТОЛЬКО на fixed
+CASES_FIXED = [c for c in CASES if c.bucket == "fixed"]
 
 # 2) Для общего набора — автоматически проставляем marks по bucket
 CASES_ALL = [
     pytest.param(
         c,
         id=c.case_id,
-        marks=(pytest.mark.known_bad,) if c.bucket == "regressions_known_bad" else (),
+        marks=(pytest.mark.known_bad,) if c.bucket == "known_bad" else (),
     )
     for c in CASES
 ]

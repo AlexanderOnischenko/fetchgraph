@@ -79,17 +79,17 @@ def _fixture_paths() -> list[ParameterSet]:
     params: list[ParameterSet] = []
     for bucket, path in paths:
         marks = (pytest.mark.known_bad,) if bucket == "known_bad" else ()
-        params.append(pytest.param(path, id=f"{bucket}/{path.name}", marks=marks))
+        params.append(pytest.param((bucket, path), id=f"{bucket}/{path.name}", marks=marks))
     return params
 
 
-def _rerun_hint(path: Path) -> str:
-    bucket = path.relative_to(FIXTURES_ROOT).parts[0]
+def _rerun_hint(bucket: str, path: Path) -> str:
     return f"pytest -vv {__file__}::test_replay_fixture[{bucket}/{path.name}] -s"
 
 
-@pytest.mark.parametrize("path", _fixture_paths())
-def test_replay_fixture(path: Path) -> None:
+@pytest.mark.parametrize("fixture_info", _fixture_paths())
+def test_replay_fixture(fixture_info: tuple[str, Path]) -> None:
+    bucket, path = fixture_info
     raw = _load_fixture(path)
     event, ctx = _parse_fixture(raw)
     assert event.get("type") == "replay_point"
@@ -118,7 +118,7 @@ def test_replay_fixture(path: Path) -> None:
             "\n".join(
                 [
                     f"Replay mismatch for {path.name}",
-                    f"rerun: {_rerun_hint(path)}",
+                    f"rerun: {_rerun_hint(bucket, path)}",
                     f"meta: {meta}",
                     f"note: {note}",
                     "input:",

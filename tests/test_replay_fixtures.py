@@ -2,22 +2,38 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 from pathlib import Path
 from typing import Iterable
 
 import pytest
+from _pytest.mark.structures import ParameterSet
+from pydantic import TypeAdapter
 
 import fetchgraph.replay.handlers.plan_normalize  # noqa: F401
 
+from fetchgraph.relational.models import RelationalRequest
 from fetchgraph.replay.runtime import REPLAY_HANDLERS, ReplayContext
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "replay_points"
+_BUCKETS = ("fixed", "known_bad")
+_REL_ADAPTER = TypeAdapter(RelationalRequest)
+DEBUG_REPLAY = os.getenv("DEBUG_REPLAY", "").lower() in ("1", "true", "yes", "on")
 
 
-def _iter_fixture_paths() -> Iterable[Path]:
+def _iter_fixture_paths() -> Iterable[tuple[str, Path]]:
     if not FIXTURES_ROOT.exists():
         return []
-    return sorted(FIXTURES_ROOT.glob("*.json"))
+    paths: list[tuple[str, Path]] = []
+    for path in FIXTURES_ROOT.glob("*.json"):
+        paths.append(("root", path))
+    for bucket in _BUCKETS:
+        bucket_dir = FIXTURES_ROOT / bucket
+        if not bucket_dir.exists():
+            continue
+        for path in bucket_dir.rglob("*.json"):
+            paths.append((bucket, path))
+    return sorted(paths)
 
 
 def _format_json(payload: object) -> str:
@@ -53,18 +69,27 @@ def _parse_fixture(event: dict) -> tuple[dict, ReplayContext]:
     return event, ReplayContext()
 
 
-def _fixture_paths() -> list[Path]:
+def _fixture_paths() -> list[ParameterSet]:
     paths = list(_iter_fixture_paths())
     if not paths:
         pytest.skip(
-            "No replay fixtures found in tests/fixtures/replay_points",
+            "No replay fixtures found in tests/fixtures/replay_points/{fixed,known_bad}",
             allow_module_level=True,
         )
-    return paths
+    params: list[ParameterSet] = []
+    for bucket, path in paths:
+        marks = (pytest.mark.known_bad,) if bucket == "known_bad" else ()
+        params.append(pytest.param((bucket, path), id=f"{bucket}/{path.name}", marks=marks))
+    return params
 
 
-@pytest.mark.parametrize("path", _fixture_paths(), ids=lambda p: p.name)
-def test_replay_fixture(path: Path) -> None:
+def _rerun_hint(bucket: str, path: Path) -> str:
+    return f"pytest -vv {__file__}::test_replay_fixture[{bucket}/{path.name}] -s"
+
+
+@pytest.mark.parametrize("fixture_info", _fixture_paths())
+def test_replay_fixture(fixture_info: tuple[str, Path]) -> None:
+    bucket, path = fixture_info
     raw = _load_fixture(path)
     event, ctx = _parse_fixture(raw)
     assert event.get("type") == "replay_point"
@@ -79,18 +104,33 @@ def test_replay_fixture(path: Path) -> None:
     expected_spec = expected.get("out_spec")
     assert isinstance(expected_spec, dict)
     assert isinstance(actual_spec, dict)
+    if DEBUG_REPLAY:
+        print(f"\n=== DEBUG {path} ===")
+        print("meta:", _format_json(event.get("meta")))
+        print("note:", event.get("note"))
+        print("input:", _truncate(_format_json(event.get("input")), 8000))
     if actual_spec != expected_spec:
         meta = _format_json(event.get("meta"))
         note = event.get("note")
+        inp = _truncate(_format_json(event.get("input")), limit=8000)
         diff = _selectors_diff(expected_spec.get("selectors"), actual_spec.get("selectors"))
         pytest.fail(
             "\n".join(
                 [
                     f"Replay mismatch for {path.name}",
+                    f"rerun: {_rerun_hint(bucket, path)}",
                     f"meta: {meta}",
                     f"note: {note}",
+                    "input:",
+                    inp,
                     "selectors diff:",
                     diff,
                 ]
             )
         )
+
+    if event_id == "plan_normalize.spec_v1":
+        provider = actual_spec.get("provider") or event["input"]["spec"]["provider"]
+        rule_kind = (event["input"].get("normalizer_rules") or {}).get(provider)
+        if rule_kind == "relational_v1":
+            _REL_ADAPTER.validate_python(actual_spec["selectors"])

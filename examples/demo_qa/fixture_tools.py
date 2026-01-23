@@ -66,7 +66,7 @@ def _move_file(src: Path, dst: Path, *, use_git: bool, dry_run: bool) -> None:
         print(f"DRY: move {src} -> {dst}")
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
-    if use_git and _git_tracked(src):
+    if use_git and (_git_tracked(src) or _git_tracked(dst)):
         try:
             subprocess.run(["git", "mv", _git_path(src), _git_path(dst)], cwd=REPO_ROOT, check=True)
             return

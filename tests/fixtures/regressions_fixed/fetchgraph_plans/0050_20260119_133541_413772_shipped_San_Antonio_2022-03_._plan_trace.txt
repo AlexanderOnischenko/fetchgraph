@@ -1,0 +1,202 @@
+{
+  "stage": "before_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "select": [
+            {
+              "expr": "count(*)",
+              "alias": "order_count"
+            }
+          ],
+          "filters": {
+            "type": "logical",
+            "op": "and",
+            "clauses": [
+              {
+                "type": "comparison",
+                "entity": "orders",
+                "field": "status",
+                "op": "=",
+                "value": "shipped"
+              },
+              {
+                "type": "comparison",
+                "entity": "orders",
+                "field": "order_date",
+                "op": ">=",
+                "value": "2022-03-01T00:00:00Z"
+              },
+              {
+                "type": "comparison",
+                "entity": "orders",
+                "field": "order_date",
+                "op": "<",
+                "value": "2022-04-01T00:00:00Z"
+              }
+            ]
+          },
+          "relations": [
+            "orders_to_customers"
+          ],
+          "semantic_clauses": [
+            {
+              "entity": "customers",
+              "query": "San Antonio",
+              "fields": [
+                "city"
+              ],
+              "mode": "filter"
+            }
+          ],
+          "case_sensitivity": false
+        },
+        "max_tokens": null
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": []
+  }
+}
+
+{
+  "stage": "after_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "orders",
+          "select": [
+            {
+              "expr": "count(*)",
+              "alias": "order_count"
+            }
+          ],
+          "filters": {
+            "type": "logical",
+            "op": "and",
+            "clauses": [
+              {
+                "type": "comparison",
+                "entity": "orders",
+                "field": "status",
+                "op": "=",
+                "value": "shipped"
+              },
+              {
+                "type": "comparison",
+                "entity": "orders",
+                "field": "order_date",
+                "op": ">=",
+                "value": "2022-03-01T00:00:00Z"
+              },
+              {
+                "type": "comparison",
+                "entity": "orders",
+                "field": "order_date",
+                "op": "<",
+                "value": "2022-04-01T00:00:00Z"
+              }
+            ]
+          },
+          "relations": [
+            "orders_to_customers"
+          ],
+          "semantic_clauses": [
+            {
+              "entity": "customers",
+              "query": "San Antonio",
+              "fields": [
+                "city"
+              ],
+              "mode": "filter"
+            }
+          ],
+          "case_sensitivity": false
+        },
+        "max_tokens": null
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": [],
+    "normalization_notes": []
+  }
+}
+
+{
+  "stage": "fetch_request",
+  "provider": "demo_qa",
+  "provider_class": "PandasRelationalDataProvider",
+  "mode": "slice",
+  "selectors": {
+    "op": "query",
+    "root_entity": "orders",
+    "select": [
+      {
+        "expr": "count(*)",
+        "alias": "order_count"
+      }
+    ],
+    "filters": {
+      "type": "logical",
+      "op": "and",
+      "clauses": [
+        {
+          "type": "comparison",
+          "entity": "orders",
+          "field": "status",
+          "op": "=",
+          "value": "shipped"
+        },
+        {
+          "type": "comparison",
+          "entity": "orders",
+          "field": "order_date",
+          "op": ">=",
+          "value": "2022-03-01T00:00:00Z"
+        },
+        {
+          "type": "comparison",
+          "entity": "orders",
+          "field": "order_date",
+          "op": "<",
+          "value": "2022-04-01T00:00:00Z"
+        }
+      ]
+    },
+    "relations": [
+      "orders_to_customers"
+    ],
+    "semantic_clauses": [
+      {
+        "entity": "customers",
+        "query": "San Antonio",
+        "fields": [
+          "city"
+        ],
+        "mode": "filter"
+      }
+    ],
+    "case_sensitivity": false
+  },
+  "max_tokens": null
+}
+

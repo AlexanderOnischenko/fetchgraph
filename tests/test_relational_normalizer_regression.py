@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import json
 import re
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -62,8 +61,6 @@ def _load_trace_cases_from_fixtures() -> List[TraceCase]:
     Ищет по бакетам:
       - fixtures/plan_traces/fixed/*.txt
       - fixtures/plan_traces/known_bad/*.txt
-      - fixtures/plan_traces/{bucket}/fetchgraph_plans.zip (опционально)
-
     Достаёт спецификации из stage=before_normalize (plan.context_plan[*]).
     """
     fixtures_root = _fixtures_root()
@@ -78,26 +75,14 @@ def _load_trace_cases_from_fixtures() -> List[TraceCase]:
     buckets = ["fixed", "known_bad"]
     for bucket in buckets:
         bucket_dir = fixtures_root / bucket
-        txt_paths = list(sorted(bucket_dir.glob("*_plan_trace.txt")))
-        if txt_paths:
-            for p in txt_paths:
-                text = p.read_text(encoding="utf-8", errors="replace")
-                cases.extend(_extract_before_specs(trace_name=p.name, text=text, bucket=bucket))
-            continue
-
-        zip_path = bucket_dir / "fetchgraph_plans.zip"
-        if zip_path.exists():
-            with zipfile.ZipFile(zip_path) as zf:
-                for name in sorted(zf.namelist()):
-                    if not name.endswith("_plan_trace.txt"):
-                        continue
-                    text = zf.read(name).decode("utf-8", errors="replace")
-                    cases.extend(_extract_before_specs(trace_name=name, text=text, bucket=bucket))
+        for p in sorted(bucket_dir.glob("*_plan_trace.txt")):
+            text = p.read_text(encoding="utf-8", errors="replace")
+            cases.extend(_extract_before_specs(trace_name=p.name, text=text, bucket=bucket))
 
     if not cases:
         pytest.skip(
             "No plan fixtures found. Put *_plan_trace.txt into "
-            "tests/fixtures/plan_traces/{fixed,known_bad} or add fetchgraph_plans.zip there.",
+            "tests/fixtures/plan_traces/{fixed,known_bad}.",
             allow_module_level=True,
         )
     return cases

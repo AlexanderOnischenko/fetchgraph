@@ -35,9 +35,9 @@ class PlanNormalizerOptions:
 
 @dataclass(frozen=True)
 class SelectorNormalizationRule:
-    kind: str | None = None
     validator: TypeAdapter[Any]
     normalize_selectors: Callable[[Any], Any]
+    kind: str | None = None
 
 
 class PlanNormalizer:

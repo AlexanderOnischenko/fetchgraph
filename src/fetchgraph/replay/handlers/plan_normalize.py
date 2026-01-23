@@ -4,10 +4,10 @@ from typing import Dict
 
 from pydantic import TypeAdapter
 
-from ..core.models import ContextFetchSpec, ProviderInfo
-from ..planning.normalize import PlanNormalizer, PlanNormalizerOptions, SelectorNormalizationRule
-from ..relational.models import RelationalRequest
-from ..relational.normalize import normalize_relational_selectors
+from ...core.models import ContextFetchSpec, ProviderInfo
+from ...planning.normalize import PlanNormalizer, PlanNormalizerOptions, SelectorNormalizationRule
+from ...relational.models import RelationalRequest
+from ...relational.normalize import normalize_relational_selectors
 from ..runtime import REPLAY_HANDLERS, ReplayContext
 
 

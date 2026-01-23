@@ -15,17 +15,17 @@ FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "replay_points"
 _BUCKETS = ("fixed", "known_bad")
 
 
-def _iter_fixture_paths() -> Iterable[tuple[Path, str]]:
+def _iter_fixture_paths() -> Iterable[tuple[str, Path]]:
     if not FIXTURES_ROOT.exists():
         return []
-    paths: list[tuple[Path, str]] = []
+    paths: list[tuple[str, Path]] = []
     for bucket in _BUCKETS:
         bucket_dir = FIXTURES_ROOT / bucket
         if not bucket_dir.exists():
             continue
-        for path in sorted(bucket_dir.rglob("*.json")):
-            paths.append((path, bucket))
-    return paths
+        for path in bucket_dir.rglob("*.json"):
+            paths.append((bucket, path))
+    return sorted(paths)
 
 
 def _format_json(payload: object) -> str:
@@ -69,9 +69,9 @@ def _fixture_paths() -> list[pytest.ParameterSet]:
             allow_module_level=True,
         )
     params: list[pytest.ParameterSet] = []
-    for path, bucket in paths:
+    for bucket, path in paths:
         marks = (pytest.mark.known_bad,) if bucket == "known_bad" else ()
-        params.append(pytest.param(path, id=path.name, marks=marks))
+        params.append(pytest.param(path, id=f"{bucket}/{path.name}", marks=marks))
     return params
 
 

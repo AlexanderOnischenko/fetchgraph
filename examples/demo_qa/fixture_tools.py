@@ -501,6 +501,13 @@ def cmd_migrate(args: argparse.Namespace) -> int:
             continue
         fixture_candidates = [path for path in root.rglob("*.json") if "resources" not in path.parts]
         for fixture_path in sorted(fixture_candidates, key=lambda p: _relative(p)):
+            if fixture_path.parent != root:
+                print(
+                    "Skip nested fixture path; expected fixtures at bucket root: "
+                    f"{_relative(fixture_path)}",
+                    file=sys.stderr,
+                )
+                continue
             original_text: str | None = None
             try:
                 original_text = fixture_path.read_text(encoding="utf-8")
@@ -515,6 +522,7 @@ def cmd_migrate(args: argparse.Namespace) -> int:
                 continue
             used_paths: set[Path] = set()
             moves: list[tuple[Path, Path]] = []
+            src_to_dest_rel: dict[Path, Path] = {}
             changes = False
             conflicts: list[Path] = []
             for rid, resource in resources.items():
@@ -540,23 +548,37 @@ def cmd_migrate(args: argparse.Namespace) -> int:
                 ):
                     used_paths.add(rel_path)
                     continue
-                try:
-                    dest_rel = _resource_destination(fixture_path, file_name, rid, used_paths)
-                except ValueError as exc:
-                    print(f"Skip resource in {_relative(fixture_path)}: {exc}", file=sys.stderr)
-                    continue
                 src_path = fixture_path.parent / file_name
-                dst_path = fixture_path.parent / dest_rel
-                if dst_path.exists():
-                    conflicts.append(dst_path)
-                    continue
                 if not src_path.exists():
                     print(
                         f"Missing resource for {_relative(fixture_path)}: {_relative(src_path)}",
                         file=sys.stderr,
                     )
                     continue
+                if src_path in src_to_dest_rel:
+                    existing_rel = src_to_dest_rel[src_path]
+                    updated_resource = dict(resource)
+                    updated_data_ref = dict(data_ref)
+                    updated_data_ref["file"] = existing_rel.as_posix()
+                    updated_resource["data_ref"] = updated_data_ref
+                    resources[rid] = updated_resource
+                    changes = True
+                    continue
+
+                try:
+                    dest_rel = _resource_destination(fixture_path, file_name, rid, used_paths)
+                except ValueError as exc:
+                    print(f"Skip resource in {_relative(fixture_path)}: {exc}", file=sys.stderr)
+                    continue
+
+                dst_path = fixture_path.parent / dest_rel
+                if dst_path.exists():
+                    conflicts.append(dst_path)
+                    continue
+
+                # De-duplicate moves so shared resources are only relocated once.
                 moves.append((src_path, dst_path))
+                src_to_dest_rel[src_path] = dest_rel
                 updated_resource = dict(resource)
                 updated_data_ref = dict(data_ref)
                 updated_data_ref["file"] = dest_rel.as_posix()

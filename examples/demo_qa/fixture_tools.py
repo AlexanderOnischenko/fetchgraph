@@ -121,7 +121,7 @@ def _iter_trace_paths(bucket: Optional[str]) -> Iterable[Path]:
         root = TRACE_ROOT / bkt
         if not root.exists():
             continue
-        yield from root.glob("*_plan_trace.txt")
+        yield from root.rglob("*_plan_trace.txt")
 
 
 def _relative(path: Path) -> str:
@@ -147,7 +147,12 @@ def _load_case_id(path: Path) -> Optional[str]:
         root = data.get("root") or {}
     else:
         root = data
-    case_id = root.get("case_id")
+    case_id = (
+        root.get("case_id")
+        or (root.get("meta") or {}).get("case_id")
+        or (data.get("meta") or {}).get("case_id")
+        or (data.get("input") or {}).get("case_id")
+    )
     return case_id if isinstance(case_id, str) else None
 
 
@@ -215,7 +220,8 @@ def cmd_rm(args: argparse.Namespace) -> int:
     use_git = _is_git_repo()
     print("Found files to remove:")
     for path in candidates:
-        print(f"- {_bucket_from_path(path, REPLAY_ROOT if 'replay_points' in str(path) else TRACE_ROOT)}: {_relative(path)}")
+        root = REPLAY_ROOT if path.is_relative_to(REPLAY_ROOT) else TRACE_ROOT
+        print(f"- {_bucket_from_path(path, root)}: {_relative(path)}")
 
     if dry_run:
         print(f"DRY: would remove {len(candidates)} files.")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import filecmp
 import hashlib
 import json
@@ -327,6 +328,8 @@ def export_replay_case_bundle(
         extras=extras_index,
         events_path=events_path,
     )
+    resources = copy.deepcopy(resources)
+    extras = copy.deepcopy(extras)
     fixture_name = case_bundle_name(replay_id, root_event["input"])
     fixture_stem = fixture_name.replace(".case.json", "")
     if _has_resource_files(resources):
@@ -398,6 +401,8 @@ def export_replay_case_bundles(
             extras=extras_index,
             events_path=events_path,
         )
+        resources = copy.deepcopy(resources)
+        extras = copy.deepcopy(extras)
         fixture_name = case_bundle_name(replay_id, root_event["input"])
         fixture_stem = fixture_name.replace(".case.json", "")
         if _has_resource_files(resources):

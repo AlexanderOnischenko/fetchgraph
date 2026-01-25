@@ -31,6 +31,7 @@ DEFAULT_CASES  := examples/demo_qa/cases/retail_cases.json
 VENV   ?= .venv
 PYTHON ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python)
 CLI    := $(PYTHON) -m examples.demo_qa.cli
+CLI_FIXT := $(PYTHON) -m examples.demo_qa.fixture_tools
 
 # ==============================================================================
 # 4) Пути demo_qa (можно переопределять через CLI или в $(CONFIG))
@@ -51,7 +52,7 @@ PATTERN ?=
 SPEC_IDX ?=
 PROVIDER ?=
 BUCKET ?= fixed
-ID ?=
+REPLAY_ID ?=
 EVENTS ?=
 TRACER_OUT_DIR ?= tests/fixtures/replay_cases/$(BUCKET)
 RUN_DIR ?=
@@ -112,7 +113,8 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export compare compare-tag
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export \
+        fixture-rm fixture-fix fixture-migrate compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -159,7 +161,7 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make tracer-export ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...] [ALLOW_BAD_JSON=1]"
+	@echo "  make tracer-export REPLAY_ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...] [ALLOW_BAD_JSON=1]"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/..."
 	@echo ""
@@ -220,7 +222,7 @@ show-config:
 	@echo "CASES   = $(CASES)"
 	@echo "OUT     = $(OUT)"
 	@echo "EVENTS  = $(EVENTS)"
-	@echo "ID      = $(ID)"
+	@echo "REPLAY_ID = $(REPLAY_ID)"
 	@echo "TRACER_OUT_DIR = $(TRACER_OUT_DIR)"
 	@echo "ALLOW_BAD_JSON = $(ALLOW_BAD_JSON)"
 	@echo "LLM_TOML= $(LLM_TOML)"
@@ -351,14 +353,23 @@ case-open: check
 	@$(CLI) case open "$(CASE)" --data "$(DATA)"
 
 tracer-export:
-	@test -n "$(strip $(ID))" || (echo "ID обязателен: make tracer-export ID=plan_normalize.spec_v1" && exit 1)
+	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 1)
 	@test -n "$(strip $(EVENTS))" || (echo "EVENTS обязателен: make tracer-export EVENTS=path/to/events.jsonl" && exit 1)
 	@test -n "$(strip $(TRACER_OUT_DIR))" || (echo "TRACER_OUT_DIR обязателен: make tracer-export TRACER_OUT_DIR=path/to/out_dir" && exit 1)
-	@$(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --events "$(EVENTS)" --out "$(TRACER_OUT_DIR)" --id "$(ID)" \
+	@$(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --events "$(EVENTS)" --out "$(TRACER_OUT_DIR)" --id "$(REPLAY_ID)" \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx $(SPEC_IDX),) \
 	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
 	  $(if $(strip $(RUN_DIR)),--run-dir "$(RUN_DIR)",) \
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
+
+fixture-rm:
+	@$(CLI_FIXT) rm --name "$(NAME)" --pattern "$(PATTERN)" --bucket "$(BUCKET)" --scope "$(SCOPE)" --with-resources "$(WITH_RESOURCES)" --dry "$(DRY)"
+
+fixture-fix:
+	@$(CLI_FIXT) fix --name "$(NAME)" --pattern "$(PATTERN)" --case "$(CASE)" --move-traces "$(MOVE_TRACES)" --dry "$(DRY)"
+
+fixture-migrate:
+	@$(CLI_FIXT) migrate --bucket "$(BUCKET)" --dry "$(DRY)"
 
 # compare (diff.md + junit)
 compare: check

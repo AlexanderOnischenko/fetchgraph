@@ -21,6 +21,10 @@ def _iter_case_paths(directory: Path) -> list[Path]:
     return sorted(directory.glob("*.case.json"))
 
 
+def _iter_all_case_paths() -> list[Path]:
+    return _iter_case_paths(FIXED_DIR) + _iter_case_paths(KNOWN_BAD_DIR)
+
+
 def _expected_path(case_path: Path) -> Path:
     if not case_path.name.endswith(".case.json"):
         raise ValueError(f"Unexpected case filename: {case_path}")
@@ -45,3 +49,30 @@ def test_replay_cases_expected(case_path: Path) -> None:
     out = run_case(root, ctx)
     expected = json.loads(expected_path.read_text(encoding="utf-8"))
     assert out == expected
+
+
+def test_replay_case_resources_exist() -> None:
+    case_paths = _iter_all_case_paths()
+    if not case_paths:
+        pytest.skip("No replay case bundles found.")
+    missing: list[tuple[Path, Path]] = []
+    for case_path in case_paths:
+        raw = json.loads(case_path.read_text(encoding="utf-8"))
+        resources = raw.get("resources") or {}
+        if not isinstance(resources, dict):
+            continue
+        for resource in resources.values():
+            if not isinstance(resource, dict):
+                continue
+            data_ref = resource.get("data_ref")
+            if not isinstance(data_ref, dict):
+                continue
+            file_name = data_ref.get("file")
+            if not isinstance(file_name, str) or not file_name:
+                continue
+            resolved = case_path.parent / file_name
+            if not resolved.exists():
+                missing.append((case_path, resolved))
+    if missing:
+        details = "\n".join(f"- {fixture}: {resource}" for fixture, resource in missing)
+        pytest.fail(f"Missing replay resources:\n{details}")

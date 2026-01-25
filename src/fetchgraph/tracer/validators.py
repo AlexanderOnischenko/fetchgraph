@@ -14,4 +14,8 @@ def validate_plan_normalize_spec_v1(out: dict) -> None:
     selectors = out_spec.get("selectors")
     if selectors is None:
         raise AssertionError("out_spec.selectors is required")
+    if not isinstance(selectors, dict):
+        raise AssertionError("out_spec.selectors must be a dict")
+    if "root_entity" not in selectors:
+        return
     TypeAdapter(RelationalRequest).validate_python(selectors)

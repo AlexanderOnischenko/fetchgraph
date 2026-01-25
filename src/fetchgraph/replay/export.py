@@ -36,6 +36,8 @@ class ExportSelection:
 
 
 def _match_meta(event: dict, *, spec_idx: int | None, provider: str | None) -> bool:
+    if spec_idx is None and provider is None:
+        return True
     meta = event.get("meta")
     if not isinstance(meta, dict):
         return False
@@ -115,6 +117,9 @@ def write_case_bundle(
     extras: Dict[str, dict],
     source: dict,
 ) -> None:
+    if out_path.exists():
+        print(f"Fixture already exists: {out_path}")
+        return
     payload = {
         "schema": "fetchgraph.tracer.case_bundle",
         "v": 1,

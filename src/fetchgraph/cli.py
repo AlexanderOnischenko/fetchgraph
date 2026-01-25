@@ -21,7 +21,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Filter replay_case by meta.provider (case-insensitive)",
     )
-    fixture.add_argument("--all", action="store_true", help="Export all matching replay points")
+    fixture.add_argument("--all", action="store_true", help="Export all matching replay cases")
     fixture.add_argument(
         "--out-dir",
         type=Path,

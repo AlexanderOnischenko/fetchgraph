@@ -73,19 +73,3 @@ def log_replay_case(
         event["diag"] = diag
     logger.emit(event)
 
-
-def log_replay_point(
-    logger: EventLoggerLike,
-    *,
-    id: str,
-    meta: dict,
-    input: dict,
-    expected: dict,
-    requires: list[str] | None = None,
-    diag: dict | None = None,
-    note: str | None = None,
-) -> None:
-    raise ValueError(
-        "log_replay_point has been replaced by log_replay_case; "
-        "log_replay_point no longer supports expected payloads."
-    )

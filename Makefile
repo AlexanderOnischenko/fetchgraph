@@ -56,6 +56,7 @@ SPEC_IDX ?=
 PROVIDER ?=
 BUCKET ?= fixed
 OUT_DIR ?= tests/fixtures/replay_cases/$(BUCKET)
+TRACER_OUT_DIR ?= tests/fixtures/replay_cases/$(BUCKET)
 RUN_DIR ?=
 SCOPE ?= both
 WITH_RESOURCES ?= 1
@@ -160,8 +161,8 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make fixture CASE=agg_01 [TAG=...] [RUN_ID=...] [REPLAY_ID=plan_normalize.spec_v1] [WITH=requires] [SPEC_IDX=0] [PROVIDER=relational] [BUCKET=fixed|known_bad] [OUT_DIR=tests/fixtures/replay_cases/$$(BUCKET)] [ALL=1]"
-	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<key>/..."
+	@echo "  make fixture CASE=agg_01 ... (legacy replay_point fixtures; use tracer-export for case bundles)"
+	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/..."
 	@echo "  make fixture-rm NAME=... [PATTERN=...] [BUCKET=fixed|known_bad] [SCOPE=replay|traces|both] [WITH_RESOURCES=1] [DRY=1] (удаляет fixture и resources)"
 	@echo "  make fixture-fix NAME=... [PATTERN=...] [CASE=...] [MOVE_TRACES=1] [DRY=1] (переносит fixture и resources)"
 	@echo "  make fixture-migrate [BUCKET=fixed|known_bad] [DRY=1] (миграция ресурсов в resources/<key>/)"
@@ -362,8 +363,8 @@ fixture: check
 tracer-export:
 	@test -n "$(strip $(ID))" || (echo "ID обязателен: make tracer-export ID=plan_normalize.spec_v1" && exit 1)
 	@test -n "$(strip $(EVENTS))" || (echo "EVENTS обязателен: make tracer-export EVENTS=path/to/events.jsonl" && exit 1)
-	@test -n "$(strip $(OUT))" || (echo "OUT обязателен: make tracer-export OUT=path/to/out_dir" && exit 1)
-	@fetchgraph-tracer export-case-bundle --events "$(EVENTS)" --out "$(OUT)" --id "$(ID)" \
+	@test -n "$(strip $(TRACER_OUT_DIR))" || (echo "TRACER_OUT_DIR обязателен: make tracer-export TRACER_OUT_DIR=path/to/out_dir" && exit 1)
+	@$(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --events "$(EVENTS)" --out "$(TRACER_OUT_DIR)" --id "$(ID)" \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx $(SPEC_IDX),) \
 	  $(if $(strip $(PROVIDER)),--provider $(PROVIDER),) \
 	  $(if $(strip $(RUN_DIR)),--run-dir $(RUN_DIR),)

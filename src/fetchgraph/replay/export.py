@@ -154,18 +154,6 @@ def resolve_requires(
     return resolved_resources, resolved_extras
 
 
-def collect_requires(
-    events_path: Path,
-    requires: list[dict] | list[str],
-    *,
-    allow_bad_json: bool = False,
-) -> tuple[dict[str, dict], dict[str, dict]]:
-    resources, extras = index_requires(events_path, allow_bad_json=allow_bad_json)
-    if not requires:
-        return resources, extras
-    return resolve_requires(requires, resources=resources, extras=extras, events_path=events_path)
-
-
 def write_case_bundle(
     out_path: Path,
     *,
@@ -218,6 +206,10 @@ def copy_resource_files(
 ) -> None:
     planned: dict[Path, tuple[str, Path]] = {}
     for resource_id, resource in resources.items():
+        if not isinstance(resource_id, str) or not resource_id:
+            raise ValueError("resource_id must be a non-empty string")
+        if "/" in resource_id or "\\" in resource_id or ".." in Path(resource_id).parts:
+            raise ValueError(f"resource_id must be a safe path segment: {resource_id!r}")
         data_ref = resource.get("data_ref")
         if not isinstance(data_ref, dict):
             continue

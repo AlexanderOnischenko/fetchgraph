@@ -358,7 +358,7 @@ case-open: check
 tracer-export:
 	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 1)
 	@test -n "$(strip $(EVENTS))" || (echo "EVENTS обязателен: make tracer-export EVENTS=path/to/events.jsonl" && exit 1)
-	@test -n "$(strip $(TRACER_OUT_DIR))" || (echo "TRACER_OUT_DIR обязателен: make tracer-export TRACER_OUT_DIR=path/to/out_dir" && exit 1)
+	@# TRACER_OUT_DIR has a default; override if needed.
 	@$(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --events "$(EVENTS)" --out "$(TRACER_OUT_DIR)" --id "$(REPLAY_ID)" \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx $(SPEC_IDX),) \
 	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \

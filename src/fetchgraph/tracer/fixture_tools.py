@@ -74,13 +74,14 @@ def resolve_fixture_candidates(
     for path in candidates:
         payload = load_bundle_json(path)
         stem = path.name.replace(".case.json", "")
-        source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+        source = payload.get("source")
+        source_dict = source if isinstance(source, dict) else {}
         if case_id:
-            source_case = source.get("case") or source.get("case_id")
+            source_case = source_dict.get("case") or source_dict.get("case_id")
             if source_case == case_id or stem.startswith(case_id):
-                results.append(FixtureCandidate(path=path, stem=stem, source=source))
+                results.append(FixtureCandidate(path=path, stem=stem, source=source_dict))
         else:
-            results.append(FixtureCandidate(path=path, stem=stem, source=source))
+            results.append(FixtureCandidate(path=path, stem=stem, source=source_dict))
     return results
 
 
@@ -546,10 +547,11 @@ def fixture_ls(
     for path in candidates:
         payload = load_bundle_json(path)
         stem = path.name.replace(".case.json", "")
-        source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+        source = payload.get("source")
+        source_dict = source if isinstance(source, dict) else {}
         if case_id:
-            source_case = source.get("case") or source.get("case_id")
+            source_case = source_dict.get("case") or source_dict.get("case_id")
             if source_case != case_id and not stem.startswith(case_id):
                 continue
-        results.append(FixtureCandidate(path=path, stem=stem, source=source))
+        results.append(FixtureCandidate(path=path, stem=stem, source=source_dict))
     return results

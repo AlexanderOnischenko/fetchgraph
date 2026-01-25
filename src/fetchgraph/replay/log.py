@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, Dict, Protocol, TypedDict, cast
+from typing import Any, Dict, Protocol, cast
 
 TRACE_LIMIT = 20_000
 
@@ -95,18 +95,26 @@ def log_replay_point(logger: EventLoggerLike, **kwargs: object) -> None:
     if "observed" not in payload and "expected" in payload:
         payload["observed"] = payload.pop("expected")
 
-    class _ReplayPointArgs(TypedDict, total=False):
-        id: str
-        input: dict
-        meta: dict | None
-        observed: dict | None
-        observed_error: dict | None
-        requires: list[dict] | None
-        note: str | None
-        diag: dict | None
+    id_val = payload.get("id")
+    input_val = payload.get("input")
+    if not isinstance(id_val, str) or not isinstance(input_val, dict):
+        raise ValueError("log_replay_point requires id (str) and input (dict)")
 
-    typed_payload: _ReplayPointArgs = {}
-    for key in _ReplayPointArgs.__annotations__:
-        if key in payload:
-            typed_payload[key] = cast(Any, payload[key])
-    log_replay_case(logger, **typed_payload)
+    meta_val = payload.get("meta")
+    observed_val = payload.get("observed")
+    observed_error_val = payload.get("observed_error")
+    requires_val = payload.get("requires")
+    note_val = payload.get("note")
+    diag_val = payload.get("diag")
+
+    log_replay_case(
+        logger,
+        id=cast(str, id_val),
+        input=cast(dict, input_val),
+        meta=cast(dict | None, meta_val),
+        observed=cast(dict | None, observed_val),
+        observed_error=cast(dict | None, observed_error_val),
+        requires=cast(list[dict] | None, requires_val),
+        note=cast(str | None, note_val),
+        diag=cast(dict | None, diag_val),
+    )

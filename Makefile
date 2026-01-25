@@ -121,7 +121,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls \
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls known-bad known-bad-one \
         fixture-green fixture-rm fixture-fix fixture-migrate \
         compare compare-tag
 
@@ -172,6 +172,8 @@ help:
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
 	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_ID=...] [CASE_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
 	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
+	@echo "  make known-bad - запустить backlog-suite для known_bad (ожидаемо красный)"
+	@echo "  make known-bad-one NAME=fixture_stem - запустить один known_bad кейс"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
 	@echo "  make fixture-green CASE=path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
@@ -411,6 +413,13 @@ tracer-ls:
 	  $(if $(EVENTS),--events "$(EVENTS)",) \
 	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
 	  --list-matches
+
+known-bad:
+	@pytest -m known_bad -vv
+
+known-bad-one:
+	@test -n "$(strip $(NAME))" || (echo "NAME обязателен: make known-bad-one NAME=fixture_stem" && exit 2)
+	@pytest -m known_bad -k "$(NAME)" -vv
 
 fixture-green:
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=tests/fixtures/replay_cases/known_bad/fixture.case.json (или CASE=fixture_stem)" && exit 1)

@@ -76,24 +76,12 @@ def _select_replay_cases(
 
 def collect_requires(
     events_path: Path,
-    requires: list[dict],
+    requires: list[dict] | list[str],
     *,
     allow_bad_json: bool = False,
 ) -> tuple[dict[str, dict], dict[str, dict]]:
     extras: Dict[str, dict] = {}
     resources: Dict[str, dict] = {}
-
-    if not requires:
-        return resources, extras
-    if not isinstance(requires, list):
-        raise ValueError("requires must be a list of objects with kind/id fields")
-    for req in requires:
-        if not isinstance(req, dict):
-            raise ValueError("requires must be a list of objects with kind/id fields")
-        if req.get("kind") not in {"extra", "resource"}:
-            raise ValueError("requires entries must include kind='extra' or kind='resource'")
-        if not isinstance(req.get("id"), str) or not req.get("id"):
-            raise ValueError("requires entries must include a non-empty id")
 
     for _, event in iter_events(events_path, allow_bad_json=allow_bad_json):
         event_type = event.get("type")
@@ -102,10 +90,37 @@ def collect_requires(
             extras[event_id] = event
         elif event_type == "replay_resource" and isinstance(event_id, str):
             resources[event_id] = event
+    if not requires:
+        return resources, extras
+
+    normalized_requires: list[dict]
+    if isinstance(requires, list) and all(isinstance(req, str) for req in requires):
+        normalized_requires = []
+        for req_id in requires:
+            if req_id in resources:
+                normalized_requires.append({"kind": "resource", "id": req_id})
+            elif req_id in extras:
+                normalized_requires.append({"kind": "extra", "id": req_id})
+            else:
+                raise ValueError(
+                    f"Unknown dependency {req_id!r} in {events_path}; requires must be updated to replay_case v2."
+                )
+    elif isinstance(requires, list):
+        normalized_requires = []
+        for req in requires:
+            if not isinstance(req, dict):
+                raise ValueError("requires must be a list of objects with kind/id fields")
+            if req.get("kind") not in {"extra", "resource"}:
+                raise ValueError("requires entries must include kind='extra' or kind='resource'")
+            if not isinstance(req.get("id"), str) or not req.get("id"):
+                raise ValueError("requires entries must include a non-empty id")
+            normalized_requires.append({"kind": req["kind"], "id": req["id"]})
+    else:
+        raise ValueError("requires must be a list of objects with kind/id fields")
 
     resolved_resources: Dict[str, dict] = {}
     resolved_extras: Dict[str, dict] = {}
-    for req in requires:
+    for req in normalized_requires:
         kind = req.get("kind")
         rid = req.get("id")
         if kind == "extra":
@@ -131,8 +146,9 @@ def write_case_bundle(
     resources: Dict[str, dict],
     extras: Dict[str, dict],
     source: dict,
+    overwrite: bool = False,
 ) -> None:
-    if out_path.exists():
+    if out_path.exists() and not overwrite:
         print(f"Fixture already exists: {out_path}")
         return
     payload = {
@@ -154,7 +170,7 @@ def copy_resource_files(
     out_dir: Path,
     fixture_stem: str,
 ) -> None:
-    for resource in resources.values():
+    for resource_id, resource in resources.items():
         data_ref = resource.get("data_ref")
         if not isinstance(data_ref, dict):
             continue
@@ -169,12 +185,16 @@ def copy_resource_files(
         src_path = run_dir / rel_path
         if not src_path.exists():
             raise FileNotFoundError(f"Resource file {src_path} not found for replay bundle")
-        dest_rel = Path("resources") / fixture_stem / rel_path
+        dest_rel = Path("resources") / fixture_stem / resource_id / rel_path
         dest_path = out_dir / dest_rel
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         if dest_path.exists():
             if not filecmp.cmp(src_path, dest_path, shallow=False):
-                raise FileExistsError(f"Resource file collision at {dest_path}")
+                raise FileExistsError(
+                    "Resource file collision at "
+                    f"{dest_path} (resource_id={resource_id}, src={src_path}, run_dir={run_dir}, "
+                    f"fixture_stem={fixture_stem})"
+                )
         else:
             shutil.copy2(src_path, dest_path)
         data_ref["file"] = dest_rel.as_posix()
@@ -200,6 +220,7 @@ def export_replay_case_bundle(
     provider: str | None = None,
     run_dir: Path | None = None,
     allow_bad_json: bool = False,
+    overwrite: bool = False,
 ) -> Path:
     selections = _select_replay_cases(
         events_path,
@@ -227,14 +248,17 @@ def export_replay_case_bundle(
 
     resources, extras = collect_requires(events_path, requires, allow_bad_json=allow_bad_json)
     fixture_name = case_bundle_name(replay_id, root_event["input"])
+    fixture_stem = fixture_name.replace(".case.json", "")
     if _has_resource_files(resources):
         if run_dir is None:
             raise ValueError("run_dir is required to export file resources")
+        if overwrite:
+            shutil.rmtree(out_dir / "resources" / fixture_stem, ignore_errors=True)
         copy_resource_files(
             resources,
             run_dir=run_dir,
             out_dir=out_dir,
-            fixture_stem=fixture_name.replace(".case.json", ""),
+            fixture_stem=fixture_stem,
         )
 
     source = {
@@ -244,7 +268,14 @@ def export_replay_case_bundle(
         "timestamp": root_event.get("timestamp"),
     }
     out_path = out_dir / fixture_name
-    write_case_bundle(out_path, root_case=root_event, resources=resources, extras=extras, source=source)
+    write_case_bundle(
+        out_path,
+        root_case=root_event,
+        resources=resources,
+        extras=extras,
+        source=source,
+        overwrite=overwrite,
+    )
     return out_path
 
 
@@ -257,6 +288,7 @@ def export_replay_case_bundles(
     provider: str | None = None,
     run_dir: Path | None = None,
     allow_bad_json: bool = False,
+    overwrite: bool = False,
 ) -> list[Path]:
     selections = _select_replay_cases(
         events_path,
@@ -280,14 +312,17 @@ def export_replay_case_bundles(
         requires = root_event.get("requires") or []
         resources, extras = collect_requires(events_path, requires, allow_bad_json=allow_bad_json)
         fixture_name = case_bundle_name(replay_id, root_event["input"])
+        fixture_stem = fixture_name.replace(".case.json", "")
         if _has_resource_files(resources):
             if run_dir is None:
                 raise ValueError("run_dir is required to export file resources")
+            if overwrite:
+                shutil.rmtree(out_dir / "resources" / fixture_stem, ignore_errors=True)
             copy_resource_files(
                 resources,
                 run_dir=run_dir,
                 out_dir=out_dir,
-                fixture_stem=fixture_name.replace(".case.json", ""),
+                fixture_stem=fixture_stem,
             )
 
         source = {
@@ -297,6 +332,13 @@ def export_replay_case_bundles(
             "timestamp": root_event.get("timestamp"),
         }
         out_path = out_dir / fixture_name
-        write_case_bundle(out_path, root_case=root_event, resources=resources, extras=extras, source=source)
+        write_case_bundle(
+            out_path,
+            root_case=root_event,
+            resources=resources,
+            extras=extras,
+            source=source,
+            overwrite=overwrite,
+        )
         paths.append(out_path)
     return paths

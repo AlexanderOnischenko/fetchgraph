@@ -26,6 +26,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip invalid JSON lines in events.jsonl",
     )
+    fixture.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing bundles and resource copies",
+    )
     fixture.add_argument("--all", action="store_true", help="Export all matching replay cases")
     fixture.add_argument(
         "--out-dir",
@@ -48,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
                 provider=args.provider,
                 run_dir=args.run_dir,
                 allow_bad_json=args.allow_bad_json,
+                overwrite=args.overwrite,
             )
         else:
             export_replay_case_bundle(
@@ -58,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
                 provider=args.provider,
                 run_dir=args.run_dir,
                 allow_bad_json=args.allow_bad_json,
+                overwrite=args.overwrite,
             )
         return 0
     raise SystemExit(f"Unknown command: {args.command}")

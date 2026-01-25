@@ -3,10 +3,14 @@ from __future__ import annotations
 import filecmp
 import hashlib
 import json
+import logging
 import shutil
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable
+
+logger = logging.getLogger(__name__)
 
 
 def iter_events(path: Path, *, allow_bad_json: bool = False) -> Iterable[tuple[int, dict]]:
@@ -170,9 +174,6 @@ def write_case_bundle(
     source: dict,
     overwrite: bool = False,
 ) -> None:
-    if out_path.exists() and not overwrite:
-        print(f"Fixture already exists: {out_path}")
-        return
     payload = {
         "schema": "fetchgraph.tracer.case_bundle",
         "v": 1,
@@ -181,8 +182,30 @@ def write_case_bundle(
         "extras": extras,
         "source": source,
     }
+    new_text = canonical_json(payload)
+    if out_path.exists() and not overwrite:
+        try:
+            old_payload = json.loads(out_path.read_text(encoding="utf-8"))
+            old_text = canonical_json(old_payload)
+        except Exception as exc:
+            raise ValueError(f"Existing case bundle is unreadable: {out_path}: {exc}") from exc
+        if old_text == new_text:
+            logger.info("Fixture already up-to-date: %s", out_path)
+            return
+        raise FileExistsError(
+            textwrap.dedent(
+                f"""\
+                Case bundle already exists and differs: {out_path}
+                This is fail-fast to avoid mixing fixtures from different runs.
+                Actions:
+                  - delete the file, or
+                  - choose a different --out directory, or
+                  - rerun with --overwrite.
+                """
+            ).rstrip()
+        )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(canonical_json(payload), encoding="utf-8")
+    out_path.write_text(new_text, encoding="utf-8")
 
 
 def copy_resource_files(
@@ -192,6 +215,7 @@ def copy_resource_files(
     out_dir: Path,
     fixture_stem: str,
 ) -> None:
+    planned: dict[Path, tuple[str, Path]] = {}
     for resource_id, resource in resources.items():
         data_ref = resource.get("data_ref")
         if not isinstance(data_ref, dict):
@@ -206,16 +230,39 @@ def copy_resource_files(
             raise ValueError(f"Resource file path must not traverse parents: {file_name}")
         src_path = run_dir / rel_path
         if not src_path.exists():
-            raise FileNotFoundError(f"Resource file {src_path} not found for replay bundle")
+            raise FileNotFoundError(
+                f"Missing resource file for rid={resource_id!r}: "
+                f"src={src_path} (run_dir={run_dir}, fixture={fixture_stem})"
+            )
         dest_rel = Path("resources") / fixture_stem / resource_id / rel_path
         dest_path = out_dir / dest_rel
         dest_path.parent.mkdir(parents=True, exist_ok=True)
+        prev = planned.get(dest_path)
+        if prev is not None:
+            prev_id, prev_src = prev
+            if prev_id != resource_id or prev_src != src_path:
+                if not filecmp.cmp(prev_src, src_path, shallow=False):
+                    raise FileExistsError(
+                        "Resource destination collision (different contents):\n"
+                        f"  dest: {dest_path}\n"
+                        f"  fixture: {fixture_stem}\n"
+                        f"  A: rid={prev_id!r} src={prev_src}\n"
+                        f"  B: rid={resource_id!r} src={src_path}\n"
+                        "Hint: make resource filenames unique or adjust resource layout."
+                    )
+        else:
+            planned[dest_path] = (resource_id, src_path)
         if dest_path.exists():
             if not filecmp.cmp(src_path, dest_path, shallow=False):
                 raise FileExistsError(
-                    "Resource file collision at "
-                    f"{dest_path} (resource_id={resource_id}, src={src_path}, run_dir={run_dir}, "
-                    f"fixture_stem={fixture_stem})"
+                    "Resource file collision (dest exists with different contents):\n"
+                    f"  rid: {resource_id!r}\n"
+                    f"  fixture: {fixture_stem}\n"
+                    f"  src: {src_path}\n"
+                    f"  dest: {dest_path}\n"
+                    "Actions:\n"
+                    "  - delete destination resources directory, or\n"
+                    "  - export into a clean --out directory."
                 )
         else:
             shutil.copy2(src_path, dest_path)
@@ -260,8 +307,13 @@ def export_replay_case_bundle(
         detail_str = f" (filters: {', '.join(details)})" if details else ""
         raise LookupError(f"No replay_case id={replay_id!r} found in {events_path}{detail_str}")
     if len(selections) > 1:
+        details = "\n".join(
+            f"- line {sel.line} run_id={sel.event.get('run_id')!r} timestamp={sel.event.get('timestamp')!r}"
+            for sel in selections[:5]
+        )
         raise LookupError(
-            "Multiple replay_case entries matched; use export_replay_case_bundles to export all."
+            "Multiple replay_case entries matched; use export_replay_case_bundles to export all.\n"
+            f"{details}"
         )
 
     selection = selections[0]
@@ -294,6 +346,7 @@ def export_replay_case_bundle(
         "line": selection.line,
         "run_id": root_event.get("run_id"),
         "timestamp": root_event.get("timestamp"),
+        "case_id": root_event.get("case_id"),
     }
     out_path = out_dir / fixture_name
     write_case_bundle(
@@ -364,6 +417,7 @@ def export_replay_case_bundles(
             "line": selection.line,
             "run_id": root_event.get("run_id"),
             "timestamp": root_event.get("timestamp"),
+            "case_id": root_event.get("case_id"),
         }
         out_path = out_dir / fixture_name
         write_case_bundle(

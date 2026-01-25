@@ -45,7 +45,7 @@ def _safe_resource_path(path: str, *, stem: str) -> Path:
 def _atomic_write_json(path: Path, payload: dict) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2),
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
         encoding="utf-8",
     )
     tmp_path.replace(path)
@@ -112,19 +112,27 @@ def fixture_green(
         return
 
     fixed_expected_path.parent.mkdir(parents=True, exist_ok=True)
-    fixed_expected_path.write_text(
+    tmp_expected_path = fixed_expected_path.with_suffix(fixed_expected_path.suffix + ".tmp")
+    tmp_expected_path.write_text(
         json.dumps(observed, ensure_ascii=False, sort_keys=True, indent=2),
         encoding="utf-8",
     )
-    fixed_case_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(known_case_path), str(fixed_case_path))
+    try:
+        fixed_case_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(known_case_path), str(fixed_case_path))
 
-    if known_expected_path.exists():
-        known_expected_path.unlink()
+        if resources_from.exists():
+            resources_to.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(resources_from), str(resources_to))
 
-    if resources_from.exists():
-        resources_to.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(resources_from), str(resources_to))
+        if known_expected_path.exists():
+            known_expected_path.unlink()
+
+        tmp_expected_path.replace(fixed_expected_path)
+    except Exception:
+        if tmp_expected_path.exists():
+            tmp_expected_path.unlink()
+        raise
 
     if validate:
         import fetchgraph.tracer.handlers  # noqa: F401

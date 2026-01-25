@@ -210,9 +210,6 @@ class PlanNormalizer:
                         "selectors": use,
                     },
                 }
-                requires = None
-                if getattr(replay_logger, "case_id", None):
-                    requires = [{"kind": "extra", "id": "planner_input_v1"}]
                 log_replay_case(
                     replay_logger,
                     id="plan_normalize.spec_v1",
@@ -223,7 +220,6 @@ class PlanNormalizer:
                     },
                     input=input_payload,
                     observed=observed_payload,
-                    requires=requires,
                     diag={
                         "selectors_valid_before": before_ok,
                         "selectors_valid_after": after_ok,

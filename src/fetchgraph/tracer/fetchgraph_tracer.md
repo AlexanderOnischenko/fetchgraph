@@ -37,7 +37,7 @@
 - `input`: вход для реплея
 - `input.provider_info_snapshot`: минимальный snapshot провайдера (например `selectors_schema`), чтобы реплей был детерминированным без extras
 - **ровно одно** из `observed` или `observed_error`
-- `requires`: список зависимостей `[{"kind":"extra"|"resource","id":"..."}]`
+- `requires`: опциональный список зависимостей `[{"kind":"extra"|"resource","id":"..."}]`
 
 Пример:
 ```json
@@ -91,7 +91,6 @@ log_replay_case(
         },
     },
     observed={"out_spec": out_spec},
-    requires=[{"kind": "extra", "id": "planner_input_v1"}],
 )
 ```
 

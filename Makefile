@@ -366,13 +366,18 @@ tracer-export:
 	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 1)
 	@test -n "$(strip $(EVENTS))" || (echo "EVENTS обязателен: make tracer-export EVENTS=path/to/events.jsonl" && exit 1)
 	@case "$(BUCKET)" in fixed|known_bad) ;; *) echo "BUCKET должен быть fixed или known_bad для tracer-export" && exit 1 ;; esac
+	@if [ -z "$(strip $(SPEC_IDX))" ] && ! printf "%s" "$(ALL)" | grep -Eiq '^(1|true|yes|on)$$'; then \
+	  echo "Для tracer-export нужно задать SPEC_IDX или ALL=1"; \
+	  exit 1; \
+	fi
 	@# TRACER_OUT_DIR has a default; override if needed.
 	@$(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --events "$(EVENTS)" --out "$(TRACER_OUT_DIR)" --id "$(REPLAY_ID)" \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx $(SPEC_IDX),) \
 	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
 	  $(if $(strip $(RUN_DIR)),--run-dir "$(RUN_DIR)",) \
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,) \
-	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,)
+	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,)
 
 fixture-green:
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=tests/fixtures/replay_cases/known_bad/fixture.case.json (или CASE=fixture_stem)" && exit 1)
@@ -386,6 +391,7 @@ fixture-green:
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-rm:
+	@case "$(BUCKET)" in fixed|known_bad|all) ;; *) echo "BUCKET должен быть fixed, known_bad или all для fixture-rm" && exit 1 ;; esac
 	@$(PYTHON) -m fetchgraph.tracer.cli fixture-rm --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
 	  $(if $(strip $(NAME)),--name "$(NAME)",) \
 	  $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) \

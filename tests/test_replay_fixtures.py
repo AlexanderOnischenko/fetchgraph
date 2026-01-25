@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from pathlib import Path
 
 import pytest
@@ -10,15 +11,26 @@ import fetchgraph.tracer.handlers  # noqa: F401
 from fetchgraph.tracer.runtime import load_case_bundle, run_case
 from fetchgraph.tracer.validators import validate_plan_normalize_spec_v1
 
-FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "replay_cases"
-KNOWN_BAD_DIR = FIXTURES_ROOT / "known_bad"
-FIXED_DIR = FIXTURES_ROOT / "fixed"
+REPLAY_CASES_ROOT = Path(__file__).parent / "fixtures" / "replay_cases"
+KNOWN_BAD_DIR = REPLAY_CASES_ROOT / "known_bad"
+FIXED_DIR = REPLAY_CASES_ROOT / "fixed"
 
 
 def _iter_case_paths(directory: Path) -> list[Path]:
     if not directory.exists():
         return []
-    return sorted(directory.glob("*.case.json"))
+    return sorted(directory.rglob("*.case.json"))
+
+
+def _case_id(case_path: Path, base: Path) -> str:
+    try:
+        return str(case_path.relative_to(base))
+    except ValueError:
+        return case_path.stem
+
+
+def _iter_case_params(directory: Path, base: Path) -> list[pytest.ParamSpec]:
+    return [pytest.param(path, id=_case_id(path, base)) for path in _iter_case_paths(directory)]
 
 
 def _iter_all_case_paths() -> list[Path]:
@@ -36,16 +48,106 @@ def _expected_path(case_path: Path) -> Path:
     return case_path.with_name(case_path.name.replace(".case.json", ".expected.json"))
 
 
+def format_json(obj: object, *, max_chars: int = 10_000, max_depth: int = 6) -> str:
+    def _prune(value: object, depth: int) -> object:
+        if depth <= 0:
+            return "...(max depth reached)"
+        if isinstance(value, dict):
+            return {str(key): _prune(val, depth - 1) for key, val in value.items()}
+        if isinstance(value, list):
+            return [_prune(item, depth - 1) for item in value]
+        if isinstance(value, tuple):
+            return tuple(_prune(item, depth - 1) for item in value)
+        return value
+
+    text = json.dumps(
+        _prune(obj, max_depth),
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+        default=str,
+    )
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}...(truncated)"
+
+
+def _format_case_debug(
+    *,
+    case_path: Path,
+    case_id: str,
+    root: object,
+    out: object | None = None,
+    exc: BaseException | None = None,
+    tb: str | None = None,
+) -> str:
+    root_id = root.get("id") if isinstance(root, dict) else None
+    root_meta = root.get("meta") if isinstance(root, dict) else None
+    root_input = root.get("input") if isinstance(root, dict) else None
+    lines = [
+        "Replay fixture diagnostics:",
+        f"case_id: {case_id}",
+        f"case_path: {case_path}",
+        f"root.id: {root_id!r}",
+        f"root.meta: {format_json(root_meta)}",
+        f"root.input: {format_json(root_input)}",
+    ]
+    if out is not None:
+        lines.append(f"handler.out: {format_json(out)}")
+    if exc is not None:
+        lines.append(f"handler.exc: {type(exc).__name__}: {exc}")
+    if tb:
+        lines.append(f"handler.traceback:\n{tb}")
+    return "\n".join(lines)
+
+
 @pytest.mark.known_bad
-@pytest.mark.parametrize("case_path", _iter_case_paths(KNOWN_BAD_DIR))
+@pytest.mark.parametrize("case_path", _iter_case_params(KNOWN_BAD_DIR, REPLAY_CASES_ROOT))
 def test_known_bad_cases(case_path: Path) -> None:
     root, ctx = load_case_bundle(case_path)
-    out = run_case(root, ctx)
-    with pytest.raises((AssertionError, ValidationError)):
+    case_id = _case_id(case_path, REPLAY_CASES_ROOT)
+    try:
+        out = run_case(root, ctx)
+    except Exception as exc:
+        pytest.fail(
+            _format_case_debug(
+                case_path=case_path,
+                case_id=case_id,
+                root=root,
+                exc=exc,
+                tb=traceback.format_exc(),
+            ),
+            pytrace=False,
+        )
+    try:
         validate_plan_normalize_spec_v1(out)
+    except (AssertionError, ValidationError):
+        return
+    except Exception as exc:
+        pytest.fail(
+            _format_case_debug(
+                case_path=case_path,
+                case_id=case_id,
+                root=root,
+                out=out,
+                exc=exc,
+                tb=traceback.format_exc(),
+            ),
+            pytrace=False,
+        )
+    pytest.fail(
+        "DID NOT RAISE: expected validate_plan_normalize_spec_v1 to fail.\n"
+        + _format_case_debug(
+            case_path=case_path,
+            case_id=case_id,
+            root=root,
+            out=out,
+        ),
+        pytrace=False,
+    )
 
 
-@pytest.mark.parametrize("case_path", _iter_case_paths(FIXED_DIR))
+@pytest.mark.parametrize("case_path", _iter_case_params(FIXED_DIR, REPLAY_CASES_ROOT))
 def test_replay_cases_expected(case_path: Path) -> None:
     expected_path = _expected_path(case_path)
     if not expected_path.exists():

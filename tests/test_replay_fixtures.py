@@ -29,7 +29,7 @@ def _case_id(case_path: Path, base: Path) -> str:
         return case_path.stem
 
 
-def _iter_case_params(directory: Path, base: Path) -> list[pytest.ParamSpec]:
+def _iter_case_params(directory: Path, base: Path) -> list[pytest.ParameterSet]:
     return [pytest.param(path, id=_case_id(path, base)) for path in _iter_case_paths(directory)]
 
 

@@ -192,10 +192,49 @@ fetchgraph-tracer export-case-bundle \
   --overwrite
 ```
 
+Разрешение источника events:
+- `--events` — явный путь к events/trace файлу (самый высокий приоритет).
+- `--run-id` или `--case-dir` — выбрать конкретный запуск/кейс.
+- `--tag` — выбрать самый свежий кейс с events, совпадающий с тегом.
+- по умолчанию — самый свежий кейс с events.
+
+Доступные форматы events: `events.jsonl`, `events.ndjson`, `trace.jsonl`, `trace.ndjson`, `traces/events.jsonl`, `traces/trace.jsonl`.
+
+Примеры:
+```bash
+# По RUN_ID
+fetchgraph-tracer export-case-bundle \
+  --case agg_003 \
+  --data _demo_data/shop \
+  --run-id 20260125_160601_retail_cases \
+  --id plan_normalize.spec_v1 \
+  --out tests/fixtures/replay_cases
+
+# По TAG
+fetchgraph-tracer export-case-bundle \
+  --case agg_003 \
+  --data _demo_data/shop \
+  --tag known_bad \
+  --id plan_normalize.spec_v1 \
+  --out tests/fixtures/replay_cases
+```
+
 ### Makefile
 ```bash
+make tracer-export REPLAY_ID=plan_normalize.spec_v1 CASE=agg_003 \
+  REPLAY_IDATA=_demo_data/shop TRACER_OUT_DIR=tests/fixtures/replay_cases
+
+# Явный events
 make tracer-export REPLAY_ID=plan_normalize.spec_v1 EVENTS=path/to/events.jsonl \
   TRACER_OUT_DIR=tests/fixtures/replay_cases RUN_DIR=path/to/run_dir OVERWRITE=1
+
+# Фильтр по TAG
+make tracer-export REPLAY_ID=plan_normalize.spec_v1 CASE=agg_003 TAG=known_bad \
+  TRACER_OUT_DIR=tests/fixtures/replay_cases
+
+# Явный run/case
+make tracer-export REPLAY_ID=plan_normalize.spec_v1 CASE=agg_003 RUN_ID=20260125_160601_retail_cases \
+  TRACER_OUT_DIR=tests/fixtures/replay_cases
 ```
 
 ---

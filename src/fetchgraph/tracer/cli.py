@@ -227,6 +227,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Resolved run_dir: {run_dir}")
                     print(f"Resolved events.jsonl: {events_path}")
             if args.list_replay_matches:
+                if events_path is None:
+                    raise ValueError("events_path was not resolved.")
                 if not args.id:
                     raise ValueError("--id is required to list replay_case matches.")
                 selections = find_replay_case_matches(
@@ -246,6 +248,8 @@ def main(argv: list[str] | None = None) -> int:
                 and not args.require_unique
                 and not args.list_replay_matches
             )
+            if events_path is None:
+                raise ValueError("events_path was not resolved.")
             if not args.id:
                 raise ValueError("--id is required to export replay case bundles.")
             if args.all:

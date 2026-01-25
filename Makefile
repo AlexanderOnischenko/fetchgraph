@@ -165,6 +165,7 @@ help:
 	@echo "  make tracer-export REPLAY_ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...] [ALLOW_BAD_JSON=1] [OVERWRITE=1]"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/..."
+	@echo "  fixture-rm/fix/migrate используют legacy layout (examples.demo_qa.fixture_tools)"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"

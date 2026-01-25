@@ -23,7 +23,13 @@ REPLAY_HANDLERS: Dict[str, Callable[[dict, ReplayContext], dict]] = {}
 
 
 def run_case(root: dict, ctx: ReplayContext) -> dict:
-    handler = REPLAY_HANDLERS[root["id"]]
+    replay_id = root["id"]
+    if replay_id not in REPLAY_HANDLERS:
+        raise KeyError(
+            f"No handler for replay id={replay_id!r}. "
+            "Did you import fetchgraph.tracer.handlers?"
+        )
+    handler = REPLAY_HANDLERS[replay_id]
     return handler(root["input"], ctx)
 
 

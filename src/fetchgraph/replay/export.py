@@ -74,9 +74,8 @@ def _select_replay_cases(
     return selected
 
 
-def collect_requires(
+def index_requires(
     events_path: Path,
-    requires: list[dict] | list[str],
     *,
     allow_bad_json: bool = False,
 ) -> tuple[dict[str, dict], dict[str, dict]]:
@@ -90,8 +89,19 @@ def collect_requires(
             extras[event_id] = event
         elif event_type == "replay_resource" and isinstance(event_id, str):
             resources[event_id] = event
+
+    return resources, extras
+
+
+def resolve_requires(
+    requires: list[dict] | list[str],
+    *,
+    resources: dict[str, dict],
+    extras: dict[str, dict],
+    events_path: Path,
+) -> tuple[dict[str, dict], dict[str, dict]]:
     if not requires:
-        return resources, extras
+        return {}, {}
 
     normalized_requires: list[dict]
     if isinstance(requires, list) and all(isinstance(req, str) for req in requires):
@@ -137,6 +147,18 @@ def collect_requires(
             raise KeyError(f"Unknown require kind {kind!r} in {events_path}")
 
     return resolved_resources, resolved_extras
+
+
+def collect_requires(
+    events_path: Path,
+    requires: list[dict] | list[str],
+    *,
+    allow_bad_json: bool = False,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    resources, extras = index_requires(events_path, allow_bad_json=allow_bad_json)
+    if not requires:
+        return resources, extras
+    return resolve_requires(requires, resources=resources, extras=extras, events_path=events_path)
 
 
 def write_case_bundle(
@@ -246,7 +268,13 @@ def export_replay_case_bundle(
     root_event = selection.event
     requires = root_event.get("requires") or []
 
-    resources, extras = collect_requires(events_path, requires, allow_bad_json=allow_bad_json)
+    resources_index, extras_index = index_requires(events_path, allow_bad_json=allow_bad_json)
+    resources, extras = resolve_requires(
+        requires,
+        resources=resources_index,
+        extras=extras_index,
+        events_path=events_path,
+    )
     fixture_name = case_bundle_name(replay_id, root_event["input"])
     fixture_stem = fixture_name.replace(".case.json", "")
     if _has_resource_files(resources):
@@ -306,11 +334,17 @@ def export_replay_case_bundles(
         detail_str = f" (filters: {', '.join(details)})" if details else ""
         raise LookupError(f"No replay_case id={replay_id!r} found in {events_path}{detail_str}")
 
+    resources_index, extras_index = index_requires(events_path, allow_bad_json=allow_bad_json)
     paths: list[Path] = []
     for selection in selections:
         root_event = selection.event
         requires = root_event.get("requires") or []
-        resources, extras = collect_requires(events_path, requires, allow_bad_json=allow_bad_json)
+        resources, extras = resolve_requires(
+            requires,
+            resources=resources_index,
+            extras=extras_index,
+            events_path=events_path,
+        )
         fixture_name = case_bundle_name(replay_id, root_event["input"])
         fixture_stem = fixture_name.replace(".case.json", "")
         if _has_resource_files(resources):

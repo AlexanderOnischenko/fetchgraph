@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Iterable
 
 
-def iter_events(path: Path) -> Iterable[tuple[int, dict]]:
+def iter_events(path: Path, *, allow_bad_json: bool = False) -> Iterable[tuple[int, dict]]:
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
             line = line.strip()
@@ -18,6 +18,8 @@ def iter_events(path: Path) -> Iterable[tuple[int, dict]]:
             try:
                 yield idx, json.loads(line)
             except json.JSONDecodeError as exc:
+                if allow_bad_json:
+                    continue
                 raise ValueError(f"Invalid JSON on line {idx} in {path}: {exc.msg}") from exc
 
 
@@ -59,9 +61,10 @@ def _select_replay_cases(
     replay_id: str,
     spec_idx: int | None = None,
     provider: str | None = None,
+    allow_bad_json: bool = False,
 ) -> list[ExportSelection]:
     selected: list[ExportSelection] = []
-    for line, event in iter_events(events_path):
+    for line, event in iter_events(events_path, allow_bad_json=allow_bad_json):
         if event.get("type") != "replay_case":
             continue
         if event.get("id") != replay_id:
@@ -74,6 +77,8 @@ def _select_replay_cases(
 def collect_requires(
     events_path: Path,
     requires: list[dict],
+    *,
+    allow_bad_json: bool = False,
 ) -> tuple[dict[str, dict], dict[str, dict]]:
     extras: Dict[str, dict] = {}
     resources: Dict[str, dict] = {}
@@ -90,7 +95,7 @@ def collect_requires(
         if not isinstance(req.get("id"), str) or not req.get("id"):
             raise ValueError("requires entries must include a non-empty id")
 
-    for _, event in iter_events(events_path):
+    for _, event in iter_events(events_path, allow_bad_json=allow_bad_json):
         event_type = event.get("type")
         event_id = event.get("id")
         if event_type == "planner_input" and isinstance(event_id, str):
@@ -166,12 +171,12 @@ def copy_resource_files(
             raise FileNotFoundError(f"Resource file {src_path} not found for replay bundle")
         dest_rel = Path("resources") / fixture_stem / rel_path
         dest_path = out_dir / dest_rel
-        if dest_path.exists():
-            if filecmp.cmp(src_path, dest_path, shallow=False):
-                continue
-            raise FileExistsError(f"Resource file collision at {dest_path}")
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src_path, dest_path)
+        if dest_path.exists():
+            if not filecmp.cmp(src_path, dest_path, shallow=False):
+                raise FileExistsError(f"Resource file collision at {dest_path}")
+        else:
+            shutil.copy2(src_path, dest_path)
         data_ref["file"] = dest_rel.as_posix()
 
 
@@ -194,12 +199,14 @@ def export_replay_case_bundle(
     spec_idx: int | None = None,
     provider: str | None = None,
     run_dir: Path | None = None,
+    allow_bad_json: bool = False,
 ) -> Path:
     selections = _select_replay_cases(
         events_path,
         replay_id=replay_id,
         spec_idx=spec_idx,
         provider=provider,
+        allow_bad_json=allow_bad_json,
     )
     if not selections:
         details = []
@@ -218,7 +225,7 @@ def export_replay_case_bundle(
     root_event = selection.event
     requires = root_event.get("requires") or []
 
-    resources, extras = collect_requires(events_path, requires)
+    resources, extras = collect_requires(events_path, requires, allow_bad_json=allow_bad_json)
     fixture_name = case_bundle_name(replay_id, root_event["input"])
     if _has_resource_files(resources):
         if run_dir is None:
@@ -249,12 +256,14 @@ def export_replay_case_bundles(
     spec_idx: int | None = None,
     provider: str | None = None,
     run_dir: Path | None = None,
+    allow_bad_json: bool = False,
 ) -> list[Path]:
     selections = _select_replay_cases(
         events_path,
         replay_id=replay_id,
         spec_idx=spec_idx,
         provider=provider,
+        allow_bad_json=allow_bad_json,
     )
     if not selections:
         details = []
@@ -269,7 +278,7 @@ def export_replay_case_bundles(
     for selection in selections:
         root_event = selection.event
         requires = root_event.get("requires") or []
-        resources, extras = collect_requires(events_path, requires)
+        resources, extras = collect_requires(events_path, requires, allow_bad_json=allow_bad_json)
         fixture_name = case_bundle_name(replay_id, root_event["input"])
         if _has_resource_files(resources):
             if run_dir is None:

@@ -25,6 +25,11 @@ def _iter_all_case_paths() -> list[Path]:
     return _iter_case_paths(FIXED_DIR) + _iter_case_paths(KNOWN_BAD_DIR)
 
 
+def test_replay_cases_present() -> None:
+    if not _iter_all_case_paths():
+        pytest.skip("No replay case bundles found under tests/fixtures/replay_cases")
+
+
 def _expected_path(case_path: Path) -> Path:
     if not case_path.name.endswith(".case.json"):
         raise ValueError(f"Unexpected case filename: {case_path}")

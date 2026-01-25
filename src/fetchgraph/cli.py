@@ -21,6 +21,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Filter replay_case by meta.provider (case-insensitive)",
     )
+    fixture.add_argument(
+        "--allow-bad-json",
+        action="store_true",
+        help="Skip invalid JSON lines in events.jsonl",
+    )
     fixture.add_argument("--all", action="store_true", help="Export all matching replay cases")
     fixture.add_argument(
         "--out-dir",
@@ -42,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
                 spec_idx=args.spec_idx,
                 provider=args.provider,
                 run_dir=args.run_dir,
+                allow_bad_json=args.allow_bad_json,
             )
         else:
             export_replay_case_bundle(
@@ -51,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
                 spec_idx=args.spec_idx,
                 provider=args.provider,
                 run_dir=args.run_dir,
+                allow_bad_json=args.allow_bad_json,
             )
         return 0
     raise SystemExit(f"Unknown command: {args.command}")

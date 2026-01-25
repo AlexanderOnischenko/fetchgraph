@@ -194,7 +194,6 @@ class PlanNormalizer:
                         "mode": spec.mode,
                         "selectors": use,
                     },
-                    "notes_last": note,
                 }
                 requires = None
                 if getattr(replay_logger, "case_id", None):

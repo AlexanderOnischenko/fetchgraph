@@ -55,6 +55,7 @@ ID ?=
 EVENTS ?=
 TRACER_OUT_DIR ?= tests/fixtures/replay_cases/$(BUCKET)
 RUN_DIR ?=
+ALLOW_BAD_JSON ?=
 SCOPE ?= both
 WITH_RESOURCES ?= 1
 ALL ?=
@@ -158,8 +159,8 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make tracer-export ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...]"
-	@echo "  (или напрямую: fetchgraph-tracer export-case-bundle --events ... --out ... --id ...)"
+	@echo "  make tracer-export ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...] [ALLOW_BAD_JSON=1]"
+	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/..."
 	@echo ""
 	@echo "Уборка:"
@@ -221,6 +222,7 @@ show-config:
 	@echo "EVENTS  = $(EVENTS)"
 	@echo "ID      = $(ID)"
 	@echo "TRACER_OUT_DIR = $(TRACER_OUT_DIR)"
+	@echo "ALLOW_BAD_JSON = $(ALLOW_BAD_JSON)"
 	@echo "LLM_TOML= $(LLM_TOML)"
 	@echo "TAG     = $(TAG)"
 	@echo "NOTE    = $(NOTE)"
@@ -354,8 +356,9 @@ tracer-export:
 	@test -n "$(strip $(TRACER_OUT_DIR))" || (echo "TRACER_OUT_DIR обязателен: make tracer-export TRACER_OUT_DIR=path/to/out_dir" && exit 1)
 	@$(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --events "$(EVENTS)" --out "$(TRACER_OUT_DIR)" --id "$(ID)" \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx $(SPEC_IDX),) \
-	  $(if $(strip $(PROVIDER)),--provider $(PROVIDER),) \
-	  $(if $(strip $(RUN_DIR)),--run-dir $(RUN_DIR),)
+	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
+	  $(if $(strip $(RUN_DIR)),--run-dir "$(RUN_DIR)",) \
+	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
 
 # compare (diff.md + junit)
 compare: check

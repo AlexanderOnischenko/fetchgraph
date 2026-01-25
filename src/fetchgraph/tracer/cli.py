@@ -5,7 +5,12 @@ import sys
 from pathlib import Path
 
 from fetchgraph.tracer.auto_resolve import resolve_case_events
-from fetchgraph.tracer.export import export_replay_case_bundle, export_replay_case_bundles
+from fetchgraph.tracer.export import (
+    export_replay_case_bundle,
+    export_replay_case_bundles,
+    find_replay_case_matches,
+    format_replay_case_matches,
+)
 from fetchgraph.tracer.fixture_tools import (
     fixture_fix,
     fixture_green,
@@ -60,6 +65,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print resolved run_dir/events.jsonl",
     )
+    export.add_argument(
+        "--select",
+        choices=["latest", "first", "last", "by-timestamp", "by-line"],
+        default="latest",
+        help="Selection policy when multiple replay_case entries match",
+    )
+    export.add_argument("--select-index", type=int, default=None, help="Select a specific match (1-based)")
+    export.add_argument("--list-matches", action="store_true", help="List matches and exit")
+    export.add_argument("--require-unique", action="store_true", help="Error if multiple matches exist")
 
     green = sub.add_parser("fixture-green", help="Promote known_bad case to fixed")
     green.add_argument("--case", type=Path, required=True, help="Path to known_bad case bundle")
@@ -138,6 +152,24 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Resolved events.jsonl: {resolution.events_path}")
                     if resolution.tag:
                         print(f"Resolved tag: {resolution.tag}")
+            if args.list_matches:
+                selections = find_replay_case_matches(
+                    events_path,
+                    replay_id=args.id,
+                    spec_idx=args.spec_idx,
+                    provider=args.provider,
+                    allow_bad_json=args.allow_bad_json,
+                )
+                if not selections:
+                    raise LookupError(f"No replay_case id={args.id!r} found in {events_path}")
+                print(format_replay_case_matches(selections, limit=20))
+                return 0
+            allow_prompt = (
+                sys.stdin.isatty()
+                and args.select_index is None
+                and not args.require_unique
+                and not args.list_matches
+            )
             if args.all:
                 export_replay_case_bundles(
                     events_path=events_path,
@@ -159,6 +191,11 @@ def main(argv: list[str] | None = None) -> int:
                     run_dir=run_dir,
                     allow_bad_json=args.allow_bad_json,
                     overwrite=args.overwrite,
+                    selection_policy=args.select,
+                    select_index=args.select_index,
+                    require_unique=args.require_unique,
+                    allow_prompt=allow_prompt,
+                    prompt_fn=input,
                 )
             return 0
         if args.command == "fixture-green":

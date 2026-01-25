@@ -8,8 +8,9 @@ import logging
 import shutil
 import textwrap
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable
+from typing import Callable, Dict, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,126 @@ def _select_replay_cases(
         if _match_meta(event, spec_idx=spec_idx, provider=provider):
             selected.append(ExportSelection(line=line, event=event))
     return selected
+
+
+def find_replay_case_matches(
+    events_path: Path,
+    *,
+    replay_id: str,
+    spec_idx: int | None = None,
+    provider: str | None = None,
+    allow_bad_json: bool = False,
+) -> list[ExportSelection]:
+    return _select_replay_cases(
+        events_path,
+        replay_id=replay_id,
+        spec_idx=spec_idx,
+        provider=provider,
+        allow_bad_json=allow_bad_json,
+    )
+
+
+def format_replay_case_matches(selections: list[ExportSelection], *, limit: int | None = 10) -> str:
+    rows = []
+    for idx, selection in enumerate(selections[:limit], start=1):
+        event = selection.event
+        meta = event.get("meta") or {}
+        provider = meta.get("provider")
+        spec_idx = meta.get("spec_idx")
+        timestamp = event.get("timestamp")
+        input_payload = event.get("input") if isinstance(event.get("input"), dict) else {}
+        fingerprint = hashlib.sha256(canonical_json(input_payload).encode("utf-8")).hexdigest()[:8]
+        preview = canonical_json(input_payload)[:80]
+        rows.append(
+            "  "
+            f"{idx}. line={selection.line} "
+            f"ts={timestamp!r} "
+            f"provider={provider!r} "
+            f"spec_idx={spec_idx!r} "
+            f"input={fingerprint} "
+            f"preview={preview!r}"
+        )
+    if len(selections) > (limit or 0):
+        rows.append(f"  ... ({len(selections) - (limit or 0)} more)")
+    return "\n".join(rows)
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    cleaned = value
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
+
+def _select_by_timestamp(selections: list[ExportSelection]) -> ExportSelection:
+    with_ts = []
+    for selection in selections:
+        ts = _parse_timestamp(selection.event.get("timestamp"))
+        if ts is not None:
+            with_ts.append((ts, selection))
+    if with_ts:
+        return max(with_ts, key=lambda pair: pair[0])[1]
+    return max(selections, key=lambda sel: sel.line)
+
+
+def _select_replay_case(
+    selections: list[ExportSelection],
+    *,
+    events_path: Path,
+    selection_policy: str,
+    select_index: int | None,
+    require_unique: bool,
+    allow_prompt: bool,
+    prompt_fn: Callable[[str], str] | None,
+) -> tuple[ExportSelection, str]:
+    if not selections:
+        raise LookupError(f"No replay_case entries found in {events_path}")
+    if require_unique and len(selections) > 1:
+        details = format_replay_case_matches(selections)
+        raise LookupError(
+            "Multiple replay_case entries matched; run with --select/--select-index/--list-matches.\n"
+            f"{details}"
+        )
+    if len(selections) == 1:
+        return selections[0], "unique"
+    if select_index is not None:
+        if select_index < 1 or select_index > len(selections):
+            raise ValueError(f"select_index must be between 1 and {len(selections)}")
+        return selections[select_index - 1], "index"
+
+    selection_policy = selection_policy or "latest"
+    if allow_prompt and prompt_fn is not None:
+        details = format_replay_case_matches(selections)
+        prompt = (
+            "Multiple replay_case entries matched:\n"
+            f"{details}\n"
+            "Select entry (1..N) or press Enter for latest: "
+        )
+        response = prompt_fn(prompt).strip()
+        if response:
+            if response.isdigit():
+                choice = int(response)
+                if 1 <= choice <= len(selections):
+                    return selections[choice - 1], "prompt"
+                raise ValueError(f"Selection must be between 1 and {len(selections)}")
+            raise ValueError("Selection must be a number")
+
+    if selection_policy == "latest":
+        return _select_by_timestamp(selections), "policy"
+    if selection_policy == "by-timestamp":
+        return _select_by_timestamp(selections), "policy"
+    if selection_policy == "by-line":
+        return max(selections, key=lambda sel: sel.line), "policy"
+    if selection_policy == "last":
+        return selections[-1], "policy"
+    if selection_policy == "first":
+        return selections[0], "policy"
+    raise ValueError(f"Unsupported selection policy: {selection_policy}")
 
 
 def index_requires(
@@ -298,6 +419,11 @@ def export_replay_case_bundle(
     run_dir: Path | None = None,
     allow_bad_json: bool = False,
     overwrite: bool = False,
+    selection_policy: str = "latest",
+    select_index: int | None = None,
+    require_unique: bool = False,
+    allow_prompt: bool = False,
+    prompt_fn: Callable[[str], str] | None = None,
 ) -> Path:
     selections = _select_replay_cases(
         events_path,
@@ -314,17 +440,29 @@ def export_replay_case_bundle(
             details.append(f"provider={provider!r}")
         detail_str = f" (filters: {', '.join(details)})" if details else ""
         raise LookupError(f"No replay_case id={replay_id!r} found in {events_path}{detail_str}")
-    if len(selections) > 1:
-        details = "\n".join(
-            f"- line {sel.line} run_id={sel.event.get('run_id')!r} timestamp={sel.event.get('timestamp')!r}"
-            for sel in selections[:5]
+    selection, selection_mode = _select_replay_case(
+        selections,
+        events_path=events_path,
+        selection_policy=selection_policy,
+        select_index=select_index,
+        require_unique=require_unique,
+        allow_prompt=allow_prompt,
+        prompt_fn=prompt_fn,
+    )
+    if len(selections) > 1 and selection_mode == "policy":
+        input_hashes = {
+            hashlib.sha256(canonical_json(sel.event.get("input") or {}).encode("utf-8")).hexdigest()
+            for sel in selections
+        }
+        details = format_replay_case_matches(selections, limit=5)
+        suffix = "Candidates differ by input payload." if len(input_hashes) > 1 else "Candidates share input."
+        logger.warning(
+            "Multiple replay_case entries matched; selection policy=%s chose line %s.\n%s\n%s",
+            selection_policy,
+            selection.line,
+            details,
+            suffix,
         )
-        raise LookupError(
-            "Multiple replay_case entries matched; use export_replay_case_bundles to export all.\n"
-            f"{details}"
-        )
-
-    selection = selections[0]
     root_event = selection.event
     requires = root_event.get("requires") or []
 

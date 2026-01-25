@@ -139,6 +139,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     rm_cmd.add_argument("--name", help="Fixture stem name")
     rm_cmd.add_argument("--pattern", help="Glob pattern for fixture stems or case bundles")
+    rm_cmd.add_argument("--case", type=Path, help="Path to case bundle")
+    rm_cmd.add_argument("--case-id", help="Case id to select fixtures")
     rm_cmd.add_argument(
         "--scope",
         choices=["cases", "resources", "both"],
@@ -152,6 +154,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="auto",
         help="Use git operations when removing fixtures",
     )
+    rm_cmd.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    rm_cmd.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    rm_cmd.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
+    rm_cmd.add_argument("--all", action="store_true", help="Apply to all matching fixtures")
 
     fix_cmd = sub.add_parser("fixture-fix", help="Rename fixture stem")
     fix_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -174,6 +185,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="all",
         help="Fixture bucket",
     )
+    migrate_cmd.add_argument("--case", type=Path, help="Path to case bundle")
+    migrate_cmd.add_argument("--case-id", help="Case id to select fixtures")
+    migrate_cmd.add_argument("--name", help="Fixture stem name")
     migrate_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
     migrate_cmd.add_argument(
         "--git",
@@ -181,6 +195,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="auto",
         help="Use git operations when moving fixtures",
     )
+    migrate_cmd.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    migrate_cmd.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    migrate_cmd.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
+    migrate_cmd.add_argument("--all", action="store_true", help="Apply to all matching fixtures")
 
     ls_cmd = sub.add_parser("fixture-ls", help="List fixture candidates")
     ls_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -192,6 +215,31 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ls_cmd.add_argument("--case-id", help="Case id to filter")
     ls_cmd.add_argument("--pattern", help="Glob pattern for fixtures")
+
+    demote_cmd = sub.add_parser("fixture-demote", help="Move fixed fixture back to known_bad")
+    demote_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    demote_cmd.add_argument("--from-bucket", default="fixed", help="Source bucket (default: fixed)")
+    demote_cmd.add_argument("--to-bucket", default="known_bad", help="Destination bucket (default: known_bad)")
+    demote_cmd.add_argument("--case", type=Path, help="Path to case bundle")
+    demote_cmd.add_argument("--case-id", help="Case id to select fixtures")
+    demote_cmd.add_argument("--name", help="Fixture stem name")
+    demote_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    demote_cmd.add_argument("--overwrite", action="store_true", help="Overwrite existing target fixtures")
+    demote_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving fixtures",
+    )
+    demote_cmd.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    demote_cmd.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    demote_cmd.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
+    demote_cmd.add_argument("--all", action="store_true", help="Apply to all matching fixtures")
 
     return parser.parse_args(argv)
 
@@ -377,6 +425,12 @@ def main(argv: list[str] | None = None) -> int:
                 scope=args.scope,
                 dry_run=args.dry_run,
                 git_mode=args.git,
+                case_path=args.case,
+                case_id=args.case_id,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
+                all_matches=args.all,
             )
             print(f"Removed {removed} paths")
             return 0
@@ -396,6 +450,13 @@ def main(argv: list[str] | None = None) -> int:
                 bucket=args.bucket,
                 dry_run=args.dry_run,
                 git_mode=args.git,
+                case_path=args.case,
+                case_id=args.case_id,
+                name=args.name,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
+                all_matches=args.all,
             )
             print(f"Updated {bundles_updated} bundles; moved {files_moved} files")
             return 0
@@ -419,6 +480,25 @@ def main(argv: list[str] | None = None) -> int:
                     f"run_id={source.get('run_id')} "
                     f"timestamp={source.get('timestamp')}"
                 )
+            return 0
+        if args.command == "fixture-demote":
+            from fetchgraph.tracer.fixture_tools import fixture_demote
+
+            fixture_demote(
+                root=args.root,
+                from_bucket=args.from_bucket,
+                to_bucket=args.to_bucket,
+                case_path=args.case,
+                case_id=args.case_id,
+                name=args.name,
+                dry_run=args.dry_run,
+                git_mode=args.git,
+                overwrite=args.overwrite,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
+                all_matches=args.all,
+            )
             return 0
     except (ValueError, FileNotFoundError, LookupError, KeyError) as exc:
         print(str(exc), file=sys.stderr)

@@ -85,6 +85,48 @@ def resolve_fixture_candidates(
     return results
 
 
+def resolve_fixture_selector(
+    *,
+    root: Path,
+    bucket: str,
+    case_path: Path | None = None,
+    case_id: str | None = None,
+    name: str | None = None,
+    select: str = "latest",
+    select_index: int | None = None,
+    require_unique: bool = False,
+    all_matches: bool = False,
+) -> list[Path]:
+    if case_path is not None and (case_id or name):
+        raise ValueError("Only one of case_path, case_id, or name can be used.")
+    if case_path is not None:
+        return [case_path]
+    candidates = resolve_fixture_candidates(root=root, bucket=bucket, case_id=case_id, name=name)
+    if not candidates:
+        selector = case_id or name
+        raise FileNotFoundError(f"No fixtures found for selector={selector!r} in {bucket}")
+    if require_unique and len(candidates) > 1:
+        raise FileExistsError("Multiple fixtures matched selection; use --select-index or --select.")
+    if all_matches:
+        print("fixture selector: bulk operation on all matches")
+        for idx, candidate in enumerate(candidates, start=1):
+            print(f"  {idx}. {candidate.path}")
+        return [candidate.path for candidate in candidates]
+
+    selected = select_fixture_candidate(
+        candidates,
+        select=select,
+        select_index=select_index,
+        require_unique=require_unique,
+    )
+    if len(candidates) > 1 and not require_unique:
+        print("fixture selector: multiple candidates found, selected:")
+        for idx, candidate in enumerate(candidates, start=1):
+            marker = " (selected)" if candidate.path == selected.path else ""
+            print(f"  {idx}. {candidate.path}{marker}")
+    return [selected.path]
+
+
 def select_fixture_candidate(
     candidates: list[FixtureCandidate],
     *,
@@ -352,25 +394,42 @@ def fixture_green(
 def fixture_rm(
     *,
     root: Path,
-    name: str | None,
-    pattern: str | None,
     bucket: str,
     scope: str,
     dry_run: bool,
     git_mode: str = "auto",
+    case_path: Path | None = None,
+    case_id: str | None = None,
+    name: str | None = None,
+    pattern: str | None = None,
+    select: str = "latest",
+    select_index: int | None = None,
+    require_unique: bool = False,
+    all_matches: bool = False,
 ) -> int:
     root = root.resolve()
     git_ops = _GitOps(root, git_mode)
     bucket_filter: str | None = None if bucket == "all" else bucket
-    matched = find_case_bundles(root=root, bucket=bucket_filter, name=name, pattern=pattern)
-
-    if name and not matched:
-        raise FileNotFoundError(f"No fixtures found for name={name!r}")
+    if case_path or case_id or name:
+        selector_paths = resolve_fixture_selector(
+            root=root,
+            bucket=bucket_filter or bucket,
+            case_path=case_path,
+            case_id=case_id,
+            name=name,
+            select=select,
+            select_index=select_index,
+            require_unique=require_unique,
+            all_matches=all_matches,
+        )
+        matched = selector_paths
+    else:
+        matched = find_case_bundles(root=root, bucket=bucket_filter, name=name, pattern=pattern)
 
     targets: list[Path] = []
-    for case_path in matched:
-        bucket_name = case_path.parent.name
-        stem = case_path.name.replace(".case.json", "")
+    for case_path_item in matched:
+        bucket_name = case_path_item.parent.name
+        stem = case_path_item.name.replace(".case.json", "")
         layout = FixtureLayout(root, bucket_name)
         if scope in ("cases", "both"):
             targets.extend([layout.case_path(stem), layout.expected_path(stem)])
@@ -473,11 +532,38 @@ def fixture_fix(
         print("  rewrite: data_ref.file paths updated")
 
 
-def fixture_migrate(*, root: Path, bucket: str = "all", dry_run: bool, git_mode: str = "auto") -> tuple[int, int]:
+def fixture_migrate(
+    *,
+    root: Path,
+    bucket: str = "all",
+    dry_run: bool,
+    git_mode: str = "auto",
+    case_path: Path | None = None,
+    case_id: str | None = None,
+    name: str | None = None,
+    select: str = "latest",
+    select_index: int | None = None,
+    require_unique: bool = False,
+    all_matches: bool = False,
+) -> tuple[int, int]:
     root = root.resolve()
     git_ops = _GitOps(root, git_mode)
     bucket_filter = None if bucket == "all" else bucket
-    matched = find_case_bundles(root=root, bucket=bucket_filter, name=None, pattern=None)
+    if case_path or case_id or name:
+        selector_paths = resolve_fixture_selector(
+            root=root,
+            bucket=bucket_filter or bucket,
+            case_path=case_path,
+            case_id=case_id,
+            name=name,
+            select=select,
+            select_index=select_index,
+            require_unique=require_unique,
+            all_matches=all_matches,
+        )
+        matched = selector_paths
+    else:
+        matched = find_case_bundles(root=root, bucket=bucket_filter, name=None, pattern=None)
     bundles_updated = 0
     files_moved = 0
     for case_path in matched:
@@ -555,3 +641,82 @@ def fixture_ls(
                 continue
         results.append(FixtureCandidate(path=path, stem=stem, source=source_dict))
     return results
+
+
+def fixture_demote(
+    *,
+    root: Path,
+    from_bucket: str = "fixed",
+    to_bucket: str = "known_bad",
+    case_path: Path | None = None,
+    case_id: str | None = None,
+    name: str | None = None,
+    dry_run: bool = False,
+    git_mode: str = "auto",
+    overwrite: bool = False,
+    select: str = "latest",
+    select_index: int | None = None,
+    require_unique: bool = False,
+    all_matches: bool = False,
+) -> None:
+    root = root.resolve()
+    if from_bucket == to_bucket:
+        raise ValueError("from_bucket and to_bucket must be different")
+    git_ops = _GitOps(root, git_mode)
+    selected_paths = resolve_fixture_selector(
+        root=root,
+        bucket=from_bucket,
+        case_path=case_path,
+        case_id=case_id,
+        name=name,
+        select=select,
+        select_index=select_index,
+        require_unique=require_unique,
+        all_matches=all_matches,
+    )
+    for case_path_item in selected_paths:
+        stem = case_path_item.name.replace(".case.json", "")
+        from_layout = FixtureLayout(root, from_bucket)
+        to_layout = FixtureLayout(root, to_bucket)
+        from_case = from_layout.case_path(stem)
+        from_expected = from_layout.expected_path(stem)
+        from_resources = from_layout.resources_dir(stem)
+        to_case = to_layout.case_path(stem)
+        to_expected = to_layout.expected_path(stem)
+        to_resources = to_layout.resources_dir(stem)
+
+        if not from_case.exists():
+            raise FileNotFoundError(f"Missing fixture: {from_case}")
+        if to_case.exists() and not overwrite and not dry_run:
+            raise FileExistsError(f"Target case already exists: {to_case}")
+        if to_expected.exists() and from_expected.exists() and not overwrite and not dry_run:
+            raise FileExistsError(f"Target expected already exists: {to_expected}")
+        if to_resources.exists() and from_resources.exists() and not overwrite and not dry_run:
+            raise FileExistsError(f"Target resources already exists: {to_resources}")
+
+        if dry_run:
+            print("fixture-demote:")
+            print(f"  case:   {from_case}")
+            print(f"  move:   -> {to_case}")
+            if from_expected.exists():
+                print(f"  move:   {from_expected} -> {to_expected}")
+            if from_resources.exists():
+                print(f"  move:   {from_resources} -> {to_resources}")
+            continue
+
+        to_case.parent.mkdir(parents=True, exist_ok=True)
+        git_ops.move(from_case, to_case)
+        if from_expected.exists():
+            to_expected.parent.mkdir(parents=True, exist_ok=True)
+            git_ops.move(from_expected, to_expected)
+        if from_resources.exists():
+            to_resources.parent.mkdir(parents=True, exist_ok=True)
+            git_ops.move(from_resources, to_resources)
+
+        print("fixture-demote:")
+        print(f"  case:   {from_case}")
+        print(f"  move:   -> {to_case}")
+        if from_expected.exists():
+            print(f"  move:   {from_expected} -> {to_expected}")
+        if from_resources.exists():
+            print(f"  move:   {from_resources} -> {to_resources}")

@@ -125,7 +125,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
         stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls known-bad known-bad-one \
-        fixture-green fixture-ls fixture-rm fixture-fix fixture-migrate \
+        fixture-green fixture-demote fixture-ls fixture-rm fixture-fix fixture-migrate \
         compare compare-tag
 
 # ==============================================================================
@@ -182,6 +182,9 @@ help:
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
 	@echo "  make fixture-green CASE=path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
 	@echo "  make fixture-ls CASE=agg_003 [TRACER_ROOT=...] [BUCKET=known_bad]"
+	@echo "  make fixture-rm CASE=agg_003 [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
+	@echo "  make fixture-migrate CASE=agg_003 [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
+	@echo "  make fixture-demote CASE=agg_003 [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
 	@echo "  make fixture-rm [BUCKET=fixed|known_bad|all] [NAME=...] [PATTERN=...] [SCOPE=cases|resources|both] [DRY=1]"
 	@echo "  make fixture-fix BUCKET=... NAME=... NEW_NAME=... [DRY=1]"
 	@echo "  make fixture-migrate [BUCKET=fixed|known_bad|all] [DRY=1]"
@@ -450,10 +453,24 @@ fixture-ls:
 
 fixture-rm:
 	@case "$(BUCKET)" in fixed|known_bad|all) ;; *) echo "BUCKET должен быть fixed, known_bad или all для fixture-rm" && exit 1 ;; esac
-	@$(PYTHON) -m fetchgraph.tracer.cli fixture-rm --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	@case_value="$(CASE)"; \
+	if [ -n "$$case_value" ]; then \
+	  if [ -f "$$case_value" ]; then \
+	    case_args="--case $$case_value"; \
+	  elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	    case_args="--case $(TRACER_ROOT)/$(BUCKET)/$$case_value"; \
+	  else \
+	    case_args="--case-id $$case_value"; \
+	  fi; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-rm $$case_args --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
 	  $(if $(strip $(NAME)),--name "$(NAME)",) \
 	  $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) \
 	  $(if $(strip $(SCOPE)),--scope "$(SCOPE)",) \
+	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-fix:
@@ -464,7 +481,40 @@ fixture-fix:
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-migrate:
-	@$(PYTHON) -m fetchgraph.tracer.cli fixture-migrate --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	@case_value="$(CASE)"; \
+	if [ -n "$$case_value" ]; then \
+	  if [ -f "$$case_value" ]; then \
+	    case_args="--case $$case_value"; \
+	  elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	    case_args="--case $(TRACER_ROOT)/$(BUCKET)/$$case_value"; \
+	  else \
+	    case_args="--case-id $$case_value"; \
+	  fi; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-migrate $$case_args --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  $(if $(strip $(NAME)),--name "$(NAME)",) \
+	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
+
+fixture-demote:
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-demote CASE=agg_003" && exit 1)
+	@case_value="$(CASE)"; \
+	if [ -f "$$case_value" ]; then \
+	  case_args="--case $$case_value"; \
+	elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	  case_args="--case $(TRACER_ROOT)/fixed/$$case_value"; \
+	else \
+	  case_args="--case-id $$case_value"; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-demote $$case_args --root "$(TRACER_ROOT)" \
+	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
+	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 

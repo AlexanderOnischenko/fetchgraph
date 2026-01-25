@@ -17,6 +17,7 @@ SHELL := /bin/bash
 # ==============================================================================
 CONFIG ?= .demo_qa.mk
 -include $(CONFIG)
+-include .demo_qa.mk
 
 # ==============================================================================
 # 2) Значения по умолчанию (для make init)
@@ -35,7 +36,7 @@ CLI    := $(PYTHON) -m examples.demo_qa.cli
 # ==============================================================================
 # 4) Пути demo_qa (можно переопределять через CLI или в $(CONFIG))
 # ==============================================================================
-DATA   ?=
+DATA   ?= _demo_data/shop
 SCHEMA ?=
 CASES  ?=
 OUT    ?= $(DATA)/.runs/results.jsonl
@@ -49,16 +50,16 @@ CASE  ?=
 NAME ?=
 NEW_NAME ?=
 PATTERN ?=
-SPEC_IDX ?=
-PROVIDER ?=
-BUCKET ?= fixed
+SPEC_IDX ?= 0
+PROVIDER ?= demo_qa
+BUCKET ?= known_bad
 REPLAY_ID ?=
 EVENTS ?=
 TRACER_ROOT ?= tests/fixtures/replay_cases
 TRACER_OUT_DIR ?= $(TRACER_ROOT)/$(BUCKET)
 RUN_DIR ?=
 ALLOW_BAD_JSON ?=
-OVERWRITE ?=
+OVERWRITE ?= 0
 SCOPE ?= both
 WITH_RESOURCES ?= 1
 ALL ?=
@@ -117,7 +118,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export \
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls \
         fixture-green fixture-rm fixture-fix fixture-migrate \
         compare compare-tag
 
@@ -166,8 +167,8 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make tracer-export REPLAY_ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...] [ALLOW_BAD_JSON=1] [OVERWRITE=1]"
-	@echo "  make tracer-export REPLAY_ID=... CASE=... DATA=... [TAG=...] [SPEC_IDX=...] [PROVIDER=...] [ALLOW_BAD_JSON=1] [OVERWRITE=1]"
+	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
+	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...]"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
 	@echo "  make fixture-green CASE=path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
@@ -377,32 +378,31 @@ case-open: check
 	@$(CLI) case open "$(CASE)" --data "$(DATA)"
 
 tracer-export:
-	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 1)
-	@case "$(BUCKET)" in fixed|known_bad) ;; *) echo "BUCKET должен быть fixed или known_bad для tracer-export" && exit 1 ;; esac
-	@if [ -z "$(strip $(SPEC_IDX))" ] && ! printf "%s" "$(ALL)" | grep -Eiq '^(1|true|yes|on)$$'; then \
-	  echo "Для tracer-export нужно задать SPEC_IDX или ALL=1"; \
-	  exit 1; \
-	fi
-	@# TRACER_OUT_DIR has a default; override if needed.
-	@if [ -n "$(strip $(EVENTS))" ]; then \
-	  $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --events "$(EVENTS)" --out "$(TRACER_OUT_DIR)" --id "$(REPLAY_ID)" \
-	    $(if $(strip $(SPEC_IDX)),--spec-idx $(SPEC_IDX),) \
-	    $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
-	    $(if $(strip $(RUN_DIR)),--run-dir "$(RUN_DIR)",) \
-	    $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,) \
-	    $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
-	    $(if $(filter 1 true yes on,$(ALL)),--all,); \
-	else \
-	  test -n "$(strip $(CASE))" || (echo "CASE обязателен для auto режима: make tracer-export CASE=case_id DATA=... REPLAY_ID=..." && exit 1); \
-	  test -n "$(strip $(DATA))" || (echo "DATA обязателен для auto режима: make tracer-export CASE=case_id DATA=... REPLAY_ID=..." && exit 1); \
-	  $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle --case "$(CASE)" --data "$(DATA)" --out "$(TRACER_OUT_DIR)" --id "$(REPLAY_ID)" \
-	    $(if $(strip $(TAG)),--tag "$(TAG)",) \
-	    $(if $(strip $(SPEC_IDX)),--spec-idx $(SPEC_IDX),) \
-	    $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
-	    $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,) \
-	    $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
-	    $(if $(filter 1 true yes on,$(ALL)),--all,); \
-	fi
+	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 2)
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-export CASE=agg_003" && exit 2)
+	@case "$(BUCKET)" in fixed|known_bad) ;; *) echo "BUCKET должен быть fixed или known_bad для tracer-export" && exit 2 ;; esac
+	@fetchgraph-tracer export-case-bundle \
+	  --id "$(REPLAY_ID)" \
+	  --spec-idx "$(SPEC_IDX)" \
+	  --out "$(TRACER_OUT_DIR)" \
+	  --case "$(CASE)" \
+	  --data "$(DATA)" \
+	  --provider "$(PROVIDER)" \
+	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
+	  $(if $(EVENTS),--events "$(EVENTS)",) \
+	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
+	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
+
+tracer-ls:
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-ls CASE=agg_003" && exit 2)
+	@fetchgraph-tracer export-case-bundle \
+	  --case "$(CASE)" \
+	  --data "$(DATA)" \
+	  --out "$(TRACER_OUT_DIR)" \
+	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
+	  $(if $(EVENTS),--events "$(EVENTS)",) \
+	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
+	  --list-matches
 
 fixture-green:
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=tests/fixtures/replay_cases/known_bad/fixture.case.json (или CASE=fixture_stem)" && exit 1)

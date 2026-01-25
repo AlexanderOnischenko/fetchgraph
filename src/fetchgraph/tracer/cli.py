@@ -4,7 +4,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from fetchgraph.tracer.resolve import resolve_case_events
+from fetchgraph.tracer.resolve import (
+    find_events_file,
+    format_case_runs,
+    format_events_search,
+    list_case_runs,
+    resolve_case_events,
+    select_case_run,
+)
 from fetchgraph.tracer.export import (
     export_replay_case_bundle,
     export_replay_case_bundles,
@@ -28,7 +35,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     export = sub.add_parser("export-case-bundle", help="Export replay case bundle from events.jsonl")
     export.add_argument("--events", type=Path, help="Path to events.jsonl")
     export.add_argument("--out", type=Path, required=True, help="Output directory for bundle")
-    export.add_argument("--id", required=True, help="Replay case id to export")
+    export.add_argument("--id", help="Replay case id to export")
     export.add_argument("--spec-idx", type=int, default=None, help="Filter replay_case by meta.spec_idx")
     export.add_argument(
         "--provider",
@@ -71,8 +78,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="latest",
         help="Selection policy when multiple replay_case entries match",
     )
-    export.add_argument("--select-index", type=int, default=None, help="Select a specific match (1-based)")
-    export.add_argument("--list-matches", action="store_true", help="List matches and exit")
+    export.add_argument("--select-index", type=int, default=None, help="Select a case run (1-based)")
+    export.add_argument("--list-matches", action="store_true", help="List case runs and exit")
+    export.add_argument(
+        "--replay-select-index",
+        type=int,
+        default=None,
+        help="Select a specific replay_case match (1-based)",
+    )
+    export.add_argument(
+        "--list-replay-matches",
+        action="store_true",
+        help="List replay_case matches and exit",
+    )
     export.add_argument("--require-unique", action="store_true", help="Error if multiple matches exist")
 
     green = sub.add_parser("fixture-green", help="Promote known_bad case to fixed")
@@ -135,24 +153,38 @@ def main(argv: list[str] | None = None) -> int:
                 run_dir = args.run_dir
             else:
                 if args.run_dir:
-                    raise ValueError("Do not combine --run-dir with auto-resolve.")
-                if not args.case or not args.data:
-                    raise ValueError("--case and --data are required when --events is not provided.")
-                resolution = resolve_case_events(
-                    case_id=args.case,
-                    data_dir=args.data,
-                    tag=args.tag,
-                    runs_subdir=args.runs_subdir,
-                    pick_run=args.pick_run,
-                )
-                events_path = resolution.events_path
-                run_dir = resolution.case_dir
+                    run_dir = args.run_dir
+                else:
+                    if not args.case or not args.data:
+                        raise ValueError("--case and --data are required when --events is not provided.")
+                    candidates, stats = list_case_runs(
+                        case_id=args.case,
+                        data_dir=args.data,
+                        tag=args.tag,
+                        runs_subdir=args.runs_subdir,
+                    )
+                    if args.list_matches:
+                        if not candidates:
+                            raise LookupError(
+                                "No suitable case run found.\n"
+                                f"runs_root: {stats.runs_root}\n"
+                                f"case_id: {args.case}\n"
+                                f"inspected_runs: {stats.inspected_runs}"
+                            )
+                        print(format_case_runs(candidates, limit=20))
+                        return 0
+                    selected = select_case_run(candidates, select_index=args.select_index)
+                    run_dir = selected.case_dir
+                events_resolution = find_events_file(run_dir)
+                if not events_resolution.events_path:
+                    raise FileNotFoundError(format_events_search(run_dir, events_resolution))
+                events_path = events_resolution.events_path
                 if args.print_resolve:
-                    print(f"Resolved run_dir: {resolution.case_dir}")
-                    print(f"Resolved events.jsonl: {resolution.events_path}")
-                    if resolution.tag:
-                        print(f"Resolved tag: {resolution.tag}")
-            if args.list_matches:
+                    print(f"Resolved run_dir: {run_dir}")
+                    print(f"Resolved events.jsonl: {events_path}")
+            if args.list_replay_matches:
+                if not args.id:
+                    raise ValueError("--id is required to list replay_case matches.")
                 selections = find_replay_case_matches(
                     events_path,
                     replay_id=args.id,
@@ -166,10 +198,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             allow_prompt = (
                 sys.stdin.isatty()
-                and args.select_index is None
+                and args.replay_select_index is None
                 and not args.require_unique
-                and not args.list_matches
+                and not args.list_replay_matches
             )
+            if not args.id:
+                raise ValueError("--id is required to export replay case bundles.")
             if args.all:
                 export_replay_case_bundles(
                     events_path=events_path,
@@ -192,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
                     allow_bad_json=args.allow_bad_json,
                     overwrite=args.overwrite,
                     selection_policy=args.select,
-                    select_index=args.select_index,
+                    select_index=args.replay_select_index,
                     require_unique=args.require_unique,
                     allow_prompt=allow_prompt,
                     prompt_fn=input,

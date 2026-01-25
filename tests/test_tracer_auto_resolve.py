@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from fetchgraph.tracer.resolve import resolve_case_events
+from fetchgraph.tracer.resolve import EventsResolution, find_events_file, resolve_case_events
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -81,3 +81,11 @@ def test_resolve_not_found(tmp_path: Path) -> None:
 
     with pytest.raises(LookupError, match="No suitable case run found"):
         resolve_case_events(case_id="case_3", data_dir=data_dir)
+
+
+def test_find_events_file_not_found(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    resolution = find_events_file(run_dir)
+    assert isinstance(resolution, EventsResolution)
+    assert resolution.events_path is None

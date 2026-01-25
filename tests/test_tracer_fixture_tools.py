@@ -39,7 +39,7 @@ def test_fixture_green_requires_observed(tmp_path: Path) -> None:
     _write_bundle(case_path, payload)
 
     with pytest.raises(ValueError, match="root.observed is missing"):
-        fixture_green(case_path=case_path, out_root=root)
+        fixture_green(case_path=case_path, out_root=root, git_mode="off")
 
 
 def test_fixture_green_moves_case_and_resources(tmp_path: Path) -> None:
@@ -59,7 +59,7 @@ def test_fixture_green_moves_case_and_resources(tmp_path: Path) -> None:
     )
     _write_bundle(case_path, payload)
 
-    fixture_green(case_path=case_path, out_root=root)
+    fixture_green(case_path=case_path, out_root=root, git_mode="off")
 
     fixed_case = root / "fixed" / "case.case.json"
     expected_path = root / "fixed" / "case.expected.json"
@@ -94,7 +94,7 @@ def test_fixture_fix_renames_and_updates_resource_paths(tmp_path: Path) -> None:
     expected_path = root / bucket / "old.expected.json"
     expected_path.write_text("{}", encoding="utf-8")
 
-    fixture_fix(root=root, name="old", new_name="new", bucket=bucket, dry_run=False)
+    fixture_fix(root=root, name="old", new_name="new", bucket=bucket, dry_run=False, git_mode="off")
 
     new_case = root / bucket / "new.case.json"
     new_expected = root / bucket / "new.expected.json"
@@ -126,7 +126,7 @@ def test_fixture_migrate_moves_resources(tmp_path: Path) -> None:
     )
     _write_bundle(case_path, payload)
 
-    bundles_updated, files_moved = fixture_migrate(root=root, bucket=bucket, dry_run=False)
+    bundles_updated, files_moved = fixture_migrate(root=root, bucket=bucket, dry_run=False, git_mode="off")
     assert bundles_updated == 1
     assert files_moved == 1
     data = json.loads(case_path.read_text(encoding="utf-8"))

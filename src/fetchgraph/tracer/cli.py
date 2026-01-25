@@ -87,19 +87,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="latest",
         help="Selection policy when multiple replay_case entries match",
     )
-    export.add_argument("--select-index", type=int, default=None, help="Select a case run (1-based)")
-    export.add_argument("--list-matches", action="store_true", help="List case runs and exit")
+    export.add_argument("--run-select-index", type=int, default=None, help="Select a case run (1-based)")
+    export.add_argument("--list-runs", action="store_true", help="List case runs and exit")
     export.add_argument(
-        "--replay-select-index",
+        "--select-index",
         type=int,
         default=None,
         help="Select a specific replay_case match (1-based)",
     )
-    export.add_argument(
-        "--list-replay-matches",
-        action="store_true",
-        help="List replay_case matches and exit",
-    )
+    export.add_argument("--list-matches", action="store_true", help="List replay_case matches and exit")
     export.add_argument("--require-unique", action="store_true", help="Error if multiple matches exist")
 
     green = sub.add_parser("fixture-green", help="Promote known_bad case to fixed")
@@ -112,6 +108,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Overwrite existing expected output",
     )
     green.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    green.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git mv/rm when available",
+    )
 
     rm_cmd = sub.add_parser("fixture-rm", help="Remove replay fixtures")
     rm_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -130,6 +132,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="What to remove",
     )
     rm_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    rm_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git rm when available",
+    )
 
     fix_cmd = sub.add_parser("fixture-fix", help="Rename fixture stem")
     fix_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -137,6 +145,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     fix_cmd.add_argument("--name", required=True, help="Old fixture stem")
     fix_cmd.add_argument("--new-name", required=True, help="New fixture stem")
     fix_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    fix_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git mv when available",
+    )
 
     migrate_cmd = sub.add_parser("fixture-migrate", help="Normalize resource layout")
     migrate_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -147,6 +161,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Fixture bucket",
     )
     migrate_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    migrate_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git mv when available",
+    )
 
     return parser.parse_args(argv)
 
@@ -158,8 +178,10 @@ def main(argv: list[str] | None = None) -> int:
             debug_enabled = args.debug or bool(os.getenv("DEBUG"))
             events_path: Path | None = None
             if args.events:
-                if args.case or args.data or args.tag or args.run_id:
-                    raise ValueError("Do not combine --events with --case/--data/--tag/--run-id.")
+                if args.case or args.data or args.tag:
+                    raise ValueError("Do not combine --events with --case/--data/--tag.")
+                if args.run_id:
+                    raise ValueError("Do not combine --events with --run-id.")
                 events_path = args.events
                 run_dir = args.case_dir or args.run_dir
             else:
@@ -195,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
                         tag=args.tag,
                         runs_subdir=args.runs_subdir,
                     )
-                    if args.list_matches:
+                    if args.list_runs:
                         if not candidates:
                             raise LookupError(
                                 _format_case_run_error(
@@ -206,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
                             )
                         print(format_case_runs(candidates, limit=20))
                         return 0
-                    selected = select_case_run(candidates, select_index=args.select_index)
+                    selected = select_case_run(candidates, select_index=args.run_select_index)
                     run_dir = selected.case_dir
                     selection_rule = "latest with events"
                     if args.tag:
@@ -223,10 +245,10 @@ def main(argv: list[str] | None = None) -> int:
                             )
                         )
                     events_path = events_resolution.events_path
-                if args.print_resolve:
-                    print(f"Resolved run_dir: {run_dir}")
-                    print(f"Resolved events.jsonl: {events_path}")
-            if args.list_replay_matches:
+            if args.print_resolve:
+                print(f"Resolved run_dir: {run_dir}")
+                print(f"Resolved events.jsonl: {events_path}")
+            if args.list_matches:
                 if not args.id:
                     raise ValueError("--id is required to list replay_case matches.")
                 selections = find_replay_case_matches(
@@ -242,9 +264,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             allow_prompt = (
                 sys.stdin.isatty()
-                and args.replay_select_index is None
+                and args.select_index is None
                 and not args.require_unique
-                and not args.list_replay_matches
+                and not args.list_matches
             )
             if not args.id:
                 raise ValueError("--id is required to export replay case bundles.")
@@ -270,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
                     allow_bad_json=args.allow_bad_json,
                     overwrite=args.overwrite,
                     selection_policy=args.select,
-                    select_index=args.replay_select_index,
+                    select_index=args.select_index,
                     require_unique=args.require_unique,
                     allow_prompt=allow_prompt,
                     prompt_fn=input,
@@ -283,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
                 validate=args.validate,
                 overwrite_expected=args.overwrite_expected,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             return 0
         if args.command == "fixture-rm":
@@ -293,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                 pattern=args.pattern,
                 scope=args.scope,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             print(f"Removed {removed} paths")
             return 0
@@ -303,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                 name=args.name,
                 new_name=args.new_name,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             return 0
         if args.command == "fixture-migrate":
@@ -310,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
                 root=args.root,
                 bucket=args.bucket,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             print(f"Updated {bundles_updated} bundles; moved {files_moved} files")
             return 0
@@ -347,6 +373,7 @@ def _format_case_run_error(stats, *, case_id: str, tag: str | None) -> str:
         f"inspected_cases: {stats.inspected_cases}",
         f"missing_cases: {stats.missing_cases}",
         f"missing_events: {stats.missing_events}",
+        f"missed_cases: {stats.missed_cases}",
     ]
     if tag:
         lines.append(f"tag: {tag}")

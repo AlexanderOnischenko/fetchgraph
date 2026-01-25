@@ -84,6 +84,10 @@ def _format_case_debug(
     root_id = root.get("id") if isinstance(root, dict) else None
     root_meta = root.get("meta") if isinstance(root, dict) else None
     root_input = root.get("input") if isinstance(root, dict) else None
+    root_diag = root.get("diag") if isinstance(root, dict) else None
+    rule_trace = None
+    if isinstance(root_diag, dict):
+        rule_trace = root_diag.get("rule_trace")
     lines = [
         "Replay fixture diagnostics:",
         f"case_id: {case_id}",
@@ -91,6 +95,7 @@ def _format_case_debug(
         f"root.id: {root_id!r}",
         f"root.meta: {format_json(root_meta)}",
         f"root.input: {format_json(root_input)}",
+        f"root.diag.rule_trace: {format_json(rule_trace)}",
     ]
     if out is not None:
         lines.append(f"handler.out: {format_json(out)}")

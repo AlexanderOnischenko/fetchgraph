@@ -1,0 +1,31 @@
+{
+  "extras": {},
+  "resources": {
+    "rid1": {
+      "data_ref": {
+        "file": "resources/resource_read/rid1/data.txt"
+      },
+      "id": "rid1",
+      "type": "replay_resource"
+    }
+  },
+  "root": {
+    "id": "resource.read",
+    "input": {
+      "resource_id": "rid1"
+    },
+    "observed": {
+      "content": "hello resource\n"
+    },
+    "type": "replay_case",
+    "v": 2
+  },
+  "schema": "fetchgraph.tracer.case_bundle",
+  "source": {
+    "events_path": "events.jsonl",
+    "line": 1,
+    "run_id": "resource-read-test",
+    "timestamp": "2024-01-01T00:00:00Z"
+  },
+  "v": 1
+}

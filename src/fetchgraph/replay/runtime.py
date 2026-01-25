@@ -26,7 +26,7 @@ def run_case(root: dict, ctx: ReplayContext) -> dict:
     replay_id = root["id"]
     if replay_id not in REPLAY_HANDLERS:
         raise KeyError(
-            f"No handler for replay id={replay_id!r}. "
+            f"Replay handler not registered for id={replay_id!r}. "
             "Did you import fetchgraph.tracer.handlers?"
         )
     handler = REPLAY_HANDLERS[replay_id]

@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import shutil
+import sys
 import textwrap
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,17 +17,25 @@ logger = logging.getLogger(__name__)
 
 
 def iter_events(path: Path, *, allow_bad_json: bool = False) -> Iterable[tuple[int, dict]]:
+    bad_lines = 0
     with path.open("r", encoding="utf-8") as handle:
-        for idx, line in enumerate(handle, start=1):
-            line = line.strip()
+        for idx, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
             if not line:
                 continue
             try:
                 yield idx, json.loads(line)
             except json.JSONDecodeError as exc:
+                excerpt = line[:80] + ("..." if len(line) > 80 else "")
                 if allow_bad_json:
+                    bad_lines += 1
                     continue
-                raise ValueError(f"Invalid JSON on line {idx} in {path}: {exc.msg}") from exc
+                raise ValueError(f"Invalid JSON on line {idx}: {excerpt} in {path}") from exc
+    if allow_bad_json and bad_lines:
+        print(
+            f"Warning: skipped {bad_lines} invalid JSON line(s) in {path}",
+            file=sys.stderr,
+        )
 
 
 def canonical_json(payload: object) -> str:
@@ -339,7 +348,10 @@ def copy_resource_files(
     run_dir: Path,
     out_dir: Path,
     fixture_stem: str,
+    overwrite: bool = False,
 ) -> None:
+    if overwrite:
+        shutil.rmtree(out_dir / "resources" / fixture_stem, ignore_errors=True)
     planned: dict[Path, tuple[str, Path]] = {}
     for resource_id, resource in resources.items():
         if not isinstance(resource_id, str) or not resource_id:
@@ -455,7 +467,11 @@ def export_replay_case_bundle(
             for sel in selections
         }
         details = format_replay_case_matches(selections, limit=5)
-        suffix = "Candidates differ by input payload." if len(input_hashes) > 1 else "Candidates share input."
+        suffix = (
+            "WARNING: candidates differ by input payload."
+            if len(input_hashes) > 1
+            else "Candidates share input."
+        )
         logger.warning(
             "Multiple replay_case entries matched; selection policy=%s chose line %s.\n%s\n%s",
             selection_policy,
@@ -480,13 +496,12 @@ def export_replay_case_bundle(
     if _has_resource_files(resources):
         if run_dir is None:
             raise ValueError("run_dir is required to export file resources")
-        if overwrite:
-            shutil.rmtree(out_dir / "resources" / fixture_stem, ignore_errors=True)
         copy_resource_files(
             resources,
             run_dir=run_dir,
             out_dir=out_dir,
             fixture_stem=fixture_stem,
+            overwrite=overwrite,
         )
 
     source = {
@@ -553,13 +568,12 @@ def export_replay_case_bundles(
         if _has_resource_files(resources):
             if run_dir is None:
                 raise ValueError("run_dir is required to export file resources")
-            if overwrite:
-                shutil.rmtree(out_dir / "resources" / fixture_stem, ignore_errors=True)
             copy_resource_files(
                 resources,
                 run_dir=run_dir,
                 out_dir=out_dir,
                 fixture_stem=fixture_stem,
+                overwrite=overwrite,
             )
 
         source = {

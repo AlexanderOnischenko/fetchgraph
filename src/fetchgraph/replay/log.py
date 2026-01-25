@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Dict, Protocol
 
+MAX_TRACE_LENGTH = 20_000
+
 
 class EventLoggerLike(Protocol):
     def emit(self, event: Dict[str, object]) -> None: ...
@@ -34,6 +36,9 @@ def log_replay_case(
             raise ValueError("observed_error.type must be a non-empty string")
         if not isinstance(observed_error.get("message"), str) or not observed_error.get("message"):
             raise ValueError("observed_error.message must be a non-empty string")
+        trace = observed_error.get("trace")
+        if isinstance(trace, str) and len(trace) > MAX_TRACE_LENGTH:
+            observed_error["trace"] = trace[:MAX_TRACE_LENGTH]
     if meta is not None and not isinstance(meta, dict):
         raise ValueError("meta must be a dict when provided")
     if note is not None and not isinstance(note, str):
@@ -73,3 +78,6 @@ def log_replay_case(
         event["diag"] = diag
     logger.emit(event)
 
+
+def log_replay_point(*args: object, **kwargs: object) -> None:
+    log_replay_case(*args, **kwargs)

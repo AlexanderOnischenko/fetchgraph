@@ -36,9 +36,9 @@ def _make_case_dir(
     if with_events:
         _touch(case_dir / "events.jsonl")
     payload = {"status": status}
-    if tag:
-        payload["tag"] = tag
     _write_json(case_dir / "status.json", payload)
+    if tag:
+        _write_json(run_dir / "run_meta.json", {"tag": tag})
     return case_dir
 
 

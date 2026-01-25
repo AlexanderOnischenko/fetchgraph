@@ -3,6 +3,7 @@ from __future__ import annotations
 import filecmp
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 from .fixture_layout import FixtureLayout, find_case_bundles
@@ -51,6 +52,72 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
     tmp_path.replace(path)
 
 
+def _find_git_root(root: Path) -> Path | None:
+    for candidate in (root, *root.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _resolve_git_root(root: Path, mode: str) -> Path | None:
+    if mode not in {"auto", "on", "off"}:
+        raise ValueError(f"Unsupported git mode: {mode}")
+    if mode == "off":
+        return None
+    git_root = _find_git_root(root)
+    if git_root and shutil.which("git"):
+        return git_root
+    if mode == "on":
+        raise ValueError("git mode is 'on' but git repository was not detected.")
+    return None
+
+
+def _git_relpath(path: Path, git_root: Path) -> str:
+    try:
+        return str(path.relative_to(git_root))
+    except ValueError:
+        return str(path)
+
+
+def _run_git(git_root: Path, args: list[str]) -> None:
+    subprocess.run(["git", "-C", str(git_root), *args], check=True)
+
+
+def _move_path(src: Path, dest: Path, *, git_root: Path | None, dry_run: bool) -> None:
+    if dry_run:
+        if git_root:
+            print(f"Would run: git -C {git_root} mv {src} {dest}")
+        else:
+            print(f"Would move {src} -> {dest}")
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if git_root:
+        _run_git(
+            git_root,
+            ["mv", _git_relpath(src, git_root), _git_relpath(dest, git_root)],
+        )
+    else:
+        shutil.move(str(src), str(dest))
+
+
+def _remove_path(path: Path, *, git_root: Path | None, dry_run: bool) -> None:
+    if not path.exists():
+        return
+    if dry_run:
+        if git_root:
+            print(f"Would run: git -C {git_root} rm -r {path}")
+        else:
+            print(f"Would remove: {path}")
+        return
+    if git_root:
+        _run_git(git_root, ["rm", "-r", _git_relpath(path, git_root)])
+    else:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink()
+
+
 def fixture_green(
     *,
     case_path: Path,
@@ -58,6 +125,7 @@ def fixture_green(
     validate: bool = False,
     overwrite_expected: bool = False,
     dry_run: bool = False,
+    git_mode: str = "auto",
 ) -> None:
     case_path = case_path.resolve()
     out_root = out_root.resolve()
@@ -100,6 +168,7 @@ def fixture_green(
             "  - choose a different out root."
         )
 
+    git_root = _resolve_git_root(out_root, git_mode)
     if dry_run:
         print("fixture-green:")
         print(f"  case:   {known_case_path}")
@@ -107,6 +176,8 @@ def fixture_green(
         print(f"  write:  -> {fixed_expected_path} (from root.observed)")
         if resources_from.exists():
             print(f"  move:   resources -> {resources_to}")
+        if git_root:
+            print(f"  git:    enabled ({git_root})")
         if validate:
             print("  validate: would run")
         return
@@ -119,14 +190,13 @@ def fixture_green(
     )
     try:
         fixed_case_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(known_case_path), str(fixed_case_path))
+        _move_path(known_case_path, fixed_case_path, git_root=git_root, dry_run=False)
 
         if resources_from.exists():
-            resources_to.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(resources_from), str(resources_to))
+            _move_path(resources_from, resources_to, git_root=git_root, dry_run=False)
 
         if known_expected_path.exists():
-            known_expected_path.unlink()
+            _remove_path(known_expected_path, git_root=git_root, dry_run=False)
 
         tmp_expected_path.replace(fixed_expected_path)
     except Exception:
@@ -161,8 +231,10 @@ def fixture_rm(
     bucket: str,
     scope: str,
     dry_run: bool,
+    git_mode: str = "auto",
 ) -> int:
     root = root.resolve()
+    git_root = _resolve_git_root(root, git_mode)
     bucket_filter: str | None = None if bucket == "all" else bucket
     matched = find_case_bundles(root=root, bucket=bucket_filter, name=name, pattern=pattern)
 
@@ -186,14 +258,11 @@ def fixture_rm(
 
     if dry_run:
         for target in targets:
-            print(f"Would remove: {target}")
+            _remove_path(target, git_root=git_root, dry_run=True)
         return len(existing_targets)
 
     for target in targets:
-        if target.is_dir():
-            shutil.rmtree(target, ignore_errors=True)
-        elif target.exists():
-            target.unlink()
+        _remove_path(target, git_root=git_root, dry_run=False)
     return len(existing_targets)
 
 
@@ -204,10 +273,13 @@ def fixture_fix(
     new_name: str,
     bucket: str,
     dry_run: bool,
+    git_mode: str = "auto",
 ) -> None:
     root = root.resolve()
     if name == new_name:
         raise ValueError("fixture-fix requires a new name different from the old name.")
+
+    git_root = _resolve_git_root(root, git_mode)
 
     layout = FixtureLayout(root, bucket)
     case_path = layout.case_path(name)
@@ -258,11 +330,11 @@ def fixture_fix(
         return
 
     new_case_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(case_path), str(new_case_path))
+    _move_path(case_path, new_case_path, git_root=git_root, dry_run=False)
     if expected_path.exists():
-        shutil.move(str(expected_path), str(new_expected_path))
+        _move_path(expected_path, new_expected_path, git_root=git_root, dry_run=False)
     if resources_dir.exists():
-        shutil.move(str(resources_dir), str(new_resources_dir))
+        _move_path(resources_dir, new_resources_dir, git_root=git_root, dry_run=False)
     if updated:
         _atomic_write_json(new_case_path, payload)
 
@@ -276,8 +348,15 @@ def fixture_fix(
         print("  rewrite: data_ref.file paths updated")
 
 
-def fixture_migrate(*, root: Path, bucket: str = "all", dry_run: bool) -> tuple[int, int]:
+def fixture_migrate(
+    *,
+    root: Path,
+    bucket: str = "all",
+    dry_run: bool,
+    git_mode: str = "auto",
+) -> tuple[int, int]:
     root = root.resolve()
+    git_root = _resolve_git_root(root, git_mode)
     bucket_filter = None if bucket == "all" else bucket
     matched = find_case_bundles(root=root, bucket=bucket_filter, name=None, pattern=None)
     bundles_updated = 0
@@ -319,11 +398,11 @@ def fixture_migrate(*, root: Path, bucket: str = "all", dry_run: bool) -> tuple[
                     "Hint: clean the destination or run migrate in an empty output directory."
                 )
             if dry_run:
-                print(f"Would move {src_path} -> {dest_path}")
+                _move_path(src_path, dest_path, git_root=git_root, dry_run=True)
             else:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 if not dest_path.exists():
-                    shutil.move(str(src_path), str(dest_path))
+                    _move_path(src_path, dest_path, git_root=git_root, dry_run=False)
                     files_moved += 1
             data_ref["file"] = target_rel.as_posix()
             updated = True

@@ -210,6 +210,13 @@ class PlanNormalizer:
                         "selectors": use,
                     },
                 }
+                rule_trace = [
+                    {
+                        "rule": f"SelectorNormalizationRule:{rule_kind}",
+                        "matched": after_ok,
+                        "reason": decision,
+                    }
+                ]
                 log_replay_case(
                     replay_logger,
                     id="plan_normalize.spec_v1",
@@ -223,6 +230,7 @@ class PlanNormalizer:
                     diag={
                         "selectors_valid_before": before_ok,
                         "selectors_valid_after": after_ok,
+                        "rule_trace": rule_trace,
                     },
                     note=note,
                 )

@@ -63,6 +63,9 @@ TRACER_OUT_DIR ?= $(TRACER_ROOT)/$(BUCKET)
 RUN_DIR ?=
 ALLOW_BAD_JSON ?=
 OVERWRITE ?= 0
+SELECT ?= latest
+SELECT_INDEX ?=
+REQUIRE_UNIQUE ?= 0
 SCOPE ?= both
 WITH_RESOURCES ?= 1
 ALL ?=
@@ -92,6 +95,7 @@ DRY ?= 0
 VALIDATE ?= 0
 OVERWRITE_EXPECTED ?= 0
 MOVE_TRACES ?= 0
+GIT ?= auto
 
 # ==============================================================================
 # 6) Настройки LLM-конфига (редактирование/просмотр)
@@ -391,11 +395,14 @@ tracer-export:
 	  --case "$(CASE)" \
 	  --data "$(REPLAY_IDATA)" \
 	  --provider "$(PROVIDER)" \
+	  --select "$(SELECT)" \
 	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
 	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	  $(if $(EVENTS),--events "$(EVENTS)",) \
 	  $(if $(TAG),--tag "$(TAG)",) \
+	  $(if $(SELECT_INDEX),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
 
@@ -410,7 +417,7 @@ tracer-ls:
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	  $(if $(EVENTS),--events "$(EVENTS)",) \
 	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
-	  --list-matches
+	  --list-runs
 
 fixture-green:
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=tests/fixtures/replay_cases/known_bad/fixture.case.json (или CASE=fixture_stem)" && exit 1)
@@ -421,6 +428,7 @@ fixture-green:
 	$(PYTHON) -m fetchgraph.tracer.cli fixture-green --case "$$case_path" --root "$(TRACER_ROOT)" \
 	  $(if $(filter 1 true yes on,$(VALIDATE)),--validate,) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE_EXPECTED)),--overwrite-expected,) \
+	  --git "$(GIT)" \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-rm:
@@ -429,6 +437,7 @@ fixture-rm:
 	  $(if $(strip $(NAME)),--name "$(NAME)",) \
 	  $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) \
 	  $(if $(strip $(SCOPE)),--scope "$(SCOPE)",) \
+	  --git "$(GIT)" \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-fix:
@@ -436,10 +445,12 @@ fixture-fix:
 	@test -n "$(strip $(NEW_NAME))" || (echo "NEW_NAME обязателен: make fixture-fix NAME=old_stem NEW_NAME=new_stem" && exit 1)
 	@$(PYTHON) -m fetchgraph.tracer.cli fixture-fix --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
 	  --name "$(NAME)" --new-name "$(NEW_NAME)" \
+	  --git "$(GIT)" \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-migrate:
 	@$(PYTHON) -m fetchgraph.tracer.cli fixture-migrate --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  --git "$(GIT)" \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 

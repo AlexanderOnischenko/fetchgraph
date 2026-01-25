@@ -22,7 +22,7 @@ def test_iter_events_allow_bad_json(tmp_path: Path) -> None:
     events_path = tmp_path / "events.jsonl"
     events_path.write_text('{"type":"ok"}\n{bad json}\n{"type":"ok2"}\n', encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Invalid JSON on line 2"):
+    with pytest.raises(ValueError, match="Invalid JSON on line 2:"):
         list(iter_events(events_path, allow_bad_json=False))
 
     events = list(iter_events(events_path, allow_bad_json=True))

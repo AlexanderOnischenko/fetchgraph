@@ -5,6 +5,14 @@ import sys
 from pathlib import Path
 
 from fetchgraph.tracer.export import export_replay_case_bundle, export_replay_case_bundles
+from fetchgraph.tracer.fixture_tools import (
+    fixture_fix,
+    fixture_green,
+    fixture_migrate,
+    fixture_rm,
+)
+
+DEFAULT_ROOT = Path("tests/fixtures/replay_cases")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -34,35 +42,125 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     export.add_argument("--all", action="store_true", help="Export all matching replay cases")
 
+    green = sub.add_parser("fixture-green", help="Promote known_bad case to fixed")
+    green.add_argument("--case", type=Path, required=True, help="Path to known_bad case bundle")
+    green.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    green.add_argument("--validate", action="store_true", help="Validate replay output")
+    green.add_argument(
+        "--overwrite-expected",
+        action="store_true",
+        help="Overwrite existing expected output",
+    )
+    green.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+
+    rm_cmd = sub.add_parser("fixture-rm", help="Remove replay fixtures")
+    rm_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    rm_cmd.add_argument(
+        "--bucket",
+        choices=["fixed", "known_bad", "all"],
+        default="all",
+        help="Fixture bucket",
+    )
+    rm_cmd.add_argument("--name", help="Fixture stem name")
+    rm_cmd.add_argument("--pattern", help="Glob pattern for fixture stems or case bundles")
+    rm_cmd.add_argument(
+        "--scope",
+        choices=["cases", "resources", "both"],
+        default="both",
+        help="What to remove",
+    )
+    rm_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+
+    fix_cmd = sub.add_parser("fixture-fix", help="Rename fixture stem")
+    fix_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    fix_cmd.add_argument("--bucket", choices=["fixed", "known_bad"], default="fixed")
+    fix_cmd.add_argument("--name", required=True, help="Old fixture stem")
+    fix_cmd.add_argument("--new-name", required=True, help="New fixture stem")
+    fix_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+
+    migrate_cmd = sub.add_parser("fixture-migrate", help="Normalize resource layout")
+    migrate_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    migrate_cmd.add_argument(
+        "--bucket",
+        choices=["fixed", "known_bad", "all"],
+        default="all",
+        help="Fixture bucket",
+    )
+    migrate_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    if args.command == "export-case-bundle":
-        if args.all:
-            export_replay_case_bundles(
-                events_path=args.events,
-                out_dir=args.out,
-                replay_id=args.id,
-                spec_idx=args.spec_idx,
-                provider=args.provider,
-                run_dir=args.run_dir,
-                allow_bad_json=args.allow_bad_json,
-                overwrite=args.overwrite,
+    try:
+        if args.command == "export-case-bundle":
+            if args.all:
+                export_replay_case_bundles(
+                    events_path=args.events,
+                    out_dir=args.out,
+                    replay_id=args.id,
+                    spec_idx=args.spec_idx,
+                    provider=args.provider,
+                    run_dir=args.run_dir,
+                    allow_bad_json=args.allow_bad_json,
+                    overwrite=args.overwrite,
+                )
+            else:
+                export_replay_case_bundle(
+                    events_path=args.events,
+                    out_dir=args.out,
+                    replay_id=args.id,
+                    spec_idx=args.spec_idx,
+                    provider=args.provider,
+                    run_dir=args.run_dir,
+                    allow_bad_json=args.allow_bad_json,
+                    overwrite=args.overwrite,
+                )
+            return 0
+        if args.command == "fixture-green":
+            fixture_green(
+                case_path=args.case,
+                out_root=args.root,
+                validate=args.validate,
+                overwrite_expected=args.overwrite_expected,
+                dry_run=args.dry_run,
             )
-        else:
-            export_replay_case_bundle(
-                events_path=args.events,
-                out_dir=args.out,
-                replay_id=args.id,
-                spec_idx=args.spec_idx,
-                provider=args.provider,
-                run_dir=args.run_dir,
-                allow_bad_json=args.allow_bad_json,
-                overwrite=args.overwrite,
+            return 0
+        if args.command == "fixture-rm":
+            removed = fixture_rm(
+                root=args.root,
+                bucket=args.bucket,
+                name=args.name,
+                pattern=args.pattern,
+                scope=args.scope,
+                dry_run=args.dry_run,
             )
-        return 0
+            print(f"Removed {removed} paths")
+            return 0
+        if args.command == "fixture-fix":
+            fixture_fix(
+                root=args.root,
+                bucket=args.bucket,
+                name=args.name,
+                new_name=args.new_name,
+                dry_run=args.dry_run,
+            )
+            return 0
+        if args.command == "fixture-migrate":
+            bundles_updated, files_moved = fixture_migrate(
+                root=args.root,
+                bucket=args.bucket,
+                dry_run=args.dry_run,
+            )
+            print(f"Updated {bundles_updated} bundles; moved {files_moved} files")
+            return 0
+    except (ValueError, FileNotFoundError, LookupError, KeyError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except Exception as exc:  # pragma: no cover - unexpected
+        print(f"Unexpected error: {exc}", file=sys.stderr)
+        return 1
     raise SystemExit(f"Unknown command: {args.command}")
 
 

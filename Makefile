@@ -47,13 +47,15 @@ TAG   ?=
 NOTE  ?=
 CASE  ?=
 NAME ?=
+NEW_NAME ?=
 PATTERN ?=
 SPEC_IDX ?=
 PROVIDER ?=
 BUCKET ?= fixed
 REPLAY_ID ?=
 EVENTS ?=
-TRACER_OUT_DIR ?= tests/fixtures/replay_cases/$(BUCKET)
+TRACER_ROOT ?= tests/fixtures/replay_cases
+TRACER_OUT_DIR ?= $(TRACER_ROOT)/$(BUCKET)
 RUN_DIR ?=
 ALLOW_BAD_JSON ?=
 OVERWRITE ?=
@@ -83,6 +85,8 @@ PURGE_RUNS ?= 0
 PRUNE_HISTORY ?= 0
 PRUNE_CASE_HISTORY ?= 0
 DRY ?= 0
+VALIDATE ?= 0
+OVERWRITE_EXPECTED ?= 0
 MOVE_TRACES ?= 0
 
 # ==============================================================================
@@ -114,6 +118,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
         stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export \
+        fixture-green fixture-rm fixture-fix fixture-migrate \
         compare compare-tag
 
 # ==============================================================================
@@ -164,6 +169,10 @@ help:
 	@echo "  make tracer-export REPLAY_ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...] [ALLOW_BAD_JSON=1] [OVERWRITE=1]"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/..."
+	@echo "  make fixture-green CASE=path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
+	@echo "  make fixture-rm [BUCKET=fixed|known_bad|all] [NAME=...] [PATTERN=...] [SCOPE=cases|resources|both] [DRY=1]"
+	@echo "  make fixture-fix BUCKET=... NAME=... NEW_NAME=... [DRY=1]"
+	@echo "  make fixture-migrate [BUCKET=fixed|known_bad|all] [DRY=1]"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
@@ -364,6 +373,30 @@ tracer-export:
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,)
 
+fixture-green:
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=tests/fixtures/replay_cases/known_bad/fixture.case.json" && exit 1)
+	@$(PYTHON) -m fetchgraph.tracer.cli fixture-green --case "$(CASE)" --root "$(TRACER_ROOT)" \
+	  $(if $(filter 1 true yes on,$(VALIDATE)),--validate,) \
+	  $(if $(filter 1 true yes on,$(OVERWRITE_EXPECTED)),--overwrite-expected,) \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
+
+fixture-rm:
+	@$(PYTHON) -m fetchgraph.tracer.cli fixture-rm --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  $(if $(strip $(NAME)),--name "$(NAME)",) \
+	  $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) \
+	  $(if $(strip $(SCOPE)),--scope "$(SCOPE)",) \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
+
+fixture-fix:
+	@test -n "$(strip $(NAME))" || (echo "NAME обязателен: make fixture-fix NAME=old_stem NEW_NAME=new_stem" && exit 1)
+	@test -n "$(strip $(NEW_NAME))" || (echo "NEW_NAME обязателен: make fixture-fix NAME=old_stem NEW_NAME=new_stem" && exit 1)
+	@$(PYTHON) -m fetchgraph.tracer.cli fixture-fix --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  --name "$(NAME)" --new-name "$(NEW_NAME)" \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
+
+fixture-migrate:
+	@$(PYTHON) -m fetchgraph.tracer.cli fixture-migrate --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 
 

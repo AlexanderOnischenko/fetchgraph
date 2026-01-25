@@ -154,6 +154,21 @@ def resolve_requires(
     return resolved_resources, resolved_extras
 
 
+def collect_requires(
+    requires: list[dict] | list[str],
+    *,
+    resources: dict[str, dict],
+    extras: dict[str, dict],
+    events_path: Path,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    return resolve_requires(
+        requires,
+        resources=resources,
+        extras=extras,
+        events_path=events_path,
+    )
+
+
 def write_case_bundle(
     out_path: Path,
     *,

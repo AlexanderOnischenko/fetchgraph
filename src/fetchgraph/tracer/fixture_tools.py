@@ -3,39 +3,36 @@ from __future__ import annotations
 import filecmp
 import json
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
+from .fixture_layout import FixtureLayout, find_case_bundles
 from .runtime import load_case_bundle, run_case
 
 
-@dataclass(frozen=True)
-class FixturePaths:
-    case_path: Path
-    expected_path: Path
-    resources_dir: Path
-    stem: str
-    bucket: str
-
-
-def _fixture_paths(root: Path, bucket: str, stem: str) -> FixturePaths:
-    case_path = root / bucket / f"{stem}.case.json"
-    expected_path = root / bucket / f"{stem}.expected.json"
-    resources_dir = root / bucket / "resources" / stem
-    return FixturePaths(case_path, expected_path, resources_dir, stem, bucket)
-
-
-def _iter_case_paths(root: Path, bucket: str) -> Iterable[Path]:
-    bucket_dir = root / bucket
-    if not bucket_dir.exists():
-        return []
-    return sorted(bucket_dir.glob("*.case.json"))
-
-
-def _validate_bundle_schema(payload: dict, *, path: Path) -> None:
+def load_bundle_json(path: Path) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema") != "fetchgraph.tracer.case_bundle" or payload.get("v") != 1:
-        raise ValueError(f"Unsupported case bundle schema in {path}")
+        raise ValueError(f"Not a tracer case bundle: {path}")
+
+    root = payload.get("root")
+    if not isinstance(root, dict):
+        raise ValueError(f"Bundle root must be a mapping: {path}")
+
+    root_type = root.get("type")
+    root_version = root.get("v")
+    if root_type is not None and root_type != "replay_case":
+        raise ValueError(f"Bundle root.type must be replay_case: {path}")
+    if root_version is not None and root_version != 2:
+        raise ValueError(f"Bundle root.v must be 2: {path}")
+
+    resources = payload.get("resources")
+    if resources is not None and not isinstance(resources, dict):
+        raise ValueError(f"Bundle resources must be a mapping: {path}")
+    extras = payload.get("extras")
+    if extras is not None and not isinstance(extras, dict):
+        raise ValueError(f"Bundle extras must be a mapping: {path}")
+
+    return payload
 
 
 def _safe_resource_path(path: str, *, stem: str) -> Path:
@@ -43,6 +40,15 @@ def _safe_resource_path(path: str, *, stem: str) -> Path:
     if rel.is_absolute() or ".." in rel.parts:
         raise ValueError(f"Invalid resource path in bundle {stem}: {path}")
     return rel
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    tmp_path.replace(path)
 
 
 def fixture_green(
@@ -55,76 +61,88 @@ def fixture_green(
 ) -> None:
     case_path = case_path.resolve()
     out_root = out_root.resolve()
-    if out_root not in case_path.parents:
-        raise ValueError(f"Case path must be under {out_root}")
-    if "known_bad" not in case_path.parts:
-        raise ValueError("fixture-green expects a case under known_bad")
-    stem = case_path.stem.replace(".case", "")
-    known_paths = _fixture_paths(out_root, "known_bad", stem)
-    fixed_paths = _fixture_paths(out_root, "fixed", stem)
+    known_layout = FixtureLayout(out_root, "known_bad")
+    if not case_path.is_relative_to(known_layout.bucket_dir):
+        raise ValueError(f"fixture-green expects a known_bad case path, got: {case_path}")
+    if not case_path.name.endswith(".case.json"):
+        raise ValueError(f"fixture-green expects a .case.json bundle, got: {case_path}")
+    stem = case_path.name.replace(".case.json", "")
+    fixed_layout = FixtureLayout(out_root, "fixed")
 
-    payload = json.loads(case_path.read_text(encoding="utf-8"))
-    _validate_bundle_schema(payload, path=case_path)
+    payload = load_bundle_json(case_path)
     root = payload.get("root") or {}
     observed = root.get("observed")
     if not isinstance(observed, dict):
-        raise ValueError(f"Bundle missing observed payload: {case_path}")
+        raise ValueError(
+            "Cannot green fixture: root.observed is missing.\n"
+            f"Case: {case_path}\n"
+            "Hint: export observed-first replay_case bundles; green requires observed to freeze behavior."
+        )
 
-    if fixed_paths.case_path.exists() and not dry_run:
-        raise FileExistsError(f"Target case already exists: {fixed_paths.case_path}")
-    if fixed_paths.expected_path.exists() and not overwrite_expected and not dry_run:
-        raise FileExistsError(f"Expected already exists: {fixed_paths.expected_path}")
+    known_case_path = known_layout.case_path(stem)
+    fixed_case_path = fixed_layout.case_path(stem)
+    fixed_expected_path = fixed_layout.expected_path(stem)
+    known_expected_path = known_layout.expected_path(stem)
+    resources_from = known_layout.resources_dir(stem)
+    resources_to = fixed_layout.resources_dir(stem)
 
-    resources = payload.get("resources") or {}
-    resource_paths = []
-    if isinstance(resources, dict):
-        for resource in resources.values():
-            if not isinstance(resource, dict):
-                continue
-            data_ref = resource.get("data_ref")
-            if not isinstance(data_ref, dict):
-                continue
-            file_name = data_ref.get("file")
-            if not isinstance(file_name, str) or not file_name:
-                continue
-            rel = _safe_resource_path(file_name, stem=stem)
-            resource_paths.append(rel)
-
-    if resource_paths:
-        src_dir = known_paths.resources_dir
-        dst_dir = fixed_paths.resources_dir
-        if dst_dir.exists() and not dry_run:
-            raise FileExistsError(f"Target resources already exist: {dst_dir}")
+    if fixed_case_path.exists() and not dry_run:
+        raise FileExistsError(f"Target case already exists: {fixed_case_path}")
+    if fixed_expected_path.exists() and not overwrite_expected and not dry_run:
+        raise FileExistsError(f"Expected already exists: {fixed_expected_path}")
+    if resources_from.exists() and resources_to.exists() and not dry_run:
+        raise FileExistsError(
+            "Resources destination already exists:\n"
+            f"  dest: {resources_to}\n"
+            "Actions:\n"
+            "  - remove destination resources directory, or\n"
+            "  - run fixture-fix to rename stems, or\n"
+            "  - choose a different out root."
+        )
 
     if dry_run:
-        print(f"Would write expected: {fixed_paths.expected_path}")
-        print(f"Would move case: {known_paths.case_path} -> {fixed_paths.case_path}")
-        if resource_paths:
-            print(f"Would move resources: {known_paths.resources_dir} -> {fixed_paths.resources_dir}")
+        print("fixture-green:")
+        print(f"  case:   {known_case_path}")
+        print(f"  move:   -> {fixed_case_path}")
+        print(f"  write:  -> {fixed_expected_path} (from root.observed)")
+        if resources_from.exists():
+            print(f"  move:   resources -> {resources_to}")
         if validate:
-            print("Would validate replay output against expected")
+            print("  validate: would run")
         return
 
-    fixed_paths.expected_path.parent.mkdir(parents=True, exist_ok=True)
-    fixed_paths.expected_path.write_text(
+    fixed_expected_path.parent.mkdir(parents=True, exist_ok=True)
+    fixed_expected_path.write_text(
         json.dumps(observed, ensure_ascii=False, sort_keys=True, indent=2),
         encoding="utf-8",
     )
-    fixed_paths.case_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(known_paths.case_path), str(fixed_paths.case_path))
+    fixed_case_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(known_case_path), str(fixed_case_path))
 
-    if resource_paths:
-        fixed_paths.resources_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(known_paths.resources_dir), str(fixed_paths.resources_dir))
+    if known_expected_path.exists():
+        known_expected_path.unlink()
+
+    if resources_from.exists():
+        resources_to.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(resources_from), str(resources_to))
 
     if validate:
         import fetchgraph.tracer.handlers  # noqa: F401
 
-        root_case, ctx = load_case_bundle(fixed_paths.case_path)
+        root_case, ctx = load_case_bundle(fixed_case_path)
         out = run_case(root_case, ctx)
-        expected = json.loads(fixed_paths.expected_path.read_text(encoding="utf-8"))
+        expected = json.loads(fixed_expected_path.read_text(encoding="utf-8"))
         if out != expected:
             raise AssertionError("Replay output does not match expected after fixture-green")
+
+    print("fixture-green:")
+    print(f"  case:   {known_case_path}")
+    print(f"  move:   -> {fixed_case_path}")
+    print(f"  write:  -> {fixed_expected_path} (from root.observed)")
+    if resources_from.exists():
+        print(f"  move:   resources -> {resources_to}")
+    if validate:
+        print("  validate: OK")
 
 
 def fixture_rm(
@@ -135,39 +153,40 @@ def fixture_rm(
     bucket: str,
     scope: str,
     dry_run: bool,
-) -> None:
+) -> int:
     root = root.resolve()
-    buckets = ["fixed", "known_bad"] if bucket == "all" else [bucket]
-    matched = []
-    for b in buckets:
-        for case_path in _iter_case_paths(root, b):
-            stem = case_path.stem.replace(".case", "")
-            if name and stem != name:
-                continue
-            if pattern and not case_path.match(pattern):
-                continue
-            matched.append(_fixture_paths(root, b, stem))
+    bucket = None if bucket == "all" else bucket
+    matched = find_case_bundles(root=root, bucket=bucket, name=name, pattern=pattern)
 
     if name and not matched:
         raise FileNotFoundError(f"No fixtures found for name={name!r}")
 
     targets: list[Path] = []
-    for paths in matched:
+    for case_path in matched:
+        bucket_name = case_path.parent.name
+        stem = case_path.name.replace(".case.json", "")
+        layout = FixtureLayout(root, bucket_name)
         if scope in ("cases", "both"):
-            targets.extend([paths.case_path, paths.expected_path])
+            targets.extend([layout.case_path(stem), layout.expected_path(stem)])
         if scope in ("resources", "both"):
-            targets.append(paths.resources_dir)
+            targets.append(layout.resources_dir(stem))
+
+    existing_targets = [target for target in targets if target.exists()]
+
+    if name and not existing_targets:
+        raise FileNotFoundError(f"No fixtures found for name={name!r} with scope={scope}")
 
     if dry_run:
         for target in targets:
             print(f"Would remove: {target}")
-        return
+        return len(existing_targets)
 
     for target in targets:
         if target.is_dir():
             shutil.rmtree(target, ignore_errors=True)
         elif target.exists():
             target.unlink()
+    return len(existing_targets)
 
 
 def fixture_fix(
@@ -179,16 +198,27 @@ def fixture_fix(
     dry_run: bool,
 ) -> None:
     root = root.resolve()
-    paths = _fixture_paths(root, bucket, name)
-    new_paths = _fixture_paths(root, bucket, new_name)
+    if name == new_name:
+        raise ValueError("fixture-fix requires a new name different from the old name.")
 
-    if not paths.case_path.exists():
-        raise FileNotFoundError(f"Missing case bundle: {paths.case_path}")
-    if new_paths.case_path.exists():
-        raise FileExistsError(f"Target case already exists: {new_paths.case_path}")
+    layout = FixtureLayout(root, bucket)
+    case_path = layout.case_path(name)
+    expected_path = layout.expected_path(name)
+    resources_dir = layout.resources_dir(name)
+    new_case_path = layout.case_path(new_name)
+    new_expected_path = layout.expected_path(new_name)
+    new_resources_dir = layout.resources_dir(new_name)
 
-    payload = json.loads(paths.case_path.read_text(encoding="utf-8"))
-    _validate_bundle_schema(payload, path=paths.case_path)
+    if not case_path.exists():
+        raise FileNotFoundError(f"Missing case bundle: {case_path}")
+    if new_case_path.exists():
+        raise FileExistsError(f"Target case already exists: {new_case_path}")
+    if new_expected_path.exists():
+        raise FileExistsError(f"Target expected already exists: {new_expected_path}")
+    if new_resources_dir.exists():
+        raise FileExistsError(f"Target resources already exist: {new_resources_dir}")
+
+    payload = load_bundle_json(case_path)
     resources = payload.get("resources") or {}
     updated = False
     if isinstance(resources, dict):
@@ -202,77 +232,97 @@ def fixture_fix(
             if not isinstance(file_name, str) or not file_name:
                 continue
             rel = _safe_resource_path(file_name, stem=name)
-            old_prefix = Path("resources") / name
-            if rel.parts[:2] == old_prefix.parts[:2]:
-                new_rel = Path("resources") / new_name / Path(*rel.parts[2:])
-                data_ref["file"] = new_rel.as_posix()
+            old_prefix = f"resources/{name}/"
+            rel_posix = rel.as_posix()
+            if rel_posix.startswith(old_prefix):
+                data_ref["file"] = f"resources/{new_name}/{rel_posix[len(old_prefix):]}"
                 updated = True
 
     if dry_run:
-        print(f"Would rename case: {paths.case_path} -> {new_paths.case_path}")
-        if paths.expected_path.exists():
-            print(f"Would rename expected: {paths.expected_path} -> {new_paths.expected_path}")
-        if paths.resources_dir.exists():
-            print(f"Would rename resources: {paths.resources_dir} -> {new_paths.resources_dir}")
+        print("fixture-fix:")
+        print(f"  rename: {case_path} -> {new_case_path}")
+        if expected_path.exists():
+            print(f"  move:   {expected_path} -> {new_expected_path}")
+        if resources_dir.exists():
+            print(f"  move:   {resources_dir} -> {new_resources_dir}")
         if updated:
-            print("Would update data_ref.file paths inside bundle")
+            print("  rewrite: data_ref.file paths updated")
         return
 
-    new_paths.case_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(paths.case_path), str(new_paths.case_path))
-    if paths.expected_path.exists():
-        shutil.move(str(paths.expected_path), str(new_paths.expected_path))
-    if paths.resources_dir.exists():
-        if new_paths.resources_dir.exists():
-            raise FileExistsError(f"Target resources already exist: {new_paths.resources_dir}")
-        shutil.move(str(paths.resources_dir), str(new_paths.resources_dir))
+    new_case_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(case_path), str(new_case_path))
+    if expected_path.exists():
+        shutil.move(str(expected_path), str(new_expected_path))
+    if resources_dir.exists():
+        shutil.move(str(resources_dir), str(new_resources_dir))
     if updated:
-        new_paths.case_path.write_text(
-            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2),
-            encoding="utf-8",
-        )
+        _atomic_write_json(new_case_path, payload)
+
+    print("fixture-fix:")
+    print(f"  rename: {case_path} -> {new_case_path}")
+    if expected_path.exists():
+        print(f"  move:   {expected_path} -> {new_expected_path}")
+    if resources_dir.exists():
+        print(f"  move:   {resources_dir} -> {new_resources_dir}")
+    if updated:
+        print("  rewrite: data_ref.file paths updated")
 
 
-def fixture_migrate(*, root: Path, dry_run: bool) -> None:
+def fixture_migrate(*, root: Path, bucket: str = "all", dry_run: bool) -> tuple[int, int]:
     root = root.resolve()
-    for bucket in ("fixed", "known_bad"):
-        for case_path in _iter_case_paths(root, bucket):
-            stem = case_path.stem.replace(".case", "")
-            payload = json.loads(case_path.read_text(encoding="utf-8"))
-            _validate_bundle_schema(payload, path=case_path)
-            resources = payload.get("resources") or {}
-            if not isinstance(resources, dict):
+    bucket_filter = None if bucket == "all" else bucket
+    matched = find_case_bundles(root=root, bucket=bucket_filter, name=None, pattern=None)
+    bundles_updated = 0
+    files_moved = 0
+    for case_path in matched:
+        stem = case_path.name.replace(".case.json", "")
+        payload = load_bundle_json(case_path)
+        resources = payload.get("resources") or {}
+        if not isinstance(resources, dict):
+            continue
+        updated = False
+        for resource_id, resource in resources.items():
+            if not isinstance(resource, dict):
                 continue
-            updated = False
-            for resource in resources.values():
-                if not isinstance(resource, dict):
-                    continue
-                data_ref = resource.get("data_ref")
-                if not isinstance(data_ref, dict):
-                    continue
-                file_name = data_ref.get("file")
-                if not isinstance(file_name, str) or not file_name:
-                    continue
-                rel = _safe_resource_path(file_name, stem=stem)
-                target_rel = Path("resources") / stem / rel
-                if rel == target_rel:
-                    continue
-                src_path = case_path.parent / rel
-                if not src_path.exists():
-                    raise FileNotFoundError(f"Missing resource file: {src_path}")
-                dest_path = case_path.parent / target_rel
-                if dest_path.exists() and not filecmp.cmp(src_path, dest_path, shallow=False):
-                    raise FileExistsError(f"Resource collision at {dest_path}")
-                if dry_run:
-                    print(f"Would move {src_path} -> {dest_path}")
-                else:
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    if not dest_path.exists():
-                        shutil.move(str(src_path), str(dest_path))
-                data_ref["file"] = target_rel.as_posix()
-                updated = True
-            if updated and not dry_run:
-                case_path.write_text(
-                    json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2),
-                    encoding="utf-8",
+            data_ref = resource.get("data_ref")
+            if not isinstance(data_ref, dict):
+                continue
+            file_name = data_ref.get("file")
+            if not isinstance(file_name, str) or not file_name:
+                continue
+            rel = _safe_resource_path(file_name, stem=stem)
+            if rel.parts[:3] == ("resources", stem, resource_id):
+                continue
+            if rel.parts[:1] == ("resources",) and len(rel.parts) >= 2:
+                rel_tail = Path(*rel.parts[2:])
+            else:
+                rel_tail = rel
+            if not rel_tail.parts:
+                rel_tail = Path(rel.name)
+            target_rel = Path("resources") / stem / resource_id / rel_tail
+            src_path = case_path.parent / rel
+            if not src_path.exists():
+                raise FileNotFoundError(f"Missing resource file: {src_path}")
+            dest_path = case_path.parent / target_rel
+            if dest_path.exists() and not filecmp.cmp(src_path, dest_path, shallow=False):
+                raise FileExistsError(
+                    "Resource collision at destination:\n"
+                    f"  dest: {dest_path}\n"
+                    "Hint: clean the destination or run migrate in an empty output directory."
                 )
+            if dry_run:
+                print(f"Would move {src_path} -> {dest_path}")
+            else:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                if not dest_path.exists():
+                    shutil.move(str(src_path), str(dest_path))
+                    files_moved += 1
+            data_ref["file"] = target_rel.as_posix()
+            updated = True
+        if updated:
+            bundles_updated += 1
+            if dry_run:
+                print(f"Would update bundle: {case_path}")
+            else:
+                _atomic_write_json(case_path, payload)
+    return bundles_updated, files_moved

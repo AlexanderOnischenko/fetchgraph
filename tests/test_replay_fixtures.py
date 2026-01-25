@@ -49,7 +49,11 @@ def test_known_bad_cases(case_path: Path) -> None:
 def test_replay_cases_expected(case_path: Path) -> None:
     expected_path = _expected_path(case_path)
     if not expected_path.exists():
-        pytest.skip(f"Expected fixture missing: {expected_path}")
+        pytest.fail(
+            "Expected file is required for fixed fixtures:\n"
+            f"  missing: {expected_path}\n"
+            "Hint: run `fetchgraph-tracer fixture-green --case ...` or create expected json manually."
+        )
     root, ctx = load_case_bundle(case_path)
     out = run_case(root, ctx)
     expected = json.loads(expected_path.read_text(encoding="utf-8"))

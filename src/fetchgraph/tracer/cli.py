@@ -156,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "export-case-bundle":
             debug_enabled = args.debug or bool(os.getenv("DEBUG"))
+            events_path: Path | None = None
             if args.events:
                 if args.case or args.data or args.tag or args.run_id:
                     raise ValueError("Do not combine --events with --case/--data/--tag/--run-id.")
@@ -211,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
                     if args.tag:
                         selection_rule = f"latest with events filtered by TAG={args.tag!r}"
                     events_path = selected.events_path
-                if "events_path" not in locals():
+                if events_path is None:
                     events_resolution = find_events_file(run_dir)
                     if not events_resolution.events_path:
                         raise FileNotFoundError(

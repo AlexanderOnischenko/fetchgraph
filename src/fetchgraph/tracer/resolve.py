@@ -260,7 +260,7 @@ _EVENTS_CANDIDATES = (
 
 
 def find_events_file(run_dir: Path) -> EventsResolution:
-    searched = list(_EVENTS_CANDIDATES)
+    searched = [str(entry) for entry in _EVENTS_CANDIDATES]
     found: list[Path] = []
     for rel in _EVENTS_CANDIDATES:
         candidate = run_dir / rel

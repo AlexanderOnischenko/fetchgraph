@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from fetchgraph.tracer.auto_resolve import resolve_case_events
 from fetchgraph.tracer.export import export_replay_case_bundle, export_replay_case_bundles
 from fetchgraph.tracer.fixture_tools import (
     fixture_fix,
@@ -20,7 +21,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="command", required=True)
 
     export = sub.add_parser("export-case-bundle", help="Export replay case bundle from events.jsonl")
-    export.add_argument("--events", type=Path, required=True, help="Path to events.jsonl")
+    export.add_argument("--events", type=Path, help="Path to events.jsonl")
     export.add_argument("--out", type=Path, required=True, help="Output directory for bundle")
     export.add_argument("--id", required=True, help="Replay case id to export")
     export.add_argument("--spec-idx", type=int, default=None, help="Filter replay_case by meta.spec_idx")
@@ -41,6 +42,24 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Overwrite existing bundles and resource copies",
     )
     export.add_argument("--all", action="store_true", help="Export all matching replay cases")
+    export.add_argument("--case", help="Case id for auto-resolving events.jsonl")
+    export.add_argument("--data", type=Path, help="Data directory containing .runs")
+    export.add_argument("--tag", default=None, help="Run tag filter for auto-resolve")
+    export.add_argument(
+        "--runs-subdir",
+        default=".runs/runs",
+        help="Runs subdir relative to data dir (default: .runs/runs)",
+    )
+    export.add_argument(
+        "--pick-run",
+        default="latest_non_missed",
+        help="Run selection strategy (default: latest_non_missed)",
+    )
+    export.add_argument(
+        "--print-resolve",
+        action="store_true",
+        help="Print resolved run_dir/events.jsonl",
+    )
 
     green = sub.add_parser("fixture-green", help="Promote known_bad case to fixed")
     green.add_argument("--case", type=Path, required=True, help="Path to known_bad case bundle")
@@ -95,25 +114,49 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         if args.command == "export-case-bundle":
+            if args.events:
+                if args.case or args.data or args.tag:
+                    raise ValueError("Do not combine --events with --case/--data/--tag.")
+                events_path = args.events
+                run_dir = args.run_dir
+            else:
+                if args.run_dir:
+                    raise ValueError("Do not combine --run-dir with auto-resolve.")
+                if not args.case or not args.data:
+                    raise ValueError("--case and --data are required when --events is not provided.")
+                resolution = resolve_case_events(
+                    case_id=args.case,
+                    data_dir=args.data,
+                    tag=args.tag,
+                    runs_subdir=args.runs_subdir,
+                    pick_run=args.pick_run,
+                )
+                events_path = resolution.events_path
+                run_dir = resolution.case_dir
+                if args.print_resolve:
+                    print(f"Resolved run_dir: {resolution.case_dir}")
+                    print(f"Resolved events.jsonl: {resolution.events_path}")
+                    if resolution.tag:
+                        print(f"Resolved tag: {resolution.tag}")
             if args.all:
                 export_replay_case_bundles(
-                    events_path=args.events,
+                    events_path=events_path,
                     out_dir=args.out,
                     replay_id=args.id,
                     spec_idx=args.spec_idx,
                     provider=args.provider,
-                    run_dir=args.run_dir,
+                    run_dir=run_dir,
                     allow_bad_json=args.allow_bad_json,
                     overwrite=args.overwrite,
                 )
             else:
                 export_replay_case_bundle(
-                    events_path=args.events,
+                    events_path=events_path,
                     out_dir=args.out,
                     replay_id=args.id,
                     spec_idx=args.spec_idx,
                     provider=args.provider,
-                    run_dir=args.run_dir,
+                    run_dir=run_dir,
                     allow_bad_json=args.allow_bad_json,
                     overwrite=args.overwrite,
                 )

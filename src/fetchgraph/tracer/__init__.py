@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .log import EventLoggerLike, log_replay_case
-from .runtime import REPLAY_HANDLERS, ReplayContext, load_case_bundle, run_case
+from fetchgraph.replay.log import EventLoggerLike, log_replay_case
+from fetchgraph.replay.runtime import REPLAY_HANDLERS, ReplayContext, load_case_bundle, run_case
 
 __all__ = [
     "EventLoggerLike",

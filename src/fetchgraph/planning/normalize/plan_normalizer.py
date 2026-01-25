@@ -13,7 +13,7 @@ from ...core.protocols import ContextProvider, SupportsDescribe, SupportsFilter
 from ...relational.models import RelationalRequest
 from ...relational.normalize import normalize_relational_selectors
 from ...relational.providers.base import RelationalDataProvider
-from ...replay.log import EventLoggerLike, log_replay_point
+from ...replay.log import EventLoggerLike, log_replay_case
 
 logger = logging.getLogger(__name__)
 
@@ -188,17 +188,18 @@ class PlanNormalizer:
                     "options": asdict(self.options),
                     "normalizer_rules": {spec.provider: rule_kind},
                 }
-                expected_payload = {
+                observed_payload = {
                     "out_spec": {
                         "provider": spec.provider,
                         "mode": spec.mode,
                         "selectors": use,
-                    }
+                    },
+                    "notes_last": note,
                 }
                 requires = None
                 if getattr(replay_logger, "case_id", None):
-                    requires = ["planner_input_v1"]
-                log_replay_point(
+                    requires = [{"kind": "extra", "id": "planner_input_v1"}]
+                log_replay_case(
                     replay_logger,
                     id="plan_normalize.spec_v1",
                     meta={
@@ -207,7 +208,7 @@ class PlanNormalizer:
                         "spec_idx": spec_idx,
                     },
                     input=input_payload,
-                    expected=expected_payload,
+                    observed=observed_payload,
                     requires=requires,
                     diag={
                         "selectors_valid_before": before_ok,

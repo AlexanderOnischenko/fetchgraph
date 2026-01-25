@@ -375,8 +375,12 @@ tracer-export:
 	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,)
 
 fixture-green:
-	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=tests/fixtures/replay_cases/known_bad/fixture.case.json" && exit 1)
-	@$(PYTHON) -m fetchgraph.tracer.cli fixture-green --case "$(CASE)" --root "$(TRACER_ROOT)" \
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=tests/fixtures/replay_cases/known_bad/fixture.case.json (или CASE=fixture_stem)" && exit 1)
+	@case_path="$(CASE)"; \
+	if [ "$${case_path##*/}" = "$$case_path" ] && [ "$$case_path" != *".case.json" ]; then \
+	  case_path="$(TRACER_ROOT)/known_bad/$$case_path.case.json"; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-green --case "$$case_path" --root "$(TRACER_ROOT)" \
 	  $(if $(filter 1 true yes on,$(VALIDATE)),--validate,) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE_EXPECTED)),--overwrite-expected,) \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)

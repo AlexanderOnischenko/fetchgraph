@@ -29,18 +29,59 @@ def fixture_name(event_id: str, input_payload: dict) -> str:
     return f"{event_id}__{digest[:8]}.json"
 
 
-def _copy_resource_file(run_dir: Path, fixture_root: Path, root_name: str, data_ref: dict) -> dict:
+def _resource_target_path(
+    *,
+    fixture_stem: str,
+    file_name: str,
+    resource_key: str,
+    used_paths: set[Path],
+) -> Path:
+    rel_path = Path(file_name)
+    if rel_path.is_absolute():
+        raise SystemExit(f"Resource file path must be relative: {file_name}")
+    if ".." in rel_path.parts:
+        raise SystemExit(f"Resource file path must not traverse parents: {file_name}")
+    base_dir = Path("resources") / fixture_stem
+    if rel_path.parent != Path("."):
+        dest_rel = base_dir / rel_path
+    else:
+        dest_rel = base_dir / rel_path.name
+    if dest_rel in used_paths:
+        prefix = resource_key or "resource"
+        dest_rel = base_dir / f"{prefix}__{rel_path.name}"
+        suffix = 1
+        while dest_rel in used_paths:
+            dest_rel = base_dir / f"{prefix}_{suffix}__{rel_path.name}"
+            suffix += 1
+    used_paths.add(dest_rel)
+    return dest_rel
+
+
+def _copy_resource_file(
+    run_dir: Path,
+    out_dir: Path,
+    fixture_stem: str,
+    resource_key: str,
+    used_paths: set[Path],
+    data_ref: dict,
+) -> dict:
     file_name = data_ref.get("file")
     if not file_name:
         return data_ref
     src_path = run_dir / file_name
     if not src_path.exists():
         raise SystemExit(f"Resource file {src_path} not found for replay bundle")
-    target_name = f"{root_name}__{Path(file_name).name}"
-    dest_path = fixture_root / target_name
+    dest_rel = _resource_target_path(
+        fixture_stem=fixture_stem,
+        file_name=file_name,
+        resource_key=resource_key,
+        used_paths=used_paths,
+    )
+    dest_path = out_dir / dest_rel
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src_path, dest_path)
     updated = dict(data_ref)
-    updated["file"] = target_name
+    updated["file"] = dest_rel.as_posix()
     return updated
 
 
@@ -143,10 +184,18 @@ def write_bundle(
 
     root_name = Path(fixture_file).stem
     updated_resources: Dict[str, dict] = {}
+    used_paths: set[Path] = set()
     for rid, resource in resources.items():
         rp = dict(resource)
         if "data_ref" in rp and isinstance(rp["data_ref"], dict):
-            rp["data_ref"] = _copy_resource_file(run_dir, out_dir, root_name, rp["data_ref"])
+            rp["data_ref"] = _copy_resource_file(
+                run_dir,
+                out_dir,
+                root_name,
+                rid,
+                used_paths,
+                rp["data_ref"],
+            )
         updated_resources[rid] = rp
 
     payload = {

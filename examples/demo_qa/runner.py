@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import traceback
 import hashlib
 import json
 import re
@@ -10,7 +11,9 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, NotRequired, TypedDict
+from typing import Dict, Iterable, List, Mapping, TypedDict
+
+from typing_extensions import NotRequired
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.context import BaseGraphAgent
@@ -387,70 +390,119 @@ def run_one(
     else:
         run_id = run_dir.name.split("_")[-1]
 
-    case_logger = event_logger.for_case(case.id, run_dir / "events.jsonl") if event_logger else None
+    run_dir.mkdir(parents=True, exist_ok=True)
+    events_path = run_dir / "events.jsonl"
+    case_logger = event_logger.for_case(case.id, events_path) if event_logger else EventLogger(events_path, run_id, case.id)
     if case_logger:
+        case_logger.emit({"type": "run_started", "case_id": case.id, "run_dir": str(run_dir)})
         case_logger.emit({"type": "case_started", "case_id": case.id, "run_dir": str(run_dir)})
     schema_ref: str | None = None
-    if case_logger and schema_path and schema_path.exists():
-        schema_ref = _emit_schema_snapshot(case_logger, run_dir, schema_path)
-    if case.skip:
-        run_dir.mkdir(parents=True, exist_ok=True)
-        _save_text(run_dir / "skipped.txt", "Skipped by request")
+    ok = False
+    result: RunResult | None = None
+    try:
+        if case_logger and schema_path and schema_path.exists():
+            schema_ref = _emit_schema_snapshot(case_logger, run_dir, schema_path)
+        if case.skip:
+            _save_text(run_dir / "skipped.txt", "Skipped by request")
+            result = RunResult(
+                id=case.id,
+                question=case.question,
+                status="skipped",
+                checked=False,
+                reason="skipped",
+                details=None,
+                artifacts_dir=str(run_dir),
+                duration_ms=0,
+                tags=list(case.tags),
+                answer=None,
+                error=None,
+                plan_path=None,
+                timings=RunTimings(),
+                expected_check=None,
+            )
+            save_status(result)
+            ok = True
+            if case_logger:
+                case_logger.emit({"type": "case_finished", "case_id": case.id, "status": "skipped"})
+            return result
+
+        artifacts = runner.run_question(
+            case,
+            run_id,
+            run_dir,
+            plan_only=plan_only,
+            event_logger=case_logger,
+            schema_ref=schema_ref,
+        )
+        save_artifacts(artifacts)
+
+        expected_check = None if plan_only else _match_expected(case, artifacts.answer)
+        result = _build_result(case, artifacts, run_dir, expected_check)
+        save_status(result)
+        ok = result.status != "error"
+        if case_logger:
+            if result.status == "error":
+                case_logger.emit(
+                    {
+                        "type": "case_failed",
+                        "case_id": case.id,
+                        "status": result.status,
+                        "reason": result.reason,
+                        "artifacts_dir": result.artifacts_dir,
+                    }
+                )
+            case_logger.emit(
+                {
+                    "type": "case_finished",
+                    "case_id": case.id,
+                    "status": result.status,
+                    "duration_ms": result.duration_ms,
+                    "artifacts_dir": result.artifacts_dir,
+                }
+            )
+        return result
+    except BaseException as exc:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        error_message = str(exc) or repr(exc)
+        if case_logger:
+            case_logger.emit(
+                {
+                    "type": "run_failed",
+                    "case_id": case.id,
+                    "exc_type": type(exc).__name__,
+                    "exc_message": error_message,
+                    "traceback": tb,
+                    "artifacts_dir": str(run_dir),
+                }
+            )
         result = RunResult(
             id=case.id,
             question=case.question,
-            status="skipped",
-            checked=False,
-            reason="skipped",
-            details=None,
+            status="error",
+            checked=case.has_asserts,
+            reason=error_message,
+            details={"error": error_message, "traceback": tb, "events_path": str(events_path)},
             artifacts_dir=str(run_dir),
             duration_ms=0,
             tags=list(case.tags),
             answer=None,
-            error=None,
+            error=error_message,
             plan_path=None,
             timings=RunTimings(),
             expected_check=None,
         )
         save_status(result)
+        raise
+    finally:
         if case_logger:
-            case_logger.emit({"type": "case_finished", "case_id": case.id, "status": "skipped"})
-        return result
-
-    artifacts = runner.run_question(
-        case,
-        run_id,
-        run_dir,
-        plan_only=plan_only,
-        event_logger=case_logger,
-        schema_ref=schema_ref,
-    )
-    save_artifacts(artifacts)
-
-    expected_check = None if plan_only else _match_expected(case, artifacts.answer)
-    result = _build_result(case, artifacts, run_dir, expected_check)
-    save_status(result)
-    if case_logger:
-        if result.status == "error":
             case_logger.emit(
                 {
-                    "type": "case_failed",
+                    "type": "run_finished",
                     "case_id": case.id,
-                    "status": result.status,
-                    "reason": result.reason,
-                    "artifacts_dir": result.artifacts_dir,
+                    "ok": ok,
+                    "artifacts_dir": str(run_dir),
                 }
             )
-        case_logger.emit(
-            {
-                "type": "case_finished",
-                "case_id": case.id,
-                "status": result.status,
-                "duration_ms": result.duration_ms,
-                "artifacts_dir": result.artifacts_dir,
-            }
-        )
-    return result
 
 
 def summarize(results: Iterable[RunResult]) -> Dict[str, object]:

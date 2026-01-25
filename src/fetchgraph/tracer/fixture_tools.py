@@ -4,10 +4,18 @@ import filecmp
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from .fixture_layout import FixtureLayout, find_case_bundles
 from .runtime import load_case_bundle, run_case
+
+
+@dataclass(frozen=True)
+class FixtureCandidate:
+    path: Path
+    stem: str
+    source: dict
 
 
 def load_bundle_json(path: Path) -> dict:
@@ -50,6 +58,64 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
         encoding="utf-8",
     )
     tmp_path.replace(path)
+
+
+def resolve_fixture_candidates(
+    *,
+    root: Path,
+    bucket: str,
+    case_id: str | None,
+    name: str | None,
+) -> list[FixtureCandidate]:
+    if case_id and name:
+        raise ValueError("Only one of case_id or name can be used.")
+    candidates = find_case_bundles(root=root, bucket=bucket, name=name, pattern=None)
+    results: list[FixtureCandidate] = []
+    for path in candidates:
+        payload = load_bundle_json(path)
+        stem = path.name.replace(".case.json", "")
+        source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+        if case_id:
+            source_case = source.get("case") or source.get("case_id")
+            if source_case == case_id or stem.startswith(case_id):
+                results.append(FixtureCandidate(path=path, stem=stem, source=source))
+        else:
+            results.append(FixtureCandidate(path=path, stem=stem, source=source))
+    return results
+
+
+def select_fixture_candidate(
+    candidates: list[FixtureCandidate],
+    *,
+    select: str = "latest",
+    select_index: int | None = None,
+    require_unique: bool = False,
+) -> FixtureCandidate:
+    if not candidates:
+        raise FileNotFoundError("No fixtures matched the selection.")
+    if require_unique and len(candidates) > 1:
+        raise FileExistsError("Multiple fixtures matched selection; use --select-index or --select.")
+    if select_index is not None:
+        if select_index < 1 or select_index > len(candidates):
+            raise ValueError(f"select_index must be between 1 and {len(candidates)}")
+        return candidates[select_index - 1]
+
+    def _sort_key(candidate: FixtureCandidate) -> tuple[str, float]:
+        timestamp = candidate.source.get("timestamp")
+        run_id = candidate.source.get("run_id")
+        time_key = f"{timestamp or ''}{run_id or ''}"
+        try:
+            mtime = candidate.path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        return (time_key, mtime)
+
+    ordered = sorted(candidates, key=_sort_key)
+    if select in {"latest", "last"}:
+        return ordered[-1]
+    if select == "first":
+        return ordered[0]
+    raise ValueError(f"Unsupported select policy: {select}")
 
 
 def _git_available() -> bool:
@@ -149,17 +215,48 @@ class _GitOps:
 
 def fixture_green(
     *,
-    case_path: Path,
+    case_path: Path | None = None,
+    case_id: str | None = None,
+    name: str | None = None,
     out_root: Path,
     validate: bool = False,
     overwrite_expected: bool = False,
     dry_run: bool = False,
     git_mode: str = "auto",
+    select: str = "latest",
+    select_index: int | None = None,
+    require_unique: bool = False,
 ) -> None:
-    case_path = case_path.resolve()
+    if case_path is None and not case_id and not name:
+        raise ValueError("fixture-green requires --case, --case-id, or --name.")
+    if case_path is not None and (case_id or name):
+        raise ValueError("fixture-green accepts only one of --case, --case-id, or --name.")
     out_root = out_root.resolve()
     git_ops = _GitOps(out_root, git_mode)
     known_layout = FixtureLayout(out_root, "known_bad")
+    if case_path is None:
+        candidates = resolve_fixture_candidates(
+            root=out_root,
+            bucket="known_bad",
+            case_id=case_id,
+            name=name,
+        )
+        if not candidates:
+            selector = case_id or name
+            raise FileNotFoundError(f"No fixtures found for selector={selector!r} in known_bad")
+        selected = select_fixture_candidate(
+            candidates,
+            select=select,
+            select_index=select_index,
+            require_unique=require_unique,
+        )
+        case_path = selected.path
+        if len(candidates) > 1 and not require_unique:
+            print("fixture-green: multiple candidates found, selected:")
+            for idx, candidate in enumerate(candidates, start=1):
+                marker = " (selected)" if candidate.path == selected.path else ""
+                print(f"  {idx}. {candidate.path}{marker}")
+    case_path = case_path.resolve()
     if not case_path.is_relative_to(known_layout.bucket_dir):
         raise ValueError(f"fixture-green expects a known_bad case path, got: {case_path}")
     if not case_path.name.endswith(".case.json"):
@@ -434,3 +531,25 @@ def fixture_migrate(*, root: Path, bucket: str = "all", dry_run: bool, git_mode:
             else:
                 _atomic_write_json(case_path, payload)
     return bundles_updated, files_moved
+
+
+def fixture_ls(
+    *,
+    root: Path,
+    bucket: str,
+    case_id: str | None = None,
+    pattern: str | None = None,
+) -> list[FixtureCandidate]:
+    bucket_filter = None if bucket == "all" else bucket
+    candidates = find_case_bundles(root=root, bucket=bucket_filter, name=None, pattern=pattern)
+    results: list[FixtureCandidate] = []
+    for path in candidates:
+        payload = load_bundle_json(path)
+        stem = path.name.replace(".case.json", "")
+        source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+        if case_id:
+            source_case = source.get("case") or source.get("case_id")
+            if source_case != case_id and not stem.startswith(case_id):
+                continue
+        results.append(FixtureCandidate(path=path, stem=stem, source=source))
+    return results

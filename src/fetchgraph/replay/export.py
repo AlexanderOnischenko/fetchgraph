@@ -446,6 +446,27 @@ def export_replay_case_bundle(
         if provider is not None:
             details.append(f"provider={provider!r}")
         detail_str = f" (filters: {', '.join(details)})" if details else ""
+        unfiltered = _select_replay_cases(
+            events_path,
+            replay_id=replay_id,
+            spec_idx=None,
+            provider=None,
+            allow_bad_json=allow_bad_json,
+        )
+        if unfiltered and details:
+            providers = sorted(
+                {str(sel.event.get("meta", {}).get("provider")) for sel in unfiltered if sel.event.get("meta")}
+            )
+            spec_idxs = sorted(
+                {str(sel.event.get("meta", {}).get("spec_idx")) for sel in unfiltered if sel.event.get("meta")}
+            )
+            hint_lines = [
+                f"No replay_case id={replay_id!r} matched filters in {events_path}{detail_str}.",
+                f"Available providers: {providers}",
+                f"Available spec_idx: {spec_idxs}",
+                "Tip: rerun without --provider/--spec-idx or choose matching values.",
+            ]
+            raise LookupError("\n".join(hint_lines))
         raise LookupError(f"No replay_case id={replay_id!r} found in {events_path}{detail_str}")
     selection, selection_mode = _select_replay_case(
         selections,

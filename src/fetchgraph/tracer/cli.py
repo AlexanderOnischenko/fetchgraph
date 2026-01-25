@@ -103,7 +103,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     export.add_argument("--require-unique", action="store_true", help="Error if multiple matches exist")
 
     green = sub.add_parser("fixture-green", help="Promote known_bad case to fixed")
-    green.add_argument("--case", type=Path, required=True, help="Path to known_bad case bundle")
+    green.add_argument("--case", type=Path, help="Path to known_bad case bundle")
+    green.add_argument("--case-id", help="Case id to select fixture from known_bad")
+    green.add_argument("--name", help="Fixture stem name to select")
     green.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
     green.add_argument("--validate", action="store_true", help="Validate replay output")
     green.add_argument(
@@ -118,6 +120,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="auto",
         help="Use git operations when moving/removing fixtures",
     )
+    green.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    green.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    green.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
 
     rm_cmd = sub.add_parser("fixture-rm", help="Remove replay fixtures")
     rm_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -171,6 +181,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="auto",
         help="Use git operations when moving fixtures",
     )
+
+    ls_cmd = sub.add_parser("fixture-ls", help="List fixture candidates")
+    ls_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    ls_cmd.add_argument(
+        "--bucket",
+        choices=["fixed", "known_bad", "all"],
+        default="known_bad",
+        help="Fixture bucket",
+    )
+    ls_cmd.add_argument("--case-id", help="Case id to filter")
+    ls_cmd.add_argument("--pattern", help="Glob pattern for fixtures")
 
     return parser.parse_args(argv)
 
@@ -263,6 +284,34 @@ def main(argv: list[str] | None = None) -> int:
                     allow_bad_json=args.allow_bad_json,
                 )
                 if not selections:
+                    unfiltered = find_replay_case_matches(
+                        events_path,
+                        replay_id=args.id,
+                        spec_idx=None,
+                        provider=None,
+                        allow_bad_json=args.allow_bad_json,
+                    )
+                    if unfiltered and (args.spec_idx is not None or args.provider is not None):
+                        providers = sorted(
+                            {
+                                str(sel.event.get("meta", {}).get("provider"))
+                                for sel in unfiltered
+                                if sel.event.get("meta")
+                            }
+                        )
+                        spec_idxs = sorted(
+                            {
+                                str(sel.event.get("meta", {}).get("spec_idx"))
+                                for sel in unfiltered
+                                if sel.event.get("meta")
+                            }
+                        )
+                        raise LookupError(
+                            "No replay_case matched filters.\n"
+                            f"Available providers: {providers}\n"
+                            f"Available spec_idx: {spec_idxs}\n"
+                            "Tip: rerun without --provider/--spec-idx or choose matching values."
+                        )
                     raise LookupError(f"No replay_case id={args.id!r} found in {events_path}")
                 print(format_replay_case_matches(selections, limit=20))
                 return 0
@@ -307,11 +356,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "fixture-green":
             fixture_green(
                 case_path=args.case,
+                case_id=args.case_id,
+                name=args.name,
                 out_root=args.root,
                 validate=args.validate,
                 overwrite_expected=args.overwrite_expected,
                 dry_run=args.dry_run,
                 git_mode=args.git,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
             )
             return 0
         if args.command == "fixture-rm":
@@ -344,6 +398,27 @@ def main(argv: list[str] | None = None) -> int:
                 git_mode=args.git,
             )
             print(f"Updated {bundles_updated} bundles; moved {files_moved} files")
+            return 0
+        if args.command == "fixture-ls":
+            from fetchgraph.tracer.fixture_tools import fixture_ls
+
+            fixtures = fixture_ls(
+                root=args.root,
+                bucket=args.bucket,
+                case_id=args.case_id,
+                pattern=args.pattern,
+            )
+            if not fixtures:
+                print("No fixtures matched.")
+                return 0
+            for idx, candidate in enumerate(fixtures, start=1):
+                source = candidate.source or {}
+                print(
+                    f"{idx}. stem={candidate.stem} "
+                    f"path={candidate.path} "
+                    f"run_id={source.get('run_id')} "
+                    f"timestamp={source.get('timestamp')}"
+                )
             return 0
     except (ValueError, FileNotFoundError, LookupError, KeyError) as exc:
         print(str(exc), file=sys.stderr)

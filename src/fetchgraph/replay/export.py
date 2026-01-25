@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import filecmp
 import hashlib
 import json
 import shutil
@@ -79,6 +80,15 @@ def collect_requires(
 
     if not requires:
         return resources, extras
+    if not isinstance(requires, list):
+        raise ValueError("requires must be a list of objects with kind/id fields")
+    for req in requires:
+        if not isinstance(req, dict):
+            raise ValueError("requires must be a list of objects with kind/id fields")
+        if req.get("kind") not in {"extra", "resource"}:
+            raise ValueError("requires entries must include kind='extra' or kind='resource'")
+        if not isinstance(req.get("id"), str) or not req.get("id"):
+            raise ValueError("requires entries must include a non-empty id")
 
     for _, event in iter_events(events_path):
         event_type = event.get("type")
@@ -156,6 +166,10 @@ def copy_resource_files(
             raise FileNotFoundError(f"Resource file {src_path} not found for replay bundle")
         dest_rel = Path("resources") / fixture_stem / rel_path
         dest_path = out_dir / dest_rel
+        if dest_path.exists():
+            if filecmp.cmp(src_path, dest_path, shallow=False):
+                continue
+            raise FileExistsError(f"Resource file collision at {dest_path}")
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_path, dest_path)
         data_ref["file"] = dest_rel.as_posix()

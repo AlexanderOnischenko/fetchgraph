@@ -43,11 +43,14 @@ def test_known_bad_cases(case_path: Path) -> None:
 @pytest.mark.parametrize("case_path", _iter_case_paths(FIXED_DIR))
 def test_replay_cases_expected(case_path: Path) -> None:
     expected_path = _expected_path(case_path)
-    if not expected_path.exists():
-        pytest.skip(f"Expected fixture missing: {expected_path}")
     root, ctx = load_case_bundle(case_path)
     out = run_case(root, ctx)
-    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+    if expected_path.exists():
+        expected = json.loads(expected_path.read_text(encoding="utf-8"))
+    else:
+        expected = root.get("observed")
+        if expected is None:
+            pytest.skip(f"Expected fixture missing and no observed data in {case_path}")
     assert out == expected
 
 

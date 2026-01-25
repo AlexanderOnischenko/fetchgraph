@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from fetchgraph.tracer.resolve import (
     find_events_file,
     format_case_runs,
+    format_case_run_debug,
     format_events_search,
     list_case_runs,
-    resolve_case_events,
+    scan_case_runs,
     select_case_run,
 )
 from fetchgraph.tracer.export import (
@@ -43,6 +45,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Filter replay_case by meta.provider (case-insensitive)",
     )
     export.add_argument("--run-dir", type=Path, default=None, help="Run dir (required for file resources)")
+    export.add_argument("--run-id", default=None, help="Run id (select case dir within runs root)")
+    export.add_argument("--case-dir", type=Path, default=None, help="Case dir (explicit path to case)")
     export.add_argument(
         "--allow-bad-json",
         action="store_true",
@@ -71,6 +75,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--print-resolve",
         action="store_true",
         help="Print resolved run_dir/events.jsonl",
+    )
+    export.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print debug information about candidate runs",
     )
     export.add_argument(
         "--select",
@@ -146,17 +155,39 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         if args.command == "export-case-bundle":
+            debug_enabled = args.debug or bool(os.getenv("DEBUG"))
             if args.events:
-                if args.case or args.data or args.tag:
-                    raise ValueError("Do not combine --events with --case/--data/--tag.")
+                if args.case or args.data or args.tag or args.run_id:
+                    raise ValueError("Do not combine --events with --case/--data/--tag/--run-id.")
                 events_path = args.events
-                run_dir = args.run_dir
+                run_dir = args.case_dir or args.run_dir
             else:
-                if args.run_dir:
-                    run_dir = args.run_dir
+                if args.case_dir and args.run_id:
+                    raise ValueError("Do not combine --case-dir with --run-id.")
+                if args.case_dir or args.run_dir:
+                    run_dir = args.case_dir or args.run_dir
+                    selection_rule = "explicit CASE_DIR" if args.case_dir else "explicit RUN_DIR"
+                elif args.run_id:
+                    if not args.case or not args.data:
+                        raise ValueError("--case and --data are required when --run-id is provided.")
+                    run_dir = _resolve_case_dir_from_run_id(
+                        data_dir=args.data,
+                        runs_subdir=args.runs_subdir,
+                        run_id=args.run_id,
+                        case_id=args.case,
+                    )
+                    selection_rule = f"explicit RUN_ID={args.run_id}"
                 else:
                     if not args.case or not args.data:
                         raise ValueError("--case and --data are required when --events is not provided.")
+                    infos, stats = scan_case_runs(
+                        case_id=args.case,
+                        data_dir=args.data,
+                        runs_subdir=args.runs_subdir,
+                    )
+                    if debug_enabled:
+                        print("Debug: case run candidates (most recent first):")
+                        print(format_case_run_debug(infos, limit=10))
                     candidates, stats = list_case_runs(
                         case_id=args.case,
                         data_dir=args.data,
@@ -166,19 +197,31 @@ def main(argv: list[str] | None = None) -> int:
                     if args.list_matches:
                         if not candidates:
                             raise LookupError(
-                                "No suitable case run found.\n"
-                                f"runs_root: {stats.runs_root}\n"
-                                f"case_id: {args.case}\n"
-                                f"inspected_runs: {stats.inspected_runs}"
+                                _format_case_run_error(
+                                    stats,
+                                    case_id=args.case,
+                                    tag=args.tag,
+                                )
                             )
                         print(format_case_runs(candidates, limit=20))
                         return 0
                     selected = select_case_run(candidates, select_index=args.select_index)
                     run_dir = selected.case_dir
-                events_resolution = find_events_file(run_dir)
-                if not events_resolution.events_path:
-                    raise FileNotFoundError(format_events_search(run_dir, events_resolution))
-                events_path = events_resolution.events_path
+                    selection_rule = "latest with events"
+                    if args.tag:
+                        selection_rule = f"latest with events filtered by TAG={args.tag!r}"
+                    events_path = selected.events_path
+                if "events_path" not in locals():
+                    events_resolution = find_events_file(run_dir)
+                    if not events_resolution.events_path:
+                        raise FileNotFoundError(
+                            _format_events_error(
+                                run_dir,
+                                events_resolution,
+                                selection_rule=selection_rule,
+                            )
+                        )
+                    events_path = events_resolution.events_path
                 if args.print_resolve:
                     print(f"Resolved run_dir: {run_dir}")
                     print(f"Resolved events.jsonl: {events_path}")
@@ -276,6 +319,61 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Unexpected error: {exc}", file=sys.stderr)
         return 1
     raise SystemExit(f"Unknown command: {args.command}")
+
+
+def _resolve_case_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: str, case_id: str) -> Path:
+    runs_root = data_dir / runs_subdir / run_id / "cases"
+    if not runs_root.exists():
+        raise FileNotFoundError(f"Run directory does not exist: {runs_root}")
+    case_dirs = sorted(runs_root.glob(f"{case_id}_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not case_dirs:
+        raise LookupError(
+            "No case directories found under run.\n"
+            f"run_id: {run_id}\n"
+            f"case_id: {case_id}\n"
+            f"runs_root: {runs_root}"
+        )
+    return case_dirs[0]
+
+
+def _format_case_run_error(stats, *, case_id: str, tag: str | None) -> str:
+    lines = [
+        "No suitable case run found.",
+        f"selection_rule: {'latest with events' if not tag else f'latest with events filtered by TAG={tag!r}'}",
+        f"runs_root: {stats.runs_root}",
+        f"case_id: {case_id}",
+        f"inspected_runs: {stats.inspected_runs}",
+        f"inspected_cases: {stats.inspected_cases}",
+        f"missing_cases: {stats.missing_cases}",
+        f"missing_events: {stats.missing_events}",
+    ]
+    if tag:
+        lines.append(f"tag: {tag}")
+        lines.append(f"tag_mismatches: {stats.tag_mismatches}")
+        if stats.recent:
+            lines.append("recent_cases:")
+            for info in stats.recent[:5]:
+                lines.append(
+                    "  "
+                    f"case_dir={info.case_dir} "
+                    f"tag={info.tag!r} "
+                    f"events={bool(info.events.events_path)}"
+                )
+        lines.append("Tip: verify TAG or pass RUN_ID/CASE_DIR/EVENTS.")
+    else:
+        lines.append("Tip: pass TAG/RUN_ID/CASE_DIR/EVENTS for a narrower selection.")
+    return "\n".join(lines)
+
+
+def _format_events_error(run_dir: Path, resolution, *, selection_rule: str) -> str:
+    return "\n".join(
+        [
+            f"Selected case_dir: {run_dir}",
+            f"selection_rule: {selection_rule}",
+            format_events_search(run_dir, resolution),
+            "Tip: rerun the case or pass EVENTS=... explicitly.",
+        ]
+    )
 
 
 if __name__ == "__main__":

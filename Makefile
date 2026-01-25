@@ -37,6 +37,7 @@ CLI    := $(PYTHON) -m examples.demo_qa.cli
 # 4) Пути demo_qa (можно переопределять через CLI или в $(CONFIG))
 # ==============================================================================
 DATA   ?= _demo_data/shop
+REPLAY_IDATA ?= $(DATA)
 SCHEMA ?=
 CASES  ?=
 OUT    ?= $(DATA)/.runs/results.jsonl
@@ -55,6 +56,8 @@ PROVIDER ?= demo_qa
 BUCKET ?= known_bad
 REPLAY_ID ?=
 EVENTS ?=
+RUN_ID ?=
+CASE_DIR ?=
 TRACER_ROOT ?= tests/fixtures/replay_cases
 TRACER_OUT_DIR ?= $(TRACER_ROOT)/$(BUCKET)
 RUN_DIR ?=
@@ -167,8 +170,8 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
-	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...]"
+	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_ID=...] [CASE_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
+	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
 	@echo "  make fixture-green CASE=path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
@@ -386,10 +389,13 @@ tracer-export:
 	  --spec-idx "$(SPEC_IDX)" \
 	  --out "$(TRACER_OUT_DIR)" \
 	  --case "$(CASE)" \
-	  --data "$(DATA)" \
+	  --data "$(REPLAY_IDATA)" \
 	  --provider "$(PROVIDER)" \
+	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
+	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	  $(if $(EVENTS),--events "$(EVENTS)",) \
+	  $(if $(TAG),--tag "$(TAG)",) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
 
@@ -397,8 +403,10 @@ tracer-ls:
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-ls CASE=agg_003" && exit 2)
 	@fetchgraph-tracer export-case-bundle \
 	  --case "$(CASE)" \
-	  --data "$(DATA)" \
+	  --data "$(REPLAY_IDATA)" \
 	  --out "$(TRACER_OUT_DIR)" \
+	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
+	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	  $(if $(EVENTS),--events "$(EVENTS)",) \
 	  $(if $(strip $(TAG)),--tag "$(TAG)",) \

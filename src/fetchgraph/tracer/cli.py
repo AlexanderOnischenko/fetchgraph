@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from fetchgraph.tracer.resolve import (
+    collect_rejections,
     find_events_file,
     format_case_runs,
     format_case_run_debug,
@@ -68,8 +69,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     export.add_argument(
         "--pick-run",
-        default="latest_non_missed",
-        help="Run selection strategy (default: latest_non_missed)",
+        default="latest_with_replay",
+        help="Run selection strategy (default: latest_with_replay)",
     )
     export.add_argument(
         "--print-resolve",
@@ -274,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     if not args.case or not args.data:
                         raise ValueError("--case and --data are required when --events is not provided.")
+                    if args.pick_run == "latest_with_replay" and not args.id:
+                        raise ValueError("--id is required when pick_run=latest_with_replay.")
                     infos, stats = scan_case_runs(
                         case_id=args.case,
                         data_dir=args.data,
@@ -286,6 +289,8 @@ def main(argv: list[str] | None = None) -> int:
                         case_id=args.case,
                         data_dir=args.data,
                         tag=args.tag,
+                        pick_run=args.pick_run,
+                        replay_id=args.id if args.pick_run == "latest_with_replay" else None,
                         runs_subdir=args.runs_subdir,
                     )
                     if args.list_matches:
@@ -295,15 +300,14 @@ def main(argv: list[str] | None = None) -> int:
                                     stats,
                                     case_id=args.case,
                                     tag=args.tag,
+                                    pick_run=args.pick_run,
                                 )
                             )
                         print(format_case_runs(candidates, limit=20))
                         return 0
                     selected = select_case_run(candidates, select_index=args.select_index)
                     run_dir = selected.case_dir
-                    selection_rule = "latest with events"
-                    if args.tag:
-                        selection_rule = f"latest with events filtered by TAG={args.tag!r}"
+                    selection_rule = _format_selection_rule(tag=args.tag, pick_run=args.pick_run)
                     events_path = selected.events_path
                 if events_path is None:
                     events_resolution = find_events_file(run_dir)
@@ -318,7 +322,24 @@ def main(argv: list[str] | None = None) -> int:
                     events_path = events_resolution.events_path
                 if args.print_resolve:
                     print(f"Resolved run_dir: {run_dir}")
+                    print(f"Resolved case_dir: {run_dir}")
                     print(f"Resolved events.jsonl: {events_path}")
+                    if not args.events and args.case and args.data:
+                        infos, _ = scan_case_runs(
+                            case_id=args.case,
+                            data_dir=args.data,
+                            runs_subdir=args.runs_subdir,
+                        )
+                        rejections = collect_rejections(
+                            infos,
+                            tag=args.tag,
+                            pick_run=args.pick_run,
+                            replay_id=args.id,
+                        )
+                        if rejections:
+                            print("Rejected candidates:")
+                            for reject in rejections:
+                                print(f"- {reject.case_dir} ({reject.reason})")
             if args.list_replay_matches:
                 if events_path is None:
                     raise ValueError("events_path was not resolved.")
@@ -524,10 +545,10 @@ def _resolve_case_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: s
     return case_dirs[0]
 
 
-def _format_case_run_error(stats, *, case_id: str, tag: str | None) -> str:
+def _format_case_run_error(stats, *, case_id: str, tag: str | None, pick_run: str = "latest_non_missed") -> str:
     lines = [
         "No suitable case run found.",
-        f"selection_rule: {'latest with events' if not tag else f'latest with events filtered by TAG={tag!r}'}",
+        f"selection_rule: {_format_selection_rule(tag=tag, pick_run=pick_run)}",
         f"runs_root: {stats.runs_root}",
         f"case_id: {case_id}",
         f"inspected_runs: {stats.inspected_runs}",
@@ -563,6 +584,15 @@ def _format_events_error(run_dir: Path, resolution, *, selection_rule: str) -> s
             "Tip: rerun the case or pass EVENTS=... explicitly.",
         ]
     )
+
+
+def _format_selection_rule(*, tag: str | None, pick_run: str) -> str:
+    base = "latest with events"
+    if pick_run == "latest_with_replay":
+        base = "latest with replay_case"
+    if tag:
+        return f"{base} filtered by TAG={tag!r}"
+    return base
 
 
 if __name__ == "__main__":

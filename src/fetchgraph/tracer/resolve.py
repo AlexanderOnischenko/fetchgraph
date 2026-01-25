@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from fetchgraph.replay.export import iter_events
+
 
 @dataclass(frozen=True)
 class CaseResolution:
@@ -47,6 +49,13 @@ class EventsResolution:
     found: list[Path]
 
 
+@dataclass(frozen=True)
+class RejectionReason:
+    run_dir: Path
+    case_dir: Path
+    reason: str
+
+
 def resolve_case_events(
     *,
     case_id: str,
@@ -55,19 +64,23 @@ def resolve_case_events(
     runs_subdir: str = ".runs/runs",
     pick_run: str = "latest_non_missed",
     select_index: int | None = None,
+    replay_id: str | None = None,
 ) -> CaseResolution:
     if not case_id:
         raise ValueError("case_id is required")
     if not data_dir:
         raise ValueError("data_dir is required")
-    if pick_run != "latest_non_missed":
+    if pick_run not in {"latest_non_missed", "latest_with_replay"}:
         raise ValueError(f"Unsupported pick_run mode: {pick_run}")
+    if pick_run == "latest_with_replay" and not replay_id:
+        raise ValueError("replay_id is required for latest_with_replay selection")
 
     candidates, stats = list_case_runs(
         case_id=case_id,
         data_dir=data_dir,
         tag=tag,
         pick_run=pick_run,
+        replay_id=replay_id,
         runs_subdir=runs_subdir,
     )
     if not candidates:
@@ -75,7 +88,7 @@ def resolve_case_events(
             stats,
             case_id=case_id,
             tag=tag,
-            rule=_resolve_rule(tag=tag),
+            rule=_resolve_rule(tag=tag, pick_run=pick_run),
         )
         raise LookupError(details)
 
@@ -118,6 +131,7 @@ def list_case_runs(
     data_dir: Path,
     tag: str | None = None,
     pick_run: str = "latest_non_missed",
+    replay_id: str | None = None,
     runs_subdir: str = ".runs/runs",
 ) -> tuple[list[CaseRunCandidate], RunScanStats]:
     infos, stats = scan_case_runs(
@@ -126,7 +140,7 @@ def list_case_runs(
         tag=tag,
         runs_subdir=runs_subdir,
     )
-    candidates = _filter_case_run_infos(infos, tag=tag, pick_run=pick_run)
+    candidates = _filter_case_run_infos(infos, tag=tag, pick_run=pick_run, replay_id=replay_id)
     return candidates, stats
 
 
@@ -198,6 +212,7 @@ def _filter_case_run_infos(
     *,
     tag: str | None = None,
     pick_run: str = "latest_non_missed",
+    replay_id: str | None = None,
 ) -> list[CaseRunCandidate]:
     candidates: list[CaseRunCandidate] = []
     for info in infos:
@@ -205,6 +220,11 @@ def _filter_case_run_infos(
             continue
         if pick_run == "latest_non_missed" and info.is_missed:
             continue
+        if pick_run == "latest_with_replay":
+            if replay_id is None:
+                raise ValueError("replay_id is required for latest_with_replay selection")
+            if not _has_replay_case_id(info.events.events_path, replay_id):
+                continue
         if tag and info.tag != tag:
             continue
         candidates.append(
@@ -448,10 +468,49 @@ def _payload_is_missed(payload: dict) -> bool:
     return "missed" in reason or "missing" in reason
 
 
-def _resolve_rule(*, tag: str | None) -> str:
+def _has_replay_case_id(events_path: Path, replay_id: str) -> bool:
+    try:
+        for _, event in iter_events(events_path, allow_bad_json=True):
+            if event.get("type") == "replay_case" and event.get("id") == replay_id:
+                return True
+    except FileNotFoundError:
+        return False
+    return False
+
+
+def collect_rejections(
+    infos: list[CaseRunInfo],
+    *,
+    tag: str | None,
+    pick_run: str,
+    replay_id: str | None,
+) -> list[RejectionReason]:
+    rejections: list[RejectionReason] = []
+    for info in infos:
+        if tag and info.tag != tag:
+            rejections.append(RejectionReason(info.run_dir, info.case_dir, "tag_mismatch"))
+            continue
+        if info.events.events_path is None:
+            rejections.append(RejectionReason(info.run_dir, info.case_dir, "no_events"))
+            continue
+        if pick_run == "latest_non_missed" and info.is_missed:
+            rejections.append(RejectionReason(info.run_dir, info.case_dir, "missed"))
+            continue
+        if pick_run == "latest_with_replay":
+            if replay_id is None or not _has_replay_case_id(info.events.events_path, replay_id):
+                rejections.append(RejectionReason(info.run_dir, info.case_dir, "no_replay_id"))
+                continue
+        rejections.append(RejectionReason(info.run_dir, info.case_dir, "filtered"))
+    return rejections
+
+
+def _resolve_rule(*, tag: str | None, pick_run: str = "latest_non_missed") -> str:
+    base = "latest with events"
+    if pick_run == "latest_with_replay":
+        base = "latest with replay_case"
     if tag:
-        return f"latest with events filtered by TAG={tag!r}"
-    return "latest with events"
+        return f"{base} filtered by TAG={tag!r}"
+    return base
 
 
 def _format_missing_case_runs(

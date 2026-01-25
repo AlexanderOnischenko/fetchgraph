@@ -1450,7 +1450,10 @@ def handle_case_open(args) -> int:
     plan = case_dir / "plan.json"
     answer = case_dir / "answer.txt"
     status = case_dir / "status.json"
-    for path in [plan, answer, status]:
+    events = case_dir / "events.jsonl"
+    error = case_dir / "error.txt"
+    schema_snapshot = case_dir / "schema_snapshot.yaml"
+    for path in [plan, answer, status, events, error, schema_snapshot]:
         if path.exists():
             print(f"- {path}")
     return 0

@@ -14,6 +14,7 @@ from ...relational.models import RelationalRequest
 from ...relational.normalize import normalize_relational_selectors
 from ...relational.providers.base import RelationalDataProvider
 from ...replay.log import EventLoggerLike, log_replay_case
+from ...replay.snapshots import snapshot_provider_info
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,18 @@ class PlanNormalizer:
             notes.append(note)
             rule_kind = rule.kind
             if replay_logger and rule_kind:
+                provider_info_snapshot = None
+                provider_info = self.provider_catalog.get(spec.provider)
+                if isinstance(provider_info, ProviderInfo):
+                    provider_info_snapshot = snapshot_provider_info(provider_info)
+                elif spec.provider in self.schema_registry:
+                    provider_info_snapshot = snapshot_provider_info(
+                        ProviderInfo(
+                            name=spec.provider,
+                            capabilities=[],
+                            selectors_schema=self.schema_registry[spec.provider],
+                        )
+                    )
                 input_payload = {
                     "spec": {
                         "provider": spec.provider,
@@ -188,6 +201,8 @@ class PlanNormalizer:
                     "options": asdict(self.options),
                     "normalizer_rules": {spec.provider: rule_kind},
                 }
+                if provider_info_snapshot:
+                    input_payload["provider_info_snapshot"] = provider_info_snapshot
                 observed_payload = {
                     "out_spec": {
                         "provider": spec.provider,

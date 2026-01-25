@@ -35,6 +35,7 @@
 - `id`: идентификатор обработчика
 - `meta`: опциональные метаданные (например `spec_idx`, `provider`)
 - `input`: вход для реплея
+- `input.provider_info_snapshot`: минимальный snapshot провайдера (например `selectors_schema`), чтобы реплей был детерминированным без extras
 - **ровно одно** из `observed` или `observed_error`
 - `requires`: список зависимостей `[{"kind":"extra"|"resource","id":"..."}]`
 
@@ -45,7 +46,7 @@
   "v": 2,
   "id": "plan_normalize.spec_v1",
   "meta": {"spec_idx": 0, "provider": "sql"},
-  "input": {"spec": {...}, "options": {...}},
+  "input": {"spec": {...}, "options": {...}, "provider_info_snapshot": {"name": "sql", "selectors_schema": {...}}},
   "observed": {"out_spec": {...}},
   "requires": [{"kind": "extra", "id": "planner_input_v1"}]
 }
@@ -81,7 +82,14 @@ log_replay_case(
     logger=event_log,
     id="plan_normalize.spec_v1",
     meta={"spec_idx": i, "provider": spec.provider},
-    input={"spec": spec.model_dump(), "options": options.model_dump()},
+    input={
+        "spec": spec.model_dump(),
+        "options": options.model_dump(),
+        "provider_info_snapshot": {
+            "name": spec.provider,
+            "selectors_schema": provider_info.selectors_schema,
+        },
+    },
     observed={"out_spec": out_spec},
     requires=[{"kind": "extra", "id": "planner_input_v1"}],
 )

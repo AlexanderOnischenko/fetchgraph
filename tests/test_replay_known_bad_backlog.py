@@ -65,12 +65,12 @@ def _format_common_block(
     return lines
 
 
-def _validate_root_schema(root: dict) -> None:
-    if root.get("schema") != "fetchgraph.tracer.case_bundle":
-        raise ValueError(f"Unexpected schema: {root.get('schema')!r}")
-    if root.get("v") != 1:
-        raise ValueError(f"Unexpected bundle version: {root.get('v')!r}")
-    root_case = root.get("root")
+def _validate_root_schema(bundle: dict) -> None:
+    if bundle.get("schema") != "fetchgraph.tracer.case_bundle":
+        raise ValueError(f"Unexpected schema: {bundle.get('schema')!r}")
+    if bundle.get("v") != 1:
+        raise ValueError(f"Unexpected bundle version: {bundle.get('v')!r}")
+    root_case = bundle.get("root")
     if not isinstance(root_case, dict):
         raise ValueError("Missing root replay_case entry.")
     if root_case.get("type") != "replay_case":
@@ -82,10 +82,13 @@ def _validate_root_schema(root: dict) -> None:
 @pytest.mark.known_bad
 @pytest.mark.parametrize("bundle_path", _iter_case_params())
 def test_known_bad_backlog(bundle_path: Path) -> None:
+    bundle_payload = json.loads(bundle_path.read_text(encoding="utf-8"))
+    if not isinstance(bundle_payload, dict):
+        pytest.fail(f"Unexpected bundle payload type: {type(bundle_payload)}", pytrace=False)
+    _validate_root_schema(bundle_payload)
     root, ctx = load_case_bundle(bundle_path)
     if not isinstance(root, dict):
-        pytest.fail(f"Unexpected bundle payload type: {type(root)}", pytrace=False)
-    _validate_root_schema(root)
+        pytest.fail(f"Unexpected replay_case payload type: {type(root)}", pytrace=False)
     replay_id = root.get("id")
     validator = VALIDATORS.get(replay_id)
     if validator is None:

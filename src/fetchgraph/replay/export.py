@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def iter_events(path: Path, *, allow_bad_json: bool = False) -> Iterable[tuple[int, dict]]:
+    skipped_count = 0
     with path.open("r", encoding="utf-8") as handle:
         for idx, line in enumerate(handle, start=1):
             line = line.strip()
@@ -24,9 +25,15 @@ def iter_events(path: Path, *, allow_bad_json: bool = False) -> Iterable[tuple[i
             try:
                 yield idx, json.loads(line)
             except json.JSONDecodeError as exc:
+                excerpt = line.replace("\t", " ").replace("\n", " ")
+                if len(excerpt) > 120:
+                    excerpt = f"{excerpt[:120]}…"
                 if allow_bad_json:
+                    skipped_count += 1
                     continue
-                raise ValueError(f"Invalid JSON on line {idx} in {path}: {exc.msg}") from exc
+                raise ValueError(f"Invalid JSON on line {idx}: {excerpt} in {path}") from exc
+    if skipped_count:
+        logger.warning("Skipped %d invalid JSON lines in %s", skipped_count, path)
 
 
 def canonical_json(payload: object) -> str:

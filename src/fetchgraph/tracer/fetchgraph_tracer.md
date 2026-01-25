@@ -270,3 +270,5 @@ def test_known_bad(case_path):
 2) Extras/Resources логируйте отдельными событиями (`planner_input`, `replay_resource`).
 3) Экспортируйте bundle через `export_replay_case_bundle(s)`.
 4) В тестах грузите bundle через `load_case_bundle` и запускайте `run_case`.
+
+Примечание: `log_replay_point` оставлен как deprecated alias, используйте `log_replay_case`.

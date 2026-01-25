@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .log import EventLoggerLike, log_replay_case
+from .log import EventLoggerLike, log_replay_case, log_replay_point
 from .runtime import REPLAY_HANDLERS, ReplayContext
 
 __all__ = [
@@ -8,4 +8,5 @@ __all__ = [
     "REPLAY_HANDLERS",
     "ReplayContext",
     "log_replay_case",
+    "log_replay_point",
 ]

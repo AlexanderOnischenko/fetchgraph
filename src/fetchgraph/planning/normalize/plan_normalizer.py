@@ -160,6 +160,13 @@ class PlanNormalizer:
             decision = "keep_original_valid" if before_ok else "keep_original_still_invalid"
             use = selectors_before
             after_ok = before_ok
+            rule_trace = [
+                {
+                    "stage": "select_rule",
+                    "provider": spec.provider,
+                    "rule_kind": rule.kind,
+                }
+            ]
             if not before_ok:
                 candidate = rule.normalize_selectors(copy.deepcopy(selectors_before))
                 after_ok = self._validate_selectors(rule.validator, candidate)
@@ -169,6 +176,28 @@ class PlanNormalizer:
                 elif candidate != selectors_before:
                     decision = "use_normalized_unvalidated"
                     use = candidate
+                rule_trace.append(
+                    {
+                        "stage": "normalize",
+                        "decision": decision,
+                        "changed": candidate != selectors_before,
+                        "validators": {
+                            "before_ok": before_ok,
+                            "after_ok": after_ok,
+                        },
+                    }
+                )
+            else:
+                rule_trace.append(
+                    {
+                        "stage": "validate",
+                        "decision": decision,
+                        "validators": {
+                            "before_ok": before_ok,
+                            "after_ok": after_ok,
+                        },
+                    }
+                )
             note = self._format_selectors_note(
                 spec.provider,
                 before_ok,
@@ -223,6 +252,7 @@ class PlanNormalizer:
                     diag={
                         "selectors_valid_before": before_ok,
                         "selectors_valid_after": after_ok,
+                        "rule_trace": rule_trace,
                     },
                     note=note,
                 )

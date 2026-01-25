@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
 import fetchgraph.tracer.handlers  # noqa: F401
+import tests.helpers.handlers_resource_read  # noqa: F401
 from fetchgraph.tracer.runtime import load_case_bundle, run_case
 from tests.helpers.replay_dx import (
     format_json,
@@ -88,3 +90,23 @@ def test_replay_case_resources_exist() -> None:
     if missing:
         details = "\n".join(f"- {fixture}: {resource}" for fixture, resource in missing)
         pytest.fail(f"Missing replay resources:\n{details}")
+
+
+def test_resource_read_missing_file(tmp_path: Path) -> None:
+    bundle_path = FIXED_DIR / "resource_read.v1__sample.case.json"
+    if not bundle_path.exists():
+        pytest.skip("Resource read fixture not available.")
+    target_bundle = tmp_path / bundle_path.name
+    resources_dir = FIXED_DIR / "resources" / "resource_read.v1__sample"
+    target_resources = tmp_path / "resources" / "resource_read.v1__sample"
+    target_resources.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bundle_path, target_bundle)
+    shutil.copytree(resources_dir, target_resources)
+
+    missing_path = target_resources / "sample" / "sample.txt"
+    if missing_path.exists():
+        missing_path.unlink()
+
+    root, ctx = load_case_bundle(target_bundle)
+    with pytest.raises(FileNotFoundError):
+        run_case(root, ctx)

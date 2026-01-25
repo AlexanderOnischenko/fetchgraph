@@ -61,6 +61,25 @@ def test_resolve_latest_with_events(tmp_path: Path) -> None:
     assert resolution.case_dir.parent.parent == run_old
 
 
+def test_resolve_latest_non_missed(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_old = runs_root / "run_old"
+    run_old.mkdir()
+    _make_case_dir(run_old, "case_4", "aaa", status="ok")
+    _set_mtime(run_old, 100)
+
+    run_new = runs_root / "run_new"
+    run_new.mkdir()
+    _make_case_dir(run_new, "case_4", "bbb", status="missed")
+    _set_mtime(run_new, 200)
+
+    resolution = resolve_case_events(case_id="case_4", data_dir=data_dir)
+    assert resolution.run_dir == run_old
+
+
 def test_resolve_with_tag(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     runs_root = data_dir / ".runs" / "runs"
@@ -78,6 +97,56 @@ def test_resolve_with_tag(tmp_path: Path) -> None:
 
     resolution = resolve_case_events(case_id="case_2", data_dir=data_dir, tag="alpha")
     assert resolution.run_dir == run_a
+
+
+def test_resolve_tag_from_run_meta(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_meta = runs_root / "run_meta"
+    run_meta.mkdir()
+    _write_json(run_meta / "run_meta.json", {"tag": "meta_tag"})
+    _make_case_dir(run_meta, "case_5", "aaa", status="ok")
+    _set_mtime(run_meta, 100)
+
+    run_other = runs_root / "run_other"
+    run_other.mkdir()
+    _make_case_dir(run_other, "case_5", "bbb", status="ok")
+    _set_mtime(run_other, 200)
+
+    resolution = resolve_case_events(case_id="case_5", data_dir=data_dir, tag="meta_tag")
+    assert resolution.run_dir == run_meta
+
+
+def test_resolve_tag_from_run_dir(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_dir = runs_root / "tag-known_bad"
+    run_dir.mkdir()
+    _make_case_dir(run_dir, "case_6", "aaa", status="ok")
+    _set_mtime(run_dir, 100)
+
+    resolution = resolve_case_events(case_id="case_6", data_dir=data_dir, tag="known_bad")
+    assert resolution.run_dir == run_dir
+
+
+def test_resolve_tag_from_events(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_dir = runs_root / "run_events"
+    run_dir.mkdir()
+    case_dir = _make_case_dir(run_dir, "case_7", "aaa", status="ok")
+    events_path = case_dir / "events.jsonl"
+    events_path.write_text('{"tag": "from_events"}\n', encoding="utf-8")
+    _set_mtime(run_dir, 100)
+
+    resolution = resolve_case_events(case_id="case_7", data_dir=data_dir, tag="from_events")
+    assert resolution.run_dir == run_dir
 
 
 def test_resolve_not_found(tmp_path: Path) -> None:

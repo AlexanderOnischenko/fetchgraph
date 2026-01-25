@@ -20,6 +20,9 @@ class CaseRunCandidate:
     case_dir: Path
     events_path: Path
     tag: str | None
+    tag_source: str | None
+    status: str | None
+    is_missed: bool
     run_mtime: float
     case_mtime: float
 
@@ -30,6 +33,9 @@ class CaseRunInfo:
     case_dir: Path
     events: "EventsResolution"
     tag: str | None
+    tag_source: str | None
+    status: str | None
+    is_missed: bool
     run_mtime: float
     case_mtime: float
 
@@ -61,6 +67,7 @@ def resolve_case_events(
         case_id=case_id,
         data_dir=data_dir,
         tag=tag,
+        pick_run=pick_run,
         runs_subdir=runs_subdir,
     )
     if not candidates:
@@ -100,6 +107,7 @@ class RunScanStats:
     inspected_cases: int
     missing_cases: int
     missing_events: int
+    missed_cases: int
     tag_mismatches: int
     recent: list[CaseRunInfo]
 
@@ -109,6 +117,7 @@ def list_case_runs(
     case_id: str,
     data_dir: Path,
     tag: str | None = None,
+    pick_run: str = "latest_non_missed",
     runs_subdir: str = ".runs/runs",
 ) -> tuple[list[CaseRunCandidate], RunScanStats]:
     infos, stats = scan_case_runs(
@@ -117,7 +126,7 @@ def list_case_runs(
         tag=tag,
         runs_subdir=runs_subdir,
     )
-    candidates = _filter_case_run_infos(infos, tag=tag)
+    candidates = _filter_case_run_infos(infos, tag=tag, pick_run=pick_run)
     return candidates, stats
 
 
@@ -137,6 +146,7 @@ def scan_case_runs(
     inspected_cases = 0
     missing_cases = 0
     missing_events = 0
+    missed_cases = 0
 
     for run_dir in _iter_run_dirs(runs_root):
         inspected_runs += 1
@@ -151,13 +161,19 @@ def scan_case_runs(
             if events.events_path is None:
                 missing_events += 1
             case_mtime = case_dir.stat().st_mtime
-            tag_value = _extract_case_tag(case_dir)
+            status_value, is_missed = _case_status(case_dir)
+            if is_missed:
+                missed_cases += 1
+            tag_value, tag_source = _extract_case_tag(case_dir)
             infos.append(
                 CaseRunInfo(
                     run_dir=run_dir,
                     case_dir=case_dir,
                     events=events,
                     tag=tag_value,
+                    tag_source=tag_source,
+                    status=status_value,
+                    is_missed=is_missed,
                     run_mtime=run_mtime,
                     case_mtime=case_mtime,
                 )
@@ -170,16 +186,24 @@ def scan_case_runs(
         inspected_cases=inspected_cases,
         missing_cases=missing_cases,
         missing_events=missing_events,
+        missed_cases=missed_cases,
         tag_mismatches=_count_tag_mismatches(infos, tag=tag),
         recent=infos[:10],
     )
     return infos, stats
 
 
-def _filter_case_run_infos(infos: list[CaseRunInfo], *, tag: str | None = None) -> list[CaseRunCandidate]:
+def _filter_case_run_infos(
+    infos: list[CaseRunInfo],
+    *,
+    tag: str | None = None,
+    pick_run: str = "latest_non_missed",
+) -> list[CaseRunCandidate]:
     candidates: list[CaseRunCandidate] = []
     for info in infos:
         if info.events.events_path is None:
+            continue
+        if pick_run == "latest_non_missed" and info.is_missed:
             continue
         if tag and info.tag != tag:
             continue
@@ -189,6 +213,9 @@ def _filter_case_run_infos(infos: list[CaseRunInfo], *, tag: str | None = None) 
                 case_dir=info.case_dir,
                 events_path=info.events.events_path,
                 tag=info.tag,
+                tag_source=info.tag_source,
+                status=info.status,
+                is_missed=info.is_missed,
                 run_mtime=info.run_mtime,
                 case_mtime=info.case_mtime,
             )
@@ -224,6 +251,8 @@ def format_case_runs(candidates: list[CaseRunCandidate], *, limit: int | None = 
             f"{idx}. run_dir={candidate.run_dir} "
             f"case_dir={candidate.case_dir.name} "
             f"tag={candidate.tag!r} "
+            f"status={candidate.status!r} "
+            f"missed={candidate.is_missed} "
             f"run_mtime={candidate.run_mtime:.0f} "
             f"case_mtime={candidate.case_mtime:.0f}"
         )
@@ -240,6 +269,9 @@ def format_case_run_debug(infos: list[CaseRunInfo], *, limit: int = 10) -> str:
             f"{idx}. run_dir={info.run_dir} "
             f"case_dir={info.case_dir.name} "
             f"tag={info.tag!r} "
+            f"tag_source={info.tag_source!r} "
+            f"status={info.status!r} "
+            f"missed={info.is_missed} "
             f"events={bool(info.events.events_path)} "
             f"run_mtime={info.run_mtime:.0f} "
             f"case_mtime={info.case_mtime:.0f}"
@@ -299,24 +331,81 @@ def format_events_search(run_dir: Path, resolution: EventsResolution) -> str:
     )
 
 
-def _extract_case_tag(case_dir: Path) -> str | None:
-    for name in ("status.json", "result.json"):
-        path = case_dir / name
-        if not path.exists():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-        tag = _extract_tag_value(payload)
+def _extract_case_tag(case_dir: Path) -> tuple[str | None, str | None]:
+    run_dir = case_dir.parent.parent
+    for name in ("run_meta.json", "meta.json"):
+        tag = _extract_tag_from_json(run_dir / name)
         if tag:
-            return tag
-        for meta_key in ("run_meta", "meta"):
-            nested = payload.get(meta_key)
-            if isinstance(nested, dict):
-                tag = _extract_tag_value(nested)
-                if tag:
-                    return tag
+            return tag, name
+    tag = _extract_tag_from_json(run_dir / "summary.json")
+    if tag:
+        return tag, "summary.json"
+    for name in ("status.json", "result.json"):
+        tag = _extract_tag_from_json(case_dir / name)
+        if tag:
+            return tag, name
+    tag = _tag_from_run_dir_name(run_dir.name)
+    if tag:
+        return tag, "run_dir"
+    events = find_events_file(case_dir)
+    if events.events_path:
+        tag = _extract_tag_from_events(events.events_path)
+        if tag:
+            return tag, "events"
+    return None, None
+
+
+def _extract_tag_from_json(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    tag = _extract_tag_value(payload)
+    if tag:
+        return tag
+    for meta_key in ("run_meta", "meta"):
+        nested = payload.get(meta_key)
+        if isinstance(nested, dict):
+            tag = _extract_tag_value(nested)
+            if tag:
+                return tag
+    return None
+
+
+def _extract_tag_from_events(path: Path, *, max_lines: int = 200) -> str | None:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for idx, line in enumerate(handle, start=1):
+                if idx > max_lines:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    tag = _extract_tag_value(payload)
+                    if tag:
+                        return tag
+    except OSError:
+        return None
+    return None
+
+
+def _tag_from_run_dir_name(name: str) -> str | None:
+    if not name:
+        return None
+    lowered = name.lower()
+    for prefix in ("tag=", "tag-", "bucket=", "bucket-"):
+        if prefix in lowered:
+            tail = lowered.split(prefix, 1)[1].strip()
+            return tail or None
     return None
 
 
@@ -331,6 +420,32 @@ def _extract_tag_value(payload: dict) -> str | None:
             if isinstance(entry, str) and entry:
                 return entry
     return None
+
+
+def _case_status(case_dir: Path) -> tuple[str | None, bool]:
+    for name in ("status.json", "result.json"):
+        path = case_dir / name
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        status_value = payload.get("status") or payload.get("result")
+        status_str = str(status_value) if status_value is not None else None
+        is_missed = _payload_is_missed(payload)
+        return status_str, is_missed
+    return None, False
+
+
+def _payload_is_missed(payload: dict) -> bool:
+    if payload.get("missed") is True:
+        return True
+    status = str(payload.get("status") or payload.get("result") or "").lower()
+    if status in {"missed", "missing"}:
+        return True
+    reason = str(payload.get("reason") or "").lower()
+    return "missed" in reason or "missing" in reason
 
 
 def _resolve_rule(*, tag: str | None) -> str:
@@ -355,6 +470,7 @@ def _format_missing_case_runs(
         f"inspected_cases: {stats.inspected_cases}",
         f"missing_cases: {stats.missing_cases}",
         f"missing_events: {stats.missing_events}",
+        f"missed_cases: {stats.missed_cases}",
     ]
     if tag:
         details.append(f"tag: {tag}")
@@ -366,7 +482,9 @@ def _format_missing_case_runs(
                     "  "
                     f"case_dir={info.case_dir} "
                     f"tag={info.tag!r} "
-                    f"events={bool(info.events.events_path)}"
+                    f"events={bool(info.events.events_path)} "
+                    f"status={info.status!r} "
+                    f"missed={info.is_missed}"
                 )
         details.append("Tip: verify TAG or pass RUN_ID/CASE_DIR/EVENTS.")
     else:

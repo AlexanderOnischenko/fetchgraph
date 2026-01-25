@@ -112,6 +112,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Overwrite existing expected output",
     )
     green.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    green.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving/removing fixtures",
+    )
 
     rm_cmd = sub.add_parser("fixture-rm", help="Remove replay fixtures")
     rm_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -130,6 +136,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="What to remove",
     )
     rm_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    rm_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when removing fixtures",
+    )
 
     fix_cmd = sub.add_parser("fixture-fix", help="Rename fixture stem")
     fix_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -137,6 +149,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     fix_cmd.add_argument("--name", required=True, help="Old fixture stem")
     fix_cmd.add_argument("--new-name", required=True, help="New fixture stem")
     fix_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    fix_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving fixtures",
+    )
 
     migrate_cmd = sub.add_parser("fixture-migrate", help="Normalize resource layout")
     migrate_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
@@ -147,6 +165,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Fixture bucket",
     )
     migrate_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    migrate_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving fixtures",
+    )
 
     return parser.parse_args(argv)
 
@@ -287,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
                 validate=args.validate,
                 overwrite_expected=args.overwrite_expected,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             return 0
         if args.command == "fixture-rm":
@@ -297,6 +322,7 @@ def main(argv: list[str] | None = None) -> int:
                 pattern=args.pattern,
                 scope=args.scope,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             print(f"Removed {removed} paths")
             return 0
@@ -307,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
                 name=args.name,
                 new_name=args.new_name,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             return 0
         if args.command == "fixture-migrate":
@@ -314,6 +341,7 @@ def main(argv: list[str] | None = None) -> int:
                 root=args.root,
                 bucket=args.bucket,
                 dry_run=args.dry_run,
+                git_mode=args.git,
             )
             print(f"Updated {bundles_updated} bundles; moved {files_moved} files")
             return 0
@@ -351,6 +379,7 @@ def _format_case_run_error(stats, *, case_id: str, tag: str | None) -> str:
         f"inspected_cases: {stats.inspected_cases}",
         f"missing_cases: {stats.missing_cases}",
         f"missing_events: {stats.missing_events}",
+        f"missed_cases: {stats.missed_cases}",
     ]
     if tag:
         lines.append(f"tag: {tag}")

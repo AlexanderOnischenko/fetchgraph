@@ -31,7 +31,6 @@ DEFAULT_CASES  := examples/demo_qa/cases/retail_cases.json
 VENV   ?= .venv
 PYTHON ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python)
 CLI    := $(PYTHON) -m examples.demo_qa.cli
-CLI_FIXT := $(PYTHON) -m examples.demo_qa.fixture_tools
 
 # ==============================================================================
 # 4) Пути demo_qa (можно переопределять через CLI или в $(CONFIG))
@@ -115,7 +114,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
         stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export \
-        fixture-rm fixture-fix fixture-migrate compare compare-tag
+        compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -165,7 +164,6 @@ help:
 	@echo "  make tracer-export REPLAY_ID=... EVENTS=... TRACER_OUT_DIR=... [SPEC_IDX=...] [PROVIDER=...] [RUN_DIR=...] [ALLOW_BAD_JSON=1] [OVERWRITE=1]"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/..."
-	@echo "  fixture-rm/fix/migrate используют legacy layout (examples.demo_qa.fixture_tools)"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
@@ -366,14 +364,8 @@ tracer-export:
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,)
 
-fixture-rm:
-	@$(CLI_FIXT) rm --name "$(NAME)" --pattern "$(PATTERN)" --bucket "$(BUCKET)" --scope "$(SCOPE)" --with-resources "$(WITH_RESOURCES)" --dry "$(DRY)"
 
-fixture-fix:
-	@$(CLI_FIXT) fix --name "$(NAME)" --pattern "$(PATTERN)" --case "$(CASE)" --move-traces "$(MOVE_TRACES)" --dry "$(DRY)"
 
-fixture-migrate:
-	@$(CLI_FIXT) migrate --bucket "$(BUCKET)" --dry "$(DRY)"
 
 # compare (diff.md + junit)
 compare: check

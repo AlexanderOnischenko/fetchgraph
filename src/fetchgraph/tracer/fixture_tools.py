@@ -163,8 +163,8 @@ def fixture_rm(
     dry_run: bool,
 ) -> int:
     root = root.resolve()
-    bucket = None if bucket == "all" else bucket
-    matched = find_case_bundles(root=root, bucket=bucket, name=name, pattern=pattern)
+    bucket_filter: str | None = None if bucket == "all" else bucket
+    matched = find_case_bundles(root=root, bucket=bucket_filter, name=name, pattern=pattern)
 
     if name and not matched:
         raise FileNotFoundError(f"No fixtures found for name={name!r}")

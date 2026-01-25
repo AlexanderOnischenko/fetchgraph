@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from fetchgraph.tracer.auto_resolve import resolve_case_events
+from fetchgraph.tracer.resolve import resolve_case_events
 
 
 def _write_json(path: Path, payload: dict) -> None:

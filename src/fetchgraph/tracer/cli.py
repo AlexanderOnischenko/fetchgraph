@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from fetchgraph.tracer.auto_resolve import resolve_case_events
+from fetchgraph.tracer.resolve import resolve_case_events
 from fetchgraph.tracer.export import (
     export_replay_case_bundle,
     export_replay_case_bundles,

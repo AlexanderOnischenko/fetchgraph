@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Dict, Protocol
+from typing import Any, Dict, Protocol, TypedDict, cast
 
 TRACE_LIMIT = 20_000
 
@@ -91,6 +91,22 @@ def log_replay_point(logger: EventLoggerLike, **kwargs: object) -> None:
         DeprecationWarning,
         stacklevel=2,
     )
-    if "observed" not in kwargs and "expected" in kwargs:
-        kwargs = {**kwargs, "observed": kwargs.pop("expected")}
-    log_replay_case(logger, **kwargs)
+    payload = dict(kwargs)
+    if "observed" not in payload and "expected" in payload:
+        payload["observed"] = payload.pop("expected")
+
+    class _ReplayPointArgs(TypedDict, total=False):
+        id: str
+        input: dict
+        meta: dict | None
+        observed: dict | None
+        observed_error: dict | None
+        requires: list[dict] | None
+        note: str | None
+        diag: dict | None
+
+    typed_payload: _ReplayPointArgs = {}
+    for key in _ReplayPointArgs.__annotations__:
+        if key in payload:
+            typed_payload[key] = cast(Any, payload[key])
+    log_replay_case(logger, **typed_payload)

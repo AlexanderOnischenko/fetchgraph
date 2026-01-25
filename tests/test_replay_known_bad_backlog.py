@@ -90,6 +90,8 @@ def test_known_bad_backlog(bundle_path: Path) -> None:
     if not isinstance(root, dict):
         pytest.fail(f"Unexpected replay_case payload type: {type(root)}", pytrace=False)
     replay_id = root.get("id")
+    if not isinstance(replay_id, str):
+        pytest.fail("Replay id missing or invalid in bundle root.", pytrace=False)
     validator = VALIDATORS.get(replay_id)
     if validator is None:
         pytest.fail(

@@ -10,6 +10,7 @@ from pathlib import Path
 from .diff_utils import first_diff_path
 from .fixture_layout import FixtureLayout, find_case_bundles
 from .runtime import load_case_bundle, run_case
+from .validators import REPLAY_VALIDATORS
 
 
 @dataclass(frozen=True)
@@ -474,6 +475,11 @@ def fixture_green(
             expected = json.loads(fixed_expected_path.read_text(encoding="utf-8"))
             if out != expected:
                 raise AssertionError(_format_fixture_diff(out, expected))
+            replay_id = root_case.get("id") if isinstance(root_case, dict) else None
+            validator = REPLAY_VALIDATORS.get(replay_id)
+            if validator is None:
+                raise AssertionError(f"No validator registered for replay id={replay_id!r}")
+            validator(out)
         except Exception as exc:
             tx.rollback()
             if fixed_expected_path.exists():

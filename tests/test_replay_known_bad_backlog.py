@@ -3,14 +3,12 @@ from __future__ import annotations
 import json
 import traceback
 from pathlib import Path
-from typing import Callable
-
 import pytest
 from pydantic import ValidationError
 
 import fetchgraph.tracer.handlers  # noqa: F401
 from fetchgraph.tracer.runtime import load_case_bundle, run_case
-from fetchgraph.tracer.validators import validate_plan_normalize_spec_v1
+from fetchgraph.tracer.validators import REPLAY_VALIDATORS
 from tests.helpers.replay_dx import (
     build_rerun_hints,
     debug_enabled,
@@ -24,11 +22,6 @@ from tests.helpers.replay_dx import (
 
 REPLAY_CASES_ROOT = Path(__file__).parent / "fixtures" / "replay_cases"
 KNOWN_BAD_DIR = REPLAY_CASES_ROOT / "known_bad"
-
-VALIDATORS: dict[str, Callable[[dict], None]] = {
-    "plan_normalize.spec_v1": validate_plan_normalize_spec_v1,
-}
-
 
 def _iter_known_bad_paths() -> list[Path]:
     if not KNOWN_BAD_DIR.exists():
@@ -93,10 +86,10 @@ def test_known_bad_backlog(bundle_path: Path) -> None:
     if not isinstance(replay_id, str) or not replay_id:
         pytest.fail("Replay id missing or invalid in bundle root.", pytrace=False)
     replay_id_str: str = replay_id
-    validator = VALIDATORS.get(replay_id_str)
+    validator = REPLAY_VALIDATORS.get(replay_id_str)
     if validator is None:
         pytest.fail(
-            f"No validator registered for replay id={replay_id!r}. Add it to VALIDATORS.",
+            f"No validator registered for replay id={replay_id!r}. Add it to REPLAY_VALIDATORS.",
             pytrace=False,
         )
     input_limit, meta_limit = truncate_limits()

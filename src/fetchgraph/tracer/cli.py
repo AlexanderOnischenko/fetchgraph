@@ -248,6 +248,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
+        case_dir: Path | None = None
         if args.command == "export-case-bundle":
             debug_enabled = args.debug or bool(os.getenv("DEBUG"))
             events_path: Path | None = None
@@ -261,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("Do not combine --case-dir with --run-id.")
                 if args.case_dir or args.run_dir:
                     run_dir = args.case_dir or args.run_dir
+                    case_dir = args.case_dir
                     selection_rule = "explicit CASE_DIR" if args.case_dir else "explicit RUN_DIR"
                 elif args.run_id:
                     if not args.case or not args.data:
@@ -271,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
                         run_id=args.run_id,
                         case_id=args.case,
                     )
+                    case_dir = run_dir
                     selection_rule = f"explicit RUN_ID={args.run_id}"
                 else:
                     if not args.case or not args.data:
@@ -307,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
                         return 0
                     selected = select_case_run(candidates, select_index=args.select_index)
                     run_dir = selected.case_dir
+                    case_dir = selected.case_dir
                     selection_rule = _format_selection_rule(tag=args.tag, pick_run=args.pick_run)
                     events_path = selected.events_path
                 if events_path is None:
@@ -322,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
                     events_path = events_resolution.events_path
                 if args.print_resolve:
                     print(f"Resolved run_dir: {run_dir}")
-                    print(f"Resolved case_dir: {run_dir}")
+                    print(f"Resolved case_dir: {case_dir or 'n/a'}")
                     print(f"Resolved events.jsonl: {events_path}")
                     if not args.events and args.case and args.data:
                         infos, _ = scan_case_runs(
@@ -521,9 +525,15 @@ def main(argv: list[str] | None = None) -> int:
                 all_matches=args.all,
             )
             return 0
-    except (ValueError, FileNotFoundError, LookupError, KeyError) as exc:
+    except (ValueError, FileNotFoundError, LookupError, KeyError, FileExistsError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    except PermissionError as exc:
+        print(f"Permission error: {exc}", file=sys.stderr)
+        return 3
+    except OSError as exc:
+        print(f"System error: {exc}", file=sys.stderr)
+        return 3
     except Exception as exc:  # pragma: no cover - unexpected
         print(f"Unexpected error: {exc}", file=sys.stderr)
         return 1

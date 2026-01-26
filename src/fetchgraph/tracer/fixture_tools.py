@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from .fixture_layout import FixtureLayout, find_case_bundles
@@ -58,6 +59,22 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
         encoding="utf-8",
     )
     tmp_path.replace(path)
+
+
+def _parse_source_timestamp(value: object) -> float | None:
+    if not isinstance(value, str) or not value:
+        return None
+    cleaned = value
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+    try:
+        return parsed.timestamp()
+    except OSError:
+        return None
 
 
 def resolve_fixture_candidates(
@@ -143,15 +160,16 @@ def select_fixture_candidate(
             raise ValueError(f"select_index must be between 1 and {len(candidates)}")
         return candidates[select_index - 1]
 
-    def _sort_key(candidate: FixtureCandidate) -> tuple[str, float]:
+    def _sort_key(candidate: FixtureCandidate) -> tuple[float, float]:
         timestamp = candidate.source.get("timestamp")
-        run_id = candidate.source.get("run_id")
-        time_key = f"{timestamp or ''}{run_id or ''}"
+        ts_key = _parse_source_timestamp(timestamp)
         try:
             mtime = candidate.path.stat().st_mtime
         except OSError:
             mtime = 0.0
-        return (time_key, mtime)
+        if ts_key is None:
+            return (mtime, mtime)
+        return (ts_key, mtime)
 
     ordered = sorted(candidates, key=_sort_key)
     if select in {"latest", "last"}:
@@ -256,6 +274,38 @@ class _GitOps:
         return _git_tracked(self.root, path)
 
 
+class _Rollback:
+    def __init__(self) -> None:
+        self._actions: list[callable] = []
+
+    def add(self, action: callable) -> None:
+        self._actions.append(action)
+
+    def rollback(self) -> None:
+        for action in reversed(self._actions):
+            try:
+                action()
+            except Exception:
+                continue
+
+
+def _unique_backup_path(path: Path) -> Path:
+    candidate = path.with_suffix(path.suffix + ".bak")
+    counter = 1
+    while candidate.exists():
+        candidate = path.with_suffix(f"{path.suffix}.bak{counter}")
+        counter += 1
+    return candidate
+
+
+def _restore_case_text(case_path: Path, new_case_path: Path, original_text: str) -> None:
+    if case_path.exists():
+        case_path.write_text(original_text, encoding="utf-8")
+        return
+    if new_case_path.exists():
+        new_case_path.write_text(original_text, encoding="utf-8")
+
+
 def fixture_green(
     *,
     case_path: Path | None = None,
@@ -355,31 +405,41 @@ def fixture_green(
         json.dumps(observed, ensure_ascii=False, sort_keys=True, indent=2),
         encoding="utf-8",
     )
+    rollback = _Rollback()
+    backup_expected: Path | None = None
     try:
         fixed_case_path.parent.mkdir(parents=True, exist_ok=True)
         git_ops.move(known_case_path, fixed_case_path)
+        rollback.add(lambda: git_ops.move(fixed_case_path, known_case_path))
 
         if resources_from.exists():
             resources_to.parent.mkdir(parents=True, exist_ok=True)
             git_ops.move(resources_from, resources_to)
+            rollback.add(lambda: git_ops.move(resources_to, resources_from))
 
         if known_expected_path.exists():
-            git_ops.remove(known_expected_path)
+            backup_expected = _unique_backup_path(known_expected_path)
+            git_ops.move(known_expected_path, backup_expected)
+            rollback.add(lambda: git_ops.move(backup_expected, known_expected_path))
 
         tmp_expected_path.replace(fixed_expected_path)
+        rollback.add(lambda: git_ops.remove(fixed_expected_path))
+
+        if validate:
+            import fetchgraph.tracer.handlers  # noqa: F401
+
+            root_case, ctx = load_case_bundle(fixed_case_path)
+            out = run_case(root_case, ctx)
+            expected = json.loads(fixed_expected_path.read_text(encoding="utf-8"))
+            if out != expected:
+                raise AssertionError("Replay output does not match expected after fixture-green")
     except Exception:
         if tmp_expected_path.exists():
             tmp_expected_path.unlink()
+        rollback.rollback()
         raise
-
-    if validate:
-        import fetchgraph.tracer.handlers  # noqa: F401
-
-        root_case, ctx = load_case_bundle(fixed_case_path)
-        out = run_case(root_case, ctx)
-        expected = json.loads(fixed_expected_path.read_text(encoding="utf-8"))
-        if out != expected:
-            raise AssertionError("Replay output does not match expected after fixture-green")
+    if backup_expected is not None:
+        git_ops.remove(backup_expected)
 
     print("fixture-green:")
     print(f"  case:   {known_case_path}")
@@ -483,6 +543,7 @@ def fixture_fix(
         raise FileExistsError(f"Target resources already exist: {new_resources_dir}")
 
     payload = load_bundle_json(case_path)
+    original_case_text: str | None = None
     resources = payload.get("resources") or {}
     updated = False
     if isinstance(resources, dict):
@@ -501,6 +562,8 @@ def fixture_fix(
             if rel_posix.startswith(old_prefix):
                 data_ref["file"] = f"resources/{new_name}/{rel_posix[len(old_prefix):]}"
                 updated = True
+    if updated:
+        original_case_text = case_path.read_text(encoding="utf-8")
 
     if dry_run:
         print("fixture-fix:")
@@ -513,14 +576,29 @@ def fixture_fix(
             print("  rewrite: data_ref.file paths updated")
         return
 
-    new_case_path.parent.mkdir(parents=True, exist_ok=True)
-    git_ops.move(case_path, new_case_path)
-    if expected_path.exists():
-        git_ops.move(expected_path, new_expected_path)
-    if resources_dir.exists():
-        git_ops.move(resources_dir, new_resources_dir)
-    if updated:
-        _atomic_write_json(new_case_path, payload)
+    rollback = _Rollback()
+    try:
+        new_case_path.parent.mkdir(parents=True, exist_ok=True)
+        git_ops.move(case_path, new_case_path)
+        rollback.add(lambda: git_ops.move(new_case_path, case_path))
+        if expected_path.exists():
+            git_ops.move(expected_path, new_expected_path)
+            rollback.add(lambda: git_ops.move(new_expected_path, expected_path))
+        if resources_dir.exists():
+            git_ops.move(resources_dir, new_resources_dir)
+            rollback.add(lambda: git_ops.move(new_resources_dir, resources_dir))
+        if updated:
+            _atomic_write_json(new_case_path, payload)
+            rollback.add(
+                lambda: _restore_case_text(
+                    case_path,
+                    new_case_path,
+                    original_case_text or "",
+                )
+            )
+    except Exception:
+        rollback.rollback()
+        raise
 
     print("fixture-fix:")
     print(f"  rename: {case_path} -> {new_case_path}")
@@ -704,14 +782,22 @@ def fixture_demote(
                 print(f"  move:   {from_resources} -> {to_resources}")
             continue
 
-        to_case.parent.mkdir(parents=True, exist_ok=True)
-        git_ops.move(from_case, to_case)
-        if from_expected.exists():
-            to_expected.parent.mkdir(parents=True, exist_ok=True)
-            git_ops.move(from_expected, to_expected)
-        if from_resources.exists():
-            to_resources.parent.mkdir(parents=True, exist_ok=True)
-            git_ops.move(from_resources, to_resources)
+        rollback = _Rollback()
+        try:
+            to_case.parent.mkdir(parents=True, exist_ok=True)
+            git_ops.move(from_case, to_case)
+            rollback.add(lambda: git_ops.move(to_case, from_case))
+            if from_expected.exists():
+                to_expected.parent.mkdir(parents=True, exist_ok=True)
+                git_ops.move(from_expected, to_expected)
+                rollback.add(lambda: git_ops.move(to_expected, from_expected))
+            if from_resources.exists():
+                to_resources.parent.mkdir(parents=True, exist_ok=True)
+                git_ops.move(from_resources, to_resources)
+                rollback.add(lambda: git_ops.move(to_resources, from_resources))
+        except Exception:
+            rollback.rollback()
+            raise
 
         print("fixture-demote:")
         print(f"  case:   {from_case}")

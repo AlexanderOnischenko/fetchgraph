@@ -57,8 +57,12 @@ def _match_meta(event: dict, *, spec_idx: int | None, provider: str | None) -> b
     meta = event.get("meta")
     if not isinstance(meta, dict):
         return False
-    if spec_idx is not None and meta.get("spec_idx") != spec_idx:
-        return False
+    if spec_idx is not None:
+        meta_spec_idx = meta.get("spec_idx")
+        if isinstance(meta_spec_idx, str) and meta_spec_idx.isdigit():
+            meta_spec_idx = int(meta_spec_idx)
+        if meta_spec_idx != spec_idx:
+            return False
     if provider is not None:
         p = meta.get("provider")
         if not isinstance(p, str):
@@ -167,7 +171,7 @@ def _select_replay_case(
     if require_unique and len(selections) > 1:
         details = format_replay_case_matches(selections)
         raise LookupError(
-            "Multiple replay_case entries matched; run with --select/--select-index/--list-matches.\n"
+            "Multiple replay_case entries matched; run with --select/--select-index/--list-replay-matches.\n"
             f"{details}"
         )
     if len(selections) == 1:
@@ -180,10 +184,11 @@ def _select_replay_case(
     selection_policy = selection_policy or "latest"
     if allow_prompt and prompt_fn is not None:
         details = format_replay_case_matches(selections)
+        count = len(selections)
         prompt = (
             "Multiple replay_case entries matched:\n"
             f"{details}\n"
-            "Select entry (1..N) or press Enter for latest: "
+            f"Select entry (1..{count}) or press Enter for latest: "
         )
         response = prompt_fn(prompt).strip()
         if response:
@@ -501,6 +506,8 @@ def export_replay_case_bundle(
         extras=extras_index,
         events_path=events_path,
     )
+    if resources and run_dir is None:
+        raise ValueError("run_dir is required to export resources; pass --run-dir/--case-dir.")
     resources = copy.deepcopy(resources)
     extras = copy.deepcopy(extras)
     fixture_name = case_bundle_name(replay_id, root_event["input"])
@@ -574,6 +581,8 @@ def export_replay_case_bundles(
             extras=extras_index,
             events_path=events_path,
         )
+        if resources and run_dir is None:
+            raise ValueError("run_dir is required to export resources; pass --run-dir/--case-dir.")
         resources = copy.deepcopy(resources)
         extras = copy.deepcopy(extras)
         fixture_name = case_bundle_name(replay_id, root_event["input"])

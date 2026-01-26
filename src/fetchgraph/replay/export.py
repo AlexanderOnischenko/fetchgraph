@@ -226,19 +226,34 @@ def index_requires(
     return resources, extras
 
 
-def resolve_requires(
+def _format_replay_case_ref(replay_case: dict | None) -> str:
+    if not isinstance(replay_case, dict):
+        return ""
+    replay_id = replay_case.get("id")
+    meta = replay_case.get("meta") if isinstance(replay_case.get("meta"), dict) else {}
+    provider = meta.get("provider")
+    spec_idx = meta.get("spec_idx")
+    details = []
+    if isinstance(replay_id, str):
+        details.append(f"id={replay_id!r}")
+    if provider is not None:
+        details.append(f"provider={provider!r}")
+    if spec_idx is not None:
+        details.append(f"spec_idx={spec_idx!r}")
+    if not details:
+        return ""
+    return " (replay_case " + ", ".join(details) + ")"
+
+
+def _normalize_requires(
     requires: list[dict] | list[str],
     *,
     resources: dict[str, dict],
     extras: dict[str, dict],
     events_path: Path,
-) -> tuple[dict[str, dict], dict[str, dict]]:
-    if not requires:
-        return {}, {}
-
-    normalized_requires: list[dict]
+) -> list[dict]:
+    normalized_requires: list[dict] = []
     if isinstance(requires, list) and all(isinstance(req, str) for req in requires):
-        normalized_requires = []
         for req_id in requires:
             if req_id in resources:
                 normalized_requires.append({"kind": "resource", "id": req_id})
@@ -248,8 +263,8 @@ def resolve_requires(
                 raise ValueError(
                     f"Unknown dependency {req_id!r} in {events_path}; requires must be updated to replay_case v2."
                 )
-    elif isinstance(requires, list):
-        normalized_requires = []
+        return normalized_requires
+    if isinstance(requires, list):
         for req in requires:
             if not isinstance(req, dict):
                 raise ValueError("requires must be a list of objects with kind/id fields")
@@ -258,24 +273,109 @@ def resolve_requires(
             if not isinstance(req.get("id"), str) or not req.get("id"):
                 raise ValueError("requires entries must include a non-empty id")
             normalized_requires.append({"kind": req["kind"], "id": req["id"]})
-    else:
-        raise ValueError("requires must be a list of objects with kind/id fields")
+        return normalized_requires
+    raise ValueError("requires must be a list of objects with kind/id fields")
+
+
+def _extract_extra_requires(
+    extra: dict,
+    *,
+    resources: dict[str, dict],
+    extras: dict[str, dict],
+    events_path: Path,
+) -> list[dict]:
+    requirements: list[dict] = []
+    extra_requires = extra.get("requires")
+    if isinstance(extra_requires, list) and extra_requires:
+        requirements.extend(
+            _normalize_requires(
+                extra_requires,
+                resources=resources,
+                extras=extras,
+                events_path=events_path,
+            )
+        )
+    schema_ref = extra.get("schema_ref")
+    if isinstance(schema_ref, str) and schema_ref:
+        requirements.append({"kind": "resource", "id": schema_ref})
+    extra_input = extra.get("input") if isinstance(extra.get("input"), dict) else {}
+    schema_ref = extra_input.get("schema_ref")
+    if isinstance(schema_ref, str) and schema_ref:
+        requirements.append({"kind": "resource", "id": schema_ref})
+    input_requires = extra_input.get("requires")
+    if isinstance(input_requires, list) and input_requires:
+        requirements.extend(
+            _normalize_requires(
+                input_requires,
+                resources=resources,
+                extras=extras,
+                events_path=events_path,
+            )
+        )
+    return requirements
+
+
+def resolve_requires(
+    requires: list[dict] | list[str],
+    *,
+    resources: dict[str, dict],
+    extras: dict[str, dict],
+    events_path: Path,
+    replay_case: dict | None = None,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    if not requires:
+        return {}, {}
+
+    normalized_requires = _normalize_requires(
+        requires,
+        resources=resources,
+        extras=extras,
+        events_path=events_path,
+    )
 
     resolved_resources: Dict[str, dict] = {}
     resolved_extras: Dict[str, dict] = {}
-    for req in normalized_requires:
+    pending = list(normalized_requires)
+    seen: set[tuple[str, str]] = set()
+    while pending:
+        req = pending.pop(0)
         kind = req.get("kind")
         rid = req.get("id")
+        if not isinstance(kind, str) or not isinstance(rid, str):
+            raise KeyError(f"Invalid require entry {req!r} in {events_path}")
+        key = (kind, rid)
+        if key in seen:
+            continue
+        seen.add(key)
         if kind == "extra":
             if rid in extras:
-                resolved_extras[rid] = extras[rid]
+                extra = extras[rid]
+                resolved_extras[rid] = extra
+                if isinstance(extra, dict):
+                    pending.extend(
+                        _extract_extra_requires(
+                            extra,
+                            resources=resources,
+                            extras=extras,
+                            events_path=events_path,
+                        )
+                    )
             else:
-                raise KeyError(f"Missing required extra {rid} in {events_path}")
+                ref = _format_replay_case_ref(replay_case)
+                if rid == "planner_input_v1":
+                    raise KeyError(
+                        "Missing required extra 'planner_input_v1' in "
+                        f"{events_path}{ref}. "
+                        "Re-record the run with planner_input emit enabled, "
+                        "or update the trace to include planner_input_v1."
+                    )
+                raise KeyError(f"Missing required extra {rid} in {events_path}{ref}")
         elif kind == "resource":
             if rid in resources:
                 resolved_resources[rid] = resources[rid]
             else:
-                raise KeyError(f"Missing required resource {rid} in {events_path}")
+                ref = _format_replay_case_ref(replay_case)
+                raise KeyError(f"Missing required resource {rid} in {events_path}{ref}")
         else:
             raise KeyError(f"Unknown require kind {kind!r} in {events_path}")
 
@@ -500,6 +600,7 @@ def export_replay_case_bundle(
         resources=resources_index,
         extras=extras_index,
         events_path=events_path,
+        replay_case=root_event,
     )
     resources = copy.deepcopy(resources)
     extras = copy.deepcopy(extras)
@@ -573,6 +674,7 @@ def export_replay_case_bundles(
             resources=resources_index,
             extras=extras_index,
             events_path=events_path,
+            replay_case=root_event,
         )
         resources = copy.deepcopy(resources)
         extras = copy.deepcopy(extras)

@@ -436,6 +436,8 @@ fixture-green:
 	  case_args="--case $$case_value"; \
 	elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
 	  case_args="--case $(TRACER_ROOT)/known_bad/$$case_value"; \
+	elif [[ "$$case_value" == *"__"* ]]; then \
+	  case_args="--name $$case_value"; \
 	else \
 	  case_args="--case-id $$case_value"; \
 	fi; \

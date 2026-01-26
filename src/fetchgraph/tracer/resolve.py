@@ -101,6 +101,66 @@ def resolve_case_events(
     )
 
 
+def resolve_run_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: str) -> Path:
+    if not run_id:
+        raise ValueError("run_id is required")
+    if not data_dir:
+        raise ValueError("data_dir is required")
+    history_path = data_dir / ".runs" / "history.jsonl"
+    history_candidates: list[Path] = []
+    if history_path.exists():
+        entries: list[dict] = []
+        with history_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        for entry in reversed(entries):
+            if str(entry.get("run_id")) != run_id:
+                continue
+            run_dir_value = entry.get("run_dir") or entry.get("run_folder")
+            if not run_dir_value:
+                continue
+            candidate = Path(run_dir_value)
+            if candidate.exists():
+                return candidate
+            history_candidates.append(candidate)
+
+    runs_root = (data_dir / runs_subdir).resolve()
+    if not runs_root.exists():
+        raise FileNotFoundError(f"Runs directory does not exist: {runs_root}")
+    matched: list[Path] = []
+    for run_dir in _iter_run_dirs(runs_root):
+        meta_path = run_dir / "run_meta.json"
+        if not meta_path.exists():
+            continue
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if str(payload.get("run_id")) != run_id:
+            continue
+        matched.append(run_dir)
+    if matched:
+        matched.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return matched[0]
+
+    hint = ""
+    if history_candidates:
+        hint = f"History entries pointed to: {', '.join(str(p) for p in history_candidates)}"
+    raise LookupError(
+        "Run id could not be resolved.\n"
+        f"run_id: {run_id}\n"
+        f"history_path: {history_path}\n"
+        f"runs_root: {runs_root}\n"
+        f"{hint}".rstrip()
+    )
+
+
 def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
     candidates = [p for p in runs_root.iterdir() if p.is_dir()]
     return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)

@@ -182,7 +182,7 @@ help:
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
 	@echo "  make fixture-green CASE=agg_003|fixture_stem|path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
 	@echo "  make fixture-ls CASE=agg_003 [TRACER_ROOT=...] [BUCKET=known_bad]"
-	@echo "  make fixture-rm CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
+	@echo "  make fixture-rm CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1] [BUCKET=all]"
 	@echo "  make fixture-migrate CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
 	@echo "  make fixture-demote CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
 	@echo "  make fixture-rm [BUCKET=fixed|known_bad|all] [NAME=...] [PATTERN=...] [SCOPE=cases|resources|both] [DRY=1]"
@@ -452,18 +452,20 @@ fixture-ls:
 	@$(PYTHON) -m fetchgraph.tracer.cli fixture-ls --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" --case-id "$(CASE)"
 
 fixture-rm:
-	@case "$(BUCKET)" in fixed|known_bad|all) ;; *) echo "BUCKET должен быть fixed, known_bad или all для fixture-rm" && exit 1 ;; esac
-	@case_value="$(CASE)"; \
+	@bucket_value="$(BUCKET)"; \
+	if [ -z "$$bucket_value" ]; then bucket_value="all"; fi; \
+	case "$$bucket_value" in fixed|known_bad|all) ;; *) echo "BUCKET должен быть fixed, known_bad или all для fixture-rm" && exit 1 ;; esac; \
+	case_value="$(CASE)"; \
 	if [ -n "$$case_value" ]; then \
 	  if [ -f "$$case_value" ]; then \
 	    case_args="--case $$case_value"; \
 	  elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
-	    case_args="--case $(TRACER_ROOT)/$(BUCKET)/$$case_value"; \
+	    case_args="--case $(TRACER_ROOT)/$$case_value"; \
 	  else \
 	    case_args="--case-id $$case_value"; \
 	  fi; \
 	fi; \
-	$(PYTHON) -m fetchgraph.tracer.cli fixture-rm $$case_args --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-rm $$case_args --root "$(TRACER_ROOT)" --bucket "$$bucket_value" \
 	  $(if $(strip $(NAME)),--name "$(NAME)",) \
 	  $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) \
 	  $(if $(strip $(SCOPE)),--scope "$(SCOPE)",) \

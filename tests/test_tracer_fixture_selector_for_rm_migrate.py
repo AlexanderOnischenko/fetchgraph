@@ -38,8 +38,9 @@ def test_fixture_selector_for_rm_migrate(tmp_path: Path, capsys: pytest.CaptureF
         scope="cases",
         dry_run=True,
         case_id="agg_003",
+        select_index=2,
     )
-    assert removed == 1
+    assert removed.known_bad == 1
     assert case_old.exists()
     assert case_new.exists()
 
@@ -51,6 +52,14 @@ def test_fixture_selector_for_rm_migrate(tmp_path: Path, capsys: pytest.CaptureF
             dry_run=True,
             case_id="agg_003",
             require_unique=True,
+        )
+    with pytest.raises(FileExistsError):
+        fixture_rm(
+            root=root,
+            bucket="known_bad",
+            scope="cases",
+            dry_run=True,
+            case_id="agg_003",
         )
 
     bundles_updated, files_moved = fixture_migrate(

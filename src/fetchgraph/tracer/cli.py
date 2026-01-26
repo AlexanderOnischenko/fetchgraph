@@ -138,6 +138,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="all",
         help="Fixture bucket",
     )
+    rm_cmd.add_argument("--all-buckets", action="store_true", help="Search known_bad and fixed buckets")
     rm_cmd.add_argument("--name", help="Fixture stem name")
     rm_cmd.add_argument("--pattern", help="Glob pattern for fixture stems or case bundles")
     rm_cmd.add_argument("--case", type=Path, help="Path to case bundle")
@@ -438,6 +439,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "fixture-rm":
+            if args.all_buckets:
+                args.bucket = "all"
             removed = fixture_rm(
                 root=args.root,
                 bucket=args.bucket,
@@ -453,7 +456,12 @@ def main(argv: list[str] | None = None) -> int:
                 require_unique=args.require_unique,
                 all_matches=args.all,
             )
-            print(f"Removed {removed} paths")
+            print(
+                "Removed: "
+                f"known_bad: {removed.known_bad}, "
+                f"fixed: {removed.fixed}, "
+                f"resources: {removed.resources}"
+            )
             return 0
         if args.command == "fixture-fix":
             fixture_fix(

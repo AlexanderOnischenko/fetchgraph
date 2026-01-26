@@ -436,6 +436,13 @@ def fixture_green(
         print("  validate: OK")
 
 
+@dataclass(frozen=True)
+class FixtureRmSummary:
+    known_bad: int
+    fixed: int
+    resources: int
+
+
 def fixture_rm(
     *,
     root: Path,
@@ -451,11 +458,27 @@ def fixture_rm(
     select_index: int | None = None,
     require_unique: bool = False,
     all_matches: bool = False,
-) -> int:
+) -> FixtureRmSummary:
     root = root.resolve()
     git_ops = _GitOps(root, git_mode)
     bucket_filter: str | None = None if bucket == "all" else bucket
     if case_path or case_id or name:
+        if case_path is None and (case_id or name):
+            candidates = resolve_fixture_candidates(
+                root=root,
+                bucket=bucket_filter or bucket,
+                case_id=case_id,
+                name=name,
+            )
+            if (
+                len(candidates) > 1
+                and not all_matches
+                and select_index is None
+                and not require_unique
+            ):
+                raise FileExistsError(
+                    "Multiple fixtures matched; use --all, --select-index, or --require-unique."
+                )
         selector_paths = resolve_fixture_selector(
             root=root,
             bucket=bucket_filter or bucket,
@@ -472,14 +495,23 @@ def fixture_rm(
         matched = find_case_bundles(root=root, bucket=bucket_filter, name=name, pattern=pattern)
 
     targets: list[Path] = []
+    removed_case_stems: dict[str, set[str]] = {"known_bad": set(), "fixed": set()}
+    removed_resources: set[str] = set()
     for case_path_item in matched:
         bucket_name = case_path_item.parent.name
         stem = case_path_item.name.replace(".case.json", "")
         layout = FixtureLayout(root, bucket_name)
         if scope in ("cases", "both"):
-            targets.extend([layout.case_path(stem), layout.expected_path(stem)])
+            case_path_item = layout.case_path(stem)
+            expected_path = layout.expected_path(stem)
+            targets.extend([case_path_item, expected_path])
+            if case_path_item.exists() or expected_path.exists():
+                removed_case_stems.setdefault(bucket_name, set()).add(stem)
         if scope in ("resources", "both"):
-            targets.append(layout.resources_dir(stem))
+            resources_dir = layout.resources_dir(stem)
+            targets.append(resources_dir)
+            if resources_dir.exists():
+                removed_resources.add(stem)
 
     existing_targets = [target for target in targets if target.exists()]
 
@@ -489,11 +521,19 @@ def fixture_rm(
     if dry_run:
         for target in targets:
             print(f"Would remove: {target}")
-        return len(existing_targets)
+        return FixtureRmSummary(
+            known_bad=len(removed_case_stems.get("known_bad", set())),
+            fixed=len(removed_case_stems.get("fixed", set())),
+            resources=len(removed_resources),
+        )
 
     for target in targets:
         git_ops.remove(target)
-    return len(existing_targets)
+    return FixtureRmSummary(
+        known_bad=len(removed_case_stems.get("known_bad", set())),
+        fixed=len(removed_case_stems.get("fixed", set())),
+        resources=len(removed_resources),
+    )
 
 
 def fixture_fix(

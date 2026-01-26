@@ -265,15 +265,20 @@ def main(argv: list[str] | None = None) -> int:
             run_dir: Path | None = None
             case_dir: Path | None = None
             selection_rule = "unknown"
+            run_dir_source = "unresolved"
             auto_resolve = False
             if args.events:
                 if args.case or args.data or args.tag or args.run_id:
                     raise ValueError("Do not combine --events with --case/--data/--tag/--run-id.")
+                if args.case_dir and args.run_dir:
+                    raise ValueError("Do not combine --case-dir with --run-dir when --events is provided.")
                 events_path = args.events
                 case_dir = args.case_dir
                 run_dir = args.run_dir
+                run_dir_source = "explicit RUN_DIR" if run_dir else "unset"
                 if case_dir and run_dir is None:
                     run_dir = _run_dir_from_case_dir(case_dir)
+                    run_dir_source = "derived from case_dir"
                 selection_rule = "explicit EVENTS"
             else:
                 if args.run_id and (args.case_dir or args.run_dir):
@@ -287,10 +292,12 @@ def main(argv: list[str] | None = None) -> int:
                     if case_dir:
                         run_dir = _run_dir_from_case_dir(case_dir)
                         selection_rule = "explicit CASE_DIR"
+                        run_dir_source = "derived from case_dir"
                     else:
                         run_dir = args.run_dir
                         case_dir = _resolve_case_dir_from_run_dir(run_dir=run_dir, case_id=args.case)
                         selection_rule = "explicit RUN_DIR"
+                        run_dir_source = "explicit RUN_DIR"
                 elif args.run_id:
                     if not args.case:
                         raise ValueError("--case is required when --run-id is provided.")
@@ -301,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     case_dir = _resolve_case_dir_from_run_dir(run_dir=run_dir, case_id=args.case)
                     selection_rule = f"explicit RUN_ID={args.run_id}"
+                    run_dir_source = "resolved from run_id"
                 else:
                     if not args.case or not args.data:
                         raise ValueError("--case and --data are required when --events is not provided.")
@@ -340,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
                     selection_rule = _format_selection_rule(tag=args.tag, pick_run=args.pick_run)
                     events_path = selected.events_path
                     auto_resolve = True
+                    run_dir_source = "auto-resolve"
                 if events_path is None:
                     search_root = case_dir or run_dir
                     if search_root is None:
@@ -361,6 +370,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  case_dir: {args.case_dir}")
                 print(f"selection_method: {selection_rule}")
                 print(f"Resolved run_dir: {run_dir}")
+                print(f"run_dir_source: {run_dir_source}")
                 print(f"Resolved case_dir: {case_dir}")
                 print(f"Resolved events.jsonl: {events_path}")
                 if auto_resolve and args.case and args.data:

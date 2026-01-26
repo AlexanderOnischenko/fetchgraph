@@ -154,7 +154,7 @@ def test_known_bad_backlog(bundle_path: Path) -> None:
             *common_block,
             "Promote this fixture to fixed (freeze expected) and remove it from known_bad.",
             f"Command: fetchgraph-tracer fixture-green --case {bundle_path}",
-            "expected will be created from root.observed",
+            "expected will be created from replay output (default)",
         ]
     )
     pytest.fail(message, pytrace=False)

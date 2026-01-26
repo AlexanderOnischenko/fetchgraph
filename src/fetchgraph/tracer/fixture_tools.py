@@ -424,7 +424,7 @@ def fixture_green(
         raise ValueError(
             "Cannot green fixture: root.observed is missing.\n"
             f"Case: {case_path}\n"
-            "Hint: export observed-first replay_case bundles; green requires observed to freeze behavior."
+            "Hint: re-export observed-first replay_case bundles or use --expected-from replay."
         )
 
     known_case_path = known_layout.case_path(stem)

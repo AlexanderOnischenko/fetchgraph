@@ -521,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
                 all_matches=args.all,
             )
             return 0
-    except (ValueError, FileNotFoundError, LookupError, KeyError) as exc:
+    except (ValueError, FileNotFoundError, LookupError, KeyError, FileExistsError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     except Exception as exc:  # pragma: no cover - unexpected

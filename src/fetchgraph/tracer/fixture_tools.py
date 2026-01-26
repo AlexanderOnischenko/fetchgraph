@@ -256,6 +256,48 @@ class _GitOps:
         return _git_tracked(self.root, path)
 
 
+def _unique_backup_path(path: Path) -> Path:
+    for idx in range(1, 1000):
+        suffix = "" if idx == 1 else f".{idx}"
+        candidate = path.with_name(f".{path.name}.rollback{suffix}")
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Unable to create rollback path for {path}")
+
+
+class _MoveTransaction:
+    def __init__(self, git_ops: _GitOps) -> None:
+        self.git_ops = git_ops
+        self.moved: list[tuple[Path, Path]] = []
+        self.removed: list[tuple[Path, Path]] = []
+
+    def move(self, src: Path, dest: Path) -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        self.git_ops.move(src, dest)
+        self.moved.append((src, dest))
+
+    def remove(self, path: Path) -> None:
+        if not path.exists():
+            return
+        backup = _unique_backup_path(path)
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        self.git_ops.move(path, backup)
+        self.removed.append((path, backup))
+
+    def rollback(self) -> None:
+        for src, dest in reversed(self.moved):
+            if dest.exists():
+                self.git_ops.move(dest, src)
+        for original, backup in reversed(self.removed):
+            if backup.exists():
+                self.git_ops.move(backup, original)
+
+    def commit(self) -> None:
+        for _, backup in self.removed:
+            if backup.exists():
+                self.git_ops.remove(backup)
+
+
 def fixture_green(
     *,
     case_path: Path | None = None,
@@ -355,21 +397,24 @@ def fixture_green(
         json.dumps(observed, ensure_ascii=False, sort_keys=True, indent=2),
         encoding="utf-8",
     )
+    tx = _MoveTransaction(git_ops)
     try:
-        fixed_case_path.parent.mkdir(parents=True, exist_ok=True)
-        git_ops.move(known_case_path, fixed_case_path)
+        tx.move(known_case_path, fixed_case_path)
 
         if resources_from.exists():
-            resources_to.parent.mkdir(parents=True, exist_ok=True)
-            git_ops.move(resources_from, resources_to)
+            tx.move(resources_from, resources_to)
 
         if known_expected_path.exists():
-            git_ops.remove(known_expected_path)
+            tx.remove(known_expected_path)
 
         tmp_expected_path.replace(fixed_expected_path)
+        tx.commit()
     except Exception:
+        if fixed_expected_path.exists():
+            fixed_expected_path.unlink()
         if tmp_expected_path.exists():
             tmp_expected_path.unlink()
+        tx.rollback()
         raise
 
     if validate:
@@ -513,14 +558,22 @@ def fixture_fix(
             print("  rewrite: data_ref.file paths updated")
         return
 
-    new_case_path.parent.mkdir(parents=True, exist_ok=True)
-    git_ops.move(case_path, new_case_path)
-    if expected_path.exists():
-        git_ops.move(expected_path, new_expected_path)
-    if resources_dir.exists():
-        git_ops.move(resources_dir, new_resources_dir)
-    if updated:
-        _atomic_write_json(new_case_path, payload)
+    original_text = case_path.read_text(encoding="utf-8") if updated else None
+    tx = _MoveTransaction(git_ops)
+    try:
+        tx.move(case_path, new_case_path)
+        if expected_path.exists():
+            tx.move(expected_path, new_expected_path)
+        if resources_dir.exists():
+            tx.move(resources_dir, new_resources_dir)
+        if updated:
+            _atomic_write_json(new_case_path, payload)
+        tx.commit()
+    except Exception:
+        if updated and original_text is not None and new_case_path.exists():
+            new_case_path.write_text(original_text, encoding="utf-8")
+        tx.rollback()
+        raise
 
     print("fixture-fix:")
     print(f"  rename: {case_path} -> {new_case_path}")
@@ -704,14 +757,17 @@ def fixture_demote(
                 print(f"  move:   {from_resources} -> {to_resources}")
             continue
 
-        to_case.parent.mkdir(parents=True, exist_ok=True)
-        git_ops.move(from_case, to_case)
-        if from_expected.exists():
-            to_expected.parent.mkdir(parents=True, exist_ok=True)
-            git_ops.move(from_expected, to_expected)
-        if from_resources.exists():
-            to_resources.parent.mkdir(parents=True, exist_ok=True)
-            git_ops.move(from_resources, to_resources)
+        tx = _MoveTransaction(git_ops)
+        try:
+            tx.move(from_case, to_case)
+            if from_expected.exists():
+                tx.move(from_expected, to_expected)
+            if from_resources.exists():
+                tx.move(from_resources, to_resources)
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
 
         print("fixture-demote:")
         print(f"  case:   {from_case}")

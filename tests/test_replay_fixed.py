@@ -9,12 +9,8 @@ import pytest
 import fetchgraph.tracer.handlers  # noqa: F401
 import tests.helpers.handlers_resource_read  # noqa: F401
 from fetchgraph.tracer.runtime import load_case_bundle, run_case
-from tests.helpers.replay_dx import (
-    format_json,
-    ids_from_path,
-    truncate,
-    truncate_limits,
-)
+from fetchgraph.tracer.diff_utils import first_diff_path
+from tests.helpers.replay_dx import format_json, ids_from_path, truncate, truncate_limits
 
 REPLAY_CASES_ROOT = Path(__file__).parent / "fixtures" / "replay_cases"
 FIXED_DIR = REPLAY_CASES_ROOT / "fixed"
@@ -34,34 +30,6 @@ def _expected_path(case_path: Path) -> Path:
     if not case_path.name.endswith(".case.json"):
         raise ValueError(f"Unexpected case filename: {case_path}")
     return case_path.with_name(case_path.name.replace(".case.json", ".expected.json"))
-
-
-def _first_diff_path(left: object, right: object, *, prefix: str = "") -> str | None:
-    if type(left) is not type(right):
-        return prefix or "<root>"
-    if isinstance(left, dict):
-        left_keys = set(left.keys())
-        right_keys = set(right.keys())
-        for key in sorted(left_keys | right_keys):
-            next_prefix = f"{prefix}.{key}" if prefix else str(key)
-            if key not in left or key not in right:
-                return next_prefix
-            diff = _first_diff_path(left[key], right[key], prefix=next_prefix)
-            if diff is not None:
-                return diff
-        return None
-    if isinstance(left, list):
-        if len(left) != len(right):
-            return f"{prefix}.length" if prefix else "length"
-        for idx, (l_item, r_item) in enumerate(zip(left, right), start=1):
-            next_prefix = f"{prefix}[{idx}]" if prefix else f"[{idx}]"
-            diff = _first_diff_path(l_item, r_item, prefix=next_prefix)
-            if diff is not None:
-                return diff
-        return None
-    if left != right:
-        return prefix or "<root>"
-    return None
 
 
 @pytest.mark.parametrize("case_path", _iter_case_params())
@@ -92,7 +60,7 @@ def test_replay_fixed_cases(case_path: Path) -> None:
             out_spec = out.get("out_spec")
             expected_spec = expected.get("out_spec")
             if out_spec != expected_spec:
-                out_spec_path = _first_diff_path(out_spec, expected_spec, prefix="out_spec")
+                out_spec_path = first_diff_path(out_spec, expected_spec, prefix="out_spec")
         message = "\n".join(
             [
                 "Fixed fixture mismatch.",

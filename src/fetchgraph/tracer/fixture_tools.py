@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .diff_utils import first_diff_path
 from .fixture_layout import FixtureLayout, find_case_bundles
 from .runtime import load_case_bundle, run_case
 
@@ -78,34 +79,6 @@ def _top_level_key_diff(output: object, expected: object) -> tuple[list[str], li
     return (missing, extra)
 
 
-def _first_diff_path(left: object, right: object, *, prefix: str = "") -> str | None:
-    if type(left) is not type(right):
-        return prefix or "<root>"
-    if isinstance(left, dict):
-        left_keys = set(left.keys())
-        right_keys = set(right.keys())
-        for key in sorted(left_keys | right_keys):
-            next_prefix = f"{prefix}.{key}" if prefix else str(key)
-            if key not in left or key not in right:
-                return next_prefix
-            diff = _first_diff_path(left[key], right[key], prefix=next_prefix)
-            if diff is not None:
-                return diff
-        return None
-    if isinstance(left, list):
-        if len(left) != len(right):
-            return f"{prefix}.length" if prefix else "length"
-        for idx, (l_item, r_item) in enumerate(zip(left, right), start=1):
-            next_prefix = f"{prefix}[{idx}]" if prefix else f"[{idx}]"
-            diff = _first_diff_path(l_item, r_item, prefix=next_prefix)
-            if diff is not None:
-                return diff
-        return None
-    if left != right:
-        return prefix or "<root>"
-    return None
-
-
 def _format_fixture_diff(output: object, expected: object) -> str:
     missing, extra = _top_level_key_diff(output, expected)
     lines = [
@@ -117,7 +90,7 @@ def _format_fixture_diff(output: object, expected: object) -> str:
         out_spec = output.get("out_spec")
         exp_spec = expected.get("out_spec")
         if out_spec != exp_spec:
-            diff_path = _first_diff_path(out_spec, exp_spec, prefix="out_spec")
+            diff_path = first_diff_path(out_spec, exp_spec, prefix="out_spec")
             if diff_path:
                 lines.append(f"out_spec diff path: {diff_path}")
     lines.append(f"expected: {_format_json(expected)}")

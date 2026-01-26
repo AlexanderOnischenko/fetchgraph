@@ -106,6 +106,7 @@ def resolve_run_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: str
         raise ValueError("run_id is required")
     if not data_dir:
         raise ValueError("data_dir is required")
+    runs_root = (data_dir / runs_subdir).resolve()
     history_path = data_dir / ".runs" / "history.jsonl"
     history_candidates: list[Path] = []
     if history_path.exists():
@@ -122,15 +123,21 @@ def resolve_run_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: str
         for entry in reversed(entries):
             if str(entry.get("run_id")) != run_id:
                 continue
-            run_dir_value = entry.get("run_dir") or entry.get("run_folder")
-            if not run_dir_value:
+            run_dir_value = entry.get("run_dir")
+            run_folder_value = entry.get("run_folder")
+            if not run_dir_value and not run_folder_value:
                 continue
-            candidate = Path(run_dir_value)
+            candidate = None
+            if run_dir_value:
+                candidate = Path(run_dir_value)
+                if not candidate.is_absolute():
+                    candidate = runs_root / candidate
+            if candidate is None and run_folder_value:
+                candidate = runs_root / str(run_folder_value)
             if candidate.exists():
                 return candidate
             history_candidates.append(candidate)
 
-    runs_root = (data_dir / runs_subdir).resolve()
     if not runs_root.exists():
         raise FileNotFoundError(f"Runs directory does not exist: {runs_root}")
     matched: list[Path] = []

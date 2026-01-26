@@ -22,7 +22,16 @@ def _make_run_case(data_dir: Path, run_dir_name: str, case_id: str) -> tuple[Pat
     case_dir = run_dir / "cases" / f"{case_id}_x"
     case_dir.mkdir(parents=True, exist_ok=True)
     events_path = case_dir / "events.jsonl"
-    _write_jsonl(events_path, {"type": "replay_case", "id": "replay_1", "input": {}})
+    _write_jsonl(
+        events_path,
+        {
+            "type": "replay_case",
+            "id": "replay_1",
+            "v": 2,
+            "input": {},
+            "observed": {},
+        },
+    )
     return run_dir, case_dir
 
 

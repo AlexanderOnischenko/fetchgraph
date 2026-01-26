@@ -271,7 +271,9 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("Do not combine --events with --case/--data/--tag/--run-id.")
                 events_path = args.events
                 case_dir = args.case_dir
-                run_dir = args.case_dir or args.run_dir
+                run_dir = args.run_dir
+                if case_dir and run_dir is None:
+                    run_dir = _run_dir_from_case_dir(case_dir)
                 selection_rule = "explicit EVENTS"
             else:
                 if args.run_id and (args.case_dir or args.run_dir):
@@ -279,9 +281,16 @@ def main(argv: list[str] | None = None) -> int:
                 if args.run_id and not args.data:
                     raise ValueError("--data is required when --run-id is provided.")
                 if args.case_dir or args.run_dir:
+                    if args.run_dir and not args.case and not args.case_dir:
+                        raise ValueError("--case is required when --run-dir is provided.")
                     case_dir = args.case_dir
-                    run_dir = args.case_dir or args.run_dir
-                    selection_rule = "explicit CASE_DIR" if args.case_dir else "explicit RUN_DIR"
+                    if case_dir:
+                        run_dir = _run_dir_from_case_dir(case_dir)
+                        selection_rule = "explicit CASE_DIR"
+                    else:
+                        run_dir = args.run_dir
+                        case_dir = _resolve_case_dir_from_run_dir(run_dir=run_dir, case_id=args.case)
+                        selection_rule = "explicit RUN_DIR"
                 elif args.run_id:
                     if not args.case:
                         raise ValueError("--case is required when --run-id is provided.")
@@ -574,6 +583,13 @@ def _resolve_case_dir_from_run_dir(*, run_dir: Path, case_id: str) -> Path:
             f"runs_root: {runs_root}"
         )
     return case_dirs[0]
+
+
+def _run_dir_from_case_dir(case_dir: Path) -> Path:
+    run_dir = case_dir.parent.parent
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
+    return run_dir
 
 
 def _format_case_run_error(stats, *, case_id: str, tag: str | None, pick_run: str = "latest_non_missed") -> str:

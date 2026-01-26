@@ -13,7 +13,8 @@ from ...core.protocols import ContextProvider, SupportsDescribe, SupportsFilter
 from ...relational.models import RelationalRequest
 from ...relational.normalize import normalize_relational_selectors
 from ...relational.providers.base import RelationalDataProvider
-from ...replay.log import EventLoggerLike, log_replay_point
+from ...replay.log import EventLoggerLike, log_replay_case
+from ...replay.snapshots import snapshot_provider_info
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,13 @@ class PlanNormalizer:
             decision = "keep_original_valid" if before_ok else "keep_original_still_invalid"
             use = selectors_before
             after_ok = before_ok
+            rule_trace = [
+                {
+                    "stage": "select_rule",
+                    "provider": spec.provider,
+                    "rule_kind": rule.kind,
+                }
+            ]
             if not before_ok:
                 candidate = rule.normalize_selectors(copy.deepcopy(selectors_before))
                 after_ok = self._validate_selectors(rule.validator, candidate)
@@ -168,6 +176,28 @@ class PlanNormalizer:
                 elif candidate != selectors_before:
                     decision = "use_normalized_unvalidated"
                     use = candidate
+                rule_trace.append(
+                    {
+                        "stage": "normalize",
+                        "decision": decision,
+                        "changed": candidate != selectors_before,
+                        "validators": {
+                            "before_ok": before_ok,
+                            "after_ok": after_ok,
+                        },
+                    }
+                )
+            else:
+                rule_trace.append(
+                    {
+                        "stage": "validate",
+                        "decision": decision,
+                        "validators": {
+                            "before_ok": before_ok,
+                            "after_ok": after_ok,
+                        },
+                    }
+                )
             note = self._format_selectors_note(
                 spec.provider,
                 before_ok,
@@ -179,6 +209,18 @@ class PlanNormalizer:
             notes.append(note)
             rule_kind = rule.kind
             if replay_logger and rule_kind:
+                provider_info_snapshot = None
+                provider_info = self.provider_catalog.get(spec.provider)
+                if isinstance(provider_info, ProviderInfo):
+                    provider_info_snapshot = snapshot_provider_info(provider_info)
+                elif spec.provider in self.schema_registry:
+                    provider_info_snapshot = snapshot_provider_info(
+                        ProviderInfo(
+                            name=spec.provider,
+                            capabilities=[],
+                            selectors_schema=self.schema_registry[spec.provider],
+                        )
+                    )
                 input_payload = {
                     "spec": {
                         "provider": spec.provider,
@@ -188,17 +230,16 @@ class PlanNormalizer:
                     "options": asdict(self.options),
                     "normalizer_rules": {spec.provider: rule_kind},
                 }
-                expected_payload = {
+                if provider_info_snapshot:
+                    input_payload["provider_info_snapshot"] = provider_info_snapshot
+                observed_payload = {
                     "out_spec": {
                         "provider": spec.provider,
                         "mode": spec.mode,
                         "selectors": use,
-                    }
+                    },
                 }
-                requires = None
-                if getattr(replay_logger, "case_id", None):
-                    requires = ["planner_input_v1"]
-                log_replay_point(
+                log_replay_case(
                     replay_logger,
                     id="plan_normalize.spec_v1",
                     meta={
@@ -207,11 +248,11 @@ class PlanNormalizer:
                         "spec_idx": spec_idx,
                     },
                     input=input_payload,
-                    expected=expected_payload,
-                    requires=requires,
+                    observed=observed_payload,
                     diag={
                         "selectors_valid_before": before_ok,
                         "selectors_valid_after": after_ok,
+                        "rule_trace": rule_trace,
                     },
                     note=note,
                 )

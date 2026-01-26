@@ -2,13 +2,76 @@ from __future__ import annotations
 
 from typing import cast
 
+import pytest
+
 from examples.demo_qa.runner import (
     Case,
+    RunArtifacts,
     RunResult,
+    RunTimings,
     _match_expected,
     diff_runs,
+    run_one,
     summarize,
 )
+
+
+class _FailingRunner:
+    def run_question(self, *args, **kwargs):
+        raise RuntimeError("boom")
+
+
+class _ArtifactRunner:
+    def run_question(self, case, run_id, run_dir, **kwargs):
+        return RunArtifacts(
+            run_id=run_id,
+            run_dir=run_dir,
+            question=case.question,
+            answer="ok",
+            timings=RunTimings(total_s=0.01),
+        )
+
+
+def _read_events(path):
+    return [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def test_run_one_writes_events_on_early_failure(tmp_path) -> None:
+    case = Case(id="case_fail", question="Q")
+    artifacts_root = tmp_path / "runs"
+
+    with pytest.raises(RuntimeError):
+        run_one(case, _FailingRunner(), artifacts_root)
+
+    case_dirs = list(artifacts_root.iterdir())
+    assert case_dirs
+    events_path = case_dirs[0] / "events.jsonl"
+    assert events_path.exists()
+    events = _read_events(events_path)
+    assert any("run_started" in line for line in events)
+    assert any("run_failed" in line for line in events)
+    assert any("run_finished" in line for line in events)
+
+
+def test_run_one_writes_events_on_late_failure(tmp_path, monkeypatch) -> None:
+    case = Case(id="case_late", question="Q", expected="ok")
+    artifacts_root = tmp_path / "runs"
+
+    def _boom(*args, **kwargs):
+        raise ValueError("late boom")
+
+    monkeypatch.setattr("examples.demo_qa.runner._match_expected", _boom)
+
+    with pytest.raises(ValueError):
+        run_one(case, _ArtifactRunner(), artifacts_root)
+
+    case_dirs = list(artifacts_root.iterdir())
+    assert case_dirs
+    events_path = case_dirs[0] / "events.jsonl"
+    assert events_path.exists()
+    events = _read_events(events_path)
+    assert any("run_started" in line for line in events)
+    assert any("run_failed" in line for line in events)
 
 
 def test_match_expected_unchecked_when_no_expectations() -> None:

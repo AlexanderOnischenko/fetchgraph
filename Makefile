@@ -17,6 +17,7 @@ SHELL := /bin/bash
 # ==============================================================================
 CONFIG ?= .demo_qa.mk
 -include $(CONFIG)
+-include .demo_qa.mk
 
 # ==============================================================================
 # 2) Значения по умолчанию (для make init)
@@ -31,12 +32,12 @@ DEFAULT_CASES  := examples/demo_qa/cases/retail_cases.json
 VENV   ?= .venv
 PYTHON ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python)
 CLI    := $(PYTHON) -m examples.demo_qa.cli
-CLI_FIXT := $(PYTHON) -m examples.demo_qa.fixture_tools
 
 # ==============================================================================
 # 4) Пути demo_qa (можно переопределять через CLI или в $(CONFIG))
 # ==============================================================================
-DATA   ?=
+DATA   ?= _demo_data/shop
+REPLAY_IDATA ?= $(DATA)
 SCHEMA ?=
 CASES  ?=
 OUT    ?= $(DATA)/.runs/results.jsonl
@@ -48,14 +49,20 @@ TAG   ?=
 NOTE  ?=
 CASE  ?=
 NAME ?=
+NEW_NAME ?=
 PATTERN ?=
-RUN_ID ?=
-REPLAY_ID ?= plan_normalize.spec_v1
-WITH ?=
 SPEC_IDX ?=
 PROVIDER ?=
-BUCKET ?= fixed
-OUT_DIR ?= tests/fixtures/replay_points/$(BUCKET)
+BUCKET ?= known_bad
+REPLAY_ID ?=
+EVENTS ?=
+RUN_ID ?=
+CASE_DIR ?=
+TRACER_ROOT ?= tests/fixtures/replay_cases
+TRACER_OUT_DIR ?= $(TRACER_ROOT)/$(BUCKET)
+RUN_DIR ?=
+ALLOW_BAD_JSON ?=
+OVERWRITE ?= 0
 SCOPE ?= both
 WITH_RESOURCES ?= 1
 ALL ?=
@@ -64,6 +71,9 @@ CHANGES ?= 10
 NEW_TAG ?=
 TAGS_FORMAT ?= table
 TAGS_COLOR ?= auto
+SELECT ?= latest
+SELECT_INDEX ?=
+REQUIRE_UNIQUE ?= 0
 
 ONLY_FAILED_FROM ?=
 ONLY_MISSED_FROM ?=
@@ -82,6 +92,8 @@ PURGE_RUNS ?= 0
 PRUNE_HISTORY ?= 0
 PRUNE_CASE_HISTORY ?= 0
 DRY ?= 0
+VALIDATE ?= 0
+OVERWRITE_EXPECTED ?= 0
 MOVE_TRACES ?= 0
 
 # ==============================================================================
@@ -112,7 +124,9 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open fixture fixture-rm fixture-fix fixture-migrate compare compare-tag
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls known-bad known-bad-one \
+        fixture-green fixture-demote fixture-ls fixture-rm fixture-fix fixture-migrate \
+        compare compare-tag
 
 # ==============================================================================
 # help (на русском)
@@ -159,11 +173,21 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make fixture CASE=agg_01 [TAG=...] [RUN_ID=...] [REPLAY_ID=plan_normalize.spec_v1] [WITH=requires] [SPEC_IDX=0] [PROVIDER=relational] [BUCKET=fixed|known_bad] [OUT_DIR=tests/fixtures/replay_points/$$(BUCKET)] [ALL=1]"
-	@echo "  fixtures layout: replay_points/<bucket>/<name>.json, resources: replay_points/<bucket>/resources/<key>/..."
-	@echo "  make fixture-rm NAME=... [PATTERN=...] [BUCKET=fixed|known_bad] [SCOPE=replay|traces|both] [WITH_RESOURCES=1] [DRY=1] (удаляет fixture и resources)"
-	@echo "  make fixture-fix NAME=... [PATTERN=...] [CASE=...] [MOVE_TRACES=1] [DRY=1] (переносит fixture и resources)"
-	@echo "  make fixture-migrate [BUCKET=fixed|known_bad] [DRY=1] (миграция ресурсов в resources/<key>/)"
+	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_ID=...] [CASE_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
+	@echo "    PROVIDER фильтрует replay_case.meta.provider (обычно spec.provider: sql, relational, ...)"
+	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
+	@echo "  make known-bad - запустить backlog-suite для known_bad (ожидаемо красный)"
+	@echo "  make known-bad-one NAME=fixture_stem - запустить один known_bad кейс"
+	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
+	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
+	@echo "  make fixture-green CASE=agg_003|fixture_stem|path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
+	@echo "  make fixture-ls CASE=agg_003 [TRACER_ROOT=...] [BUCKET=known_bad]"
+	@echo "  make fixture-rm CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
+	@echo "  make fixture-migrate CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
+	@echo "  make fixture-demote CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
+	@echo "  make fixture-rm [BUCKET=fixed|known_bad|all] [NAME=...] [PATTERN=...] [SCOPE=cases|resources|both] [DRY=1]"
+	@echo "  make fixture-fix BUCKET=... NAME=... NEW_NAME=... [DRY=1]"
+	@echo "  make fixture-migrate [BUCKET=fixed|known_bad|all] [DRY=1]"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
@@ -221,6 +245,24 @@ show-config:
 	@echo "SCHEMA  = $(SCHEMA)"
 	@echo "CASES   = $(CASES)"
 	@echo "OUT     = $(OUT)"
+	@echo "EVENTS  = $(EVENTS)"
+	@echo "REPLAY_ID = $(REPLAY_ID)"
+	@echo "SPEC_IDX = $(SPEC_IDX)"
+	@echo "PROVIDER = $(PROVIDER)"
+	@echo "RUN_DIR = $(RUN_DIR)"
+	@echo "TRACER_ROOT = $(TRACER_ROOT)"
+	@echo "TRACER_OUT_DIR = $(TRACER_OUT_DIR)"
+	@echo "BUCKET = $(BUCKET)"
+	@echo "ALLOW_BAD_JSON = $(ALLOW_BAD_JSON)"
+	@echo "OVERWRITE = $(OVERWRITE)"
+	@echo "ALL = $(ALL)"
+	@echo "NAME = $(NAME)"
+	@echo "NEW_NAME = $(NEW_NAME)"
+	@echo "PATTERN = $(PATTERN)"
+	@echo "SCOPE = $(SCOPE)"
+	@echo "DRY = $(DRY)"
+	@echo "VALIDATE = $(VALIDATE)"
+	@echo "OVERWRITE_EXPECTED = $(OVERWRITE_EXPECTED)"
 	@echo "LLM_TOML= $(LLM_TOML)"
 	@echo "TAG     = $(TAG)"
 	@echo "NOTE    = $(NOTE)"
@@ -348,25 +390,134 @@ case-open: check
 	@test -n "$(strip $(CASE))" || (echo "Нужно задать CASE=case_42" && exit 1)
 	@$(CLI) case open "$(CASE)" --data "$(DATA)"
 
-# 11) Replay fixtures
-fixture: check
-	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture CASE=agg_01" && exit 1)
-	@$(PYTHON) -m examples.demo_qa.fixture_cli --case "$(CASE)" --data "$(DATA)" \
-	  $(TAG_FLAG) $(if $(strip $(RUN_ID)),--run-id "$(RUN_ID)",) $(if $(strip $(REPLAY_ID)),--id "$(REPLAY_ID)",) \
-	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
-	  $(if $(strip $(OUT_DIR)),--out-dir "$(OUT_DIR)",) \
-	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
-	  $(if $(filter requires,$(WITH)),--with-requires,)
+tracer-export:
+	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 2)
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-export CASE=agg_003" && exit 2)
+	@case "$(BUCKET)" in fixed|known_bad) ;; *) echo "BUCKET должен быть fixed или known_bad для tracer-export" && exit 2 ;; esac
+	@fetchgraph-tracer export-case-bundle \
+	  --id "$(REPLAY_ID)" \
+	  --out "$(TRACER_OUT_DIR)" \
+	  --case "$(CASE)" \
+	  --data "$(REPLAY_IDATA)" \
+	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
+	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
+	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
+	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
+	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
+	  $(if $(EVENTS),--events "$(EVENTS)",) \
+	  $(if $(TAG),--tag "$(TAG)",) \
+	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
+	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
 
-# 12) Fixture tools
+tracer-ls:
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-ls CASE=agg_003" && exit 2)
+	@fetchgraph-tracer export-case-bundle \
+	  --case "$(CASE)" \
+	  --data "$(REPLAY_IDATA)" \
+	  --out "$(TRACER_OUT_DIR)" \
+	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
+	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
+	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
+	  $(if $(EVENTS),--events "$(EVENTS)",) \
+	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
+	  --list-matches
+
+known-bad:
+	@pytest -m known_bad -vv
+
+known-bad-one:
+	@test -n "$(strip $(NAME))" || (echo "NAME обязателен: make known-bad-one NAME=fixture_stem" && exit 2)
+	@pytest -m known_bad -k "$(NAME)" -vv
+
+fixture-green:
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=agg_003 или CASE=path/to/fixture.case.json" && exit 1)
+	@case_value="$(CASE)"; \
+	if [ -f "$$case_value" ]; then \
+	  case_args="--case $$case_value"; \
+	elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	  case_args="--case $(TRACER_ROOT)/known_bad/$$case_value"; \
+	else \
+	  case_args="--case-id $$case_value"; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-green $$case_args --root "$(TRACER_ROOT)" \
+	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
+	  $(if $(filter 1 true yes on,$(VALIDATE)),--validate,) \
+	  $(if $(filter 1 true yes on,$(OVERWRITE_EXPECTED)),--overwrite-expected,) \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
+
+fixture-ls:
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-ls CASE=agg_003" && exit 1)
+	@$(PYTHON) -m fetchgraph.tracer.cli fixture-ls --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" --case-id "$(CASE)"
+
 fixture-rm:
-	@$(CLI_FIXT) rm --name "$(NAME)" --pattern "$(PATTERN)" --bucket "$(BUCKET)" --scope "$(SCOPE)" --with-resources "$(WITH_RESOURCES)" --dry "$(DRY)"
+	@case "$(BUCKET)" in fixed|known_bad|all) ;; *) echo "BUCKET должен быть fixed, known_bad или all для fixture-rm" && exit 1 ;; esac
+	@case_value="$(CASE)"; \
+	if [ -n "$$case_value" ]; then \
+	  if [ -f "$$case_value" ]; then \
+	    case_args="--case $$case_value"; \
+	  elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	    case_args="--case $(TRACER_ROOT)/$(BUCKET)/$$case_value"; \
+	  else \
+	    case_args="--case-id $$case_value"; \
+	  fi; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-rm $$case_args --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  $(if $(strip $(NAME)),--name "$(NAME)",) \
+	  $(if $(strip $(PATTERN)),--pattern "$(PATTERN)",) \
+	  $(if $(strip $(SCOPE)),--scope "$(SCOPE)",) \
+	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-fix:
-	@$(CLI_FIXT) fix --name "$(NAME)" --pattern "$(PATTERN)" --case "$(CASE)" --move-traces "$(MOVE_TRACES)" --dry "$(DRY)"
+	@test -n "$(strip $(NAME))" || (echo "NAME обязателен: make fixture-fix NAME=old_stem NEW_NAME=new_stem" && exit 1)
+	@test -n "$(strip $(NEW_NAME))" || (echo "NEW_NAME обязателен: make fixture-fix NAME=old_stem NEW_NAME=new_stem" && exit 1)
+	@$(PYTHON) -m fetchgraph.tracer.cli fixture-fix --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  --name "$(NAME)" --new-name "$(NEW_NAME)" \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
 fixture-migrate:
-	@$(CLI_FIXT) migrate --bucket "$(BUCKET)" --dry "$(DRY)"
+	@case_value="$(CASE)"; \
+	if [ -n "$$case_value" ]; then \
+	  if [ -f "$$case_value" ]; then \
+	    case_args="--case $$case_value"; \
+	  elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	    case_args="--case $(TRACER_ROOT)/$(BUCKET)/$$case_value"; \
+	  else \
+	    case_args="--case-id $$case_value"; \
+	  fi; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-migrate $$case_args --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
+	  $(if $(strip $(NAME)),--name "$(NAME)",) \
+	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
+
+fixture-demote:
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-demote CASE=agg_003" && exit 1)
+	@case_value="$(CASE)"; \
+	if [ -f "$$case_value" ]; then \
+	  case_args="--case $$case_value"; \
+	elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	  case_args="--case $(TRACER_ROOT)/fixed/$$case_value"; \
+	else \
+	  case_args="--case-id $$case_value"; \
+	fi; \
+	$(PYTHON) -m fetchgraph.tracer.cli fixture-demote $$case_args --root "$(TRACER_ROOT)" \
+	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
+	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
+	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
+	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
+	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
+
+
 
 # compare (diff.md + junit)
 compare: check

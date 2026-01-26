@@ -21,15 +21,19 @@ def replay_plan_normalize_spec_v1(inp: dict, ctx: ReplayContext) -> dict:
     rules = inp.get("normalizer_rules") or inp.get("normalizer_registry") or {}
     provider = spec_dict["provider"]
     provider_catalog: Dict[str, ProviderInfo] = {}
-    planner = ctx.extras.get("planner_input_v1") or {}
-    planner_input = planner.get("input") if isinstance(planner, dict) else {}
-    catalog_raw = {}
-    if isinstance(planner_input, dict):
-        catalog_raw = planner_input.get("provider_catalog") or {}
-    if provider in catalog_raw and isinstance(catalog_raw[provider], dict):
-        provider_catalog[provider] = ProviderInfo(**catalog_raw[provider])
+    provider_snapshot = inp.get("provider_info_snapshot")
+    if isinstance(provider_snapshot, dict):
+        provider_catalog[provider] = ProviderInfo(**provider_snapshot)
     else:
-        provider_catalog[provider] = ProviderInfo(name=provider, capabilities=[])
+        planner = ctx.extras.get("planner_input_v1") or {}
+        planner_input = planner.get("input") if isinstance(planner, dict) else {}
+        catalog_raw = {}
+        if isinstance(planner_input, dict):
+            catalog_raw = planner_input.get("provider_catalog") or {}
+        if provider in catalog_raw and isinstance(catalog_raw[provider], dict):
+            provider_catalog[provider] = ProviderInfo(**catalog_raw[provider])
+        else:
+            provider_catalog[provider] = ProviderInfo(name=provider, capabilities=[])
 
     rule_kind = rules.get(provider)
     normalizer_registry: Dict[str, SelectorNormalizationRule] = {}

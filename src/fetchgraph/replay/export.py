@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import collections
 import filecmp
 import hashlib
 import json
@@ -335,10 +336,10 @@ def resolve_requires(
 
     resolved_resources: Dict[str, dict] = {}
     resolved_extras: Dict[str, dict] = {}
-    pending = list(normalized_requires)
+    pending = collections.deque(normalized_requires)
     seen: set[tuple[str, str]] = set()
     while pending:
-        req = pending.pop(0)
+        req = pending.popleft()
         kind = req.get("kind")
         rid = req.get("id")
         if not isinstance(kind, str) or not isinstance(rid, str):

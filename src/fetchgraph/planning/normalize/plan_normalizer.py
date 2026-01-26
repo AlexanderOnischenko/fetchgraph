@@ -221,9 +221,9 @@ class PlanNormalizer:
                             selectors_schema=self.schema_registry[spec.provider],
                         )
                     )
-                requires = []
+                requires = None
                 if not self._provider_info_snapshot_sufficient(provider_info_snapshot):
-                    requires.append({"kind": "extra", "id": "planner_input_v1"})
+                    requires = [{"kind": "extra", "id": "planner_input_v1"}]
                 input_payload = {
                     "spec": {
                         "provider": spec.provider,
@@ -257,7 +257,7 @@ class PlanNormalizer:
                         "selectors_valid_after": after_ok,
                         "rule_trace": rule_trace,
                     },
-                    requires=requires or None,
+                    requires=requires,
                     note=note,
                 )
             if use == selectors_before:
@@ -303,9 +303,6 @@ class PlanNormalizer:
             return False
         selectors_schema = snapshot.get("selectors_schema")
         if isinstance(selectors_schema, dict) and selectors_schema:
-            return True
-        capabilities = snapshot.get("capabilities")
-        if isinstance(capabilities, list) and capabilities:
             return True
         return False
 

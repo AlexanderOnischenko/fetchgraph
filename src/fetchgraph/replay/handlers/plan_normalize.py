@@ -26,6 +26,7 @@ def replay_plan_normalize_spec_v1(inp: dict, ctx: ReplayContext) -> dict:
     provider_catalog: Dict[str, ProviderInfo] = {}
     provider_info_source = "minimal_fallback"
     provider_snapshot = inp.get("provider_info_snapshot")
+    provider_snapshot_present = isinstance(provider_snapshot, dict)
     if isinstance(provider_snapshot, dict):
         provider_catalog[provider] = ProviderInfo(**provider_snapshot)
         provider_info_source = "snapshot"
@@ -84,7 +85,11 @@ def replay_plan_normalize_spec_v1(inp: dict, ctx: ReplayContext) -> dict:
         "notes_last": notes[-1] if notes else None,
     }
     if provider_info_source == "minimal_fallback":
-        out_payload["diag"] = {"provider_info_source": provider_info_source}
+        out_payload["diag"] = {
+            "provider_info_source": provider_info_source,
+            "missing_planner_input": "planner_input_v1" not in ctx.extras,
+            "provider_snapshot_present": provider_snapshot_present,
+        }
     return out_payload
 
 

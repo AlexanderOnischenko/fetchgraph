@@ -373,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"run_dir_source: {run_dir_source}")
                 print(f"Resolved case_dir: {case_dir}")
                 print(f"Resolved events.jsonl: {events_path}")
+                if args.events and run_dir is None:
+                    print("Note: run_dir not provided; file resources cannot be exported.")
                 if auto_resolve and args.case and args.data:
                     infos, _ = scan_case_runs(
                         case_id=args.case,

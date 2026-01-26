@@ -229,7 +229,7 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 Приоритет разрешения:
 
 1) `--events` — явный путь к events/trace файлу.  
-   `run_dir` берется из `--case-dir` или `--run-dir` (если нужны file-resources).
+   `run_dir` берется из `--case-dir` или `--run-dir` (если нужны file-resources); `--case-dir` и `--run-dir` вместе не допускаются.
 
 2) Иначе (auto-resolve через `.runs`):
    - обязателен `--case <CASE_ID>` и `--data <DATA_DIR>`

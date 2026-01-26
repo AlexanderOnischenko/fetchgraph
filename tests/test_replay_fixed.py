@@ -10,6 +10,7 @@ import fetchgraph.tracer.handlers  # noqa: F401
 import tests.helpers.handlers_resource_read  # noqa: F401
 from fetchgraph.tracer.runtime import load_case_bundle, run_case
 from fetchgraph.tracer.diff_utils import first_diff_path
+from fetchgraph.tracer.validators import REPLAY_VALIDATORS
 from tests.helpers.replay_dx import format_json, ids_from_path, truncate, truncate_limits
 
 REPLAY_CASES_ROOT = Path(__file__).parent / "fixtures" / "replay_cases"
@@ -75,6 +76,10 @@ def test_replay_fixed_cases(case_path: Path) -> None:
             ]
         )
         pytest.fail(message, pytrace=False)
+    replay_id = root.get("id") if isinstance(root, dict) else None
+    validator = REPLAY_VALIDATORS.get(replay_id)
+    if validator is not None:
+        validator(out)
     assert out == expected
 
 

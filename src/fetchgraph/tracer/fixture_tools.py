@@ -476,6 +476,8 @@ def fixture_green(
             if out != expected:
                 raise AssertionError(_format_fixture_diff(out, expected))
             replay_id = root_case.get("id") if isinstance(root_case, dict) else None
+            if not isinstance(replay_id, str):
+                raise AssertionError("Case bundle has missing or non-string replay id.")
             validator = REPLAY_VALIDATORS.get(replay_id)
             if validator is None:
                 raise AssertionError(f"No validator registered for replay id={replay_id!r}")

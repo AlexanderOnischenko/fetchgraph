@@ -77,6 +77,8 @@ def test_replay_fixed_cases(case_path: Path) -> None:
         )
         pytest.fail(message, pytrace=False)
     replay_id = root.get("id") if isinstance(root, dict) else None
+    if not isinstance(replay_id, str):
+        pytest.fail("Case bundle has missing or non-string replay id.", pytrace=False)
     validator = REPLAY_VALIDATORS.get(replay_id)
     if validator is None:
         pytest.fail(

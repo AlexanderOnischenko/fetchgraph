@@ -759,10 +759,16 @@ def fixture_demote(
 
         tx = _MoveTransaction(git_ops)
         try:
+            if overwrite:
+                tx.remove(to_case)
             tx.move(from_case, to_case)
             if from_expected.exists():
+                if overwrite:
+                    tx.remove(to_expected)
                 tx.move(from_expected, to_expected)
             if from_resources.exists():
+                if overwrite:
+                    tx.remove(to_resources)
                 tx.move(from_resources, to_resources)
             tx.commit()
         except Exception:

@@ -74,6 +74,18 @@ def test_run_one_writes_events_on_late_failure(tmp_path, monkeypatch) -> None:
     assert any("run_failed" in line for line in events)
 
 
+def test_run_one_with_events_disabled_does_not_write_file(tmp_path) -> None:
+    case = Case(id="case_no_events", question="Q")
+    artifacts_root = tmp_path / "runs"
+
+    run_one(case, _ArtifactRunner(), artifacts_root, event_logger=None)
+
+    case_dirs = list(artifacts_root.iterdir())
+    assert case_dirs
+    events_path = case_dirs[0] / "events.jsonl"
+    assert not events_path.exists()
+
+
 def test_match_expected_unchecked_when_no_expectations() -> None:
     case = Case(id="c1", question="What is foo?")
     assert _match_expected(case, "anything") is None

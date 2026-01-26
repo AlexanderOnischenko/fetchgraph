@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Protocol, TypeAlias, TypedDict
+from typing import Dict, Iterable, List, Mapping, Protocol, TypedDict
 
 from typing_extensions import NotRequired
 
@@ -21,14 +21,15 @@ from fetchgraph.core.models import TaskProfile
 from fetchgraph.replay.snapshots import snapshot_provider_catalog
 from fetchgraph.utils import set_run_id
 
-EventLoggerLike: TypeAlias = "EventLogger"
-
-
 class CaseEventLoggerFactory(Protocol):
-    def for_case(self, case_id: str, events_path: Path) -> EventLoggerLike: ...
+    def for_case(self, case_id: str, events_path: Path) -> "EventLogger": ...
 
 
-_DEFAULT_EVENT_LOGGER = object()
+class _DefaultEventLoggerSentinel:
+    pass
+
+
+_DEFAULT_EVENT_LOGGER = _DefaultEventLoggerSentinel()
 
 
 @dataclass
@@ -389,7 +390,7 @@ def run_one(
     artifacts_root: Path,
     *,
     plan_only: bool = False,
-    event_logger: CaseEventLoggerFactory | None | object = _DEFAULT_EVENT_LOGGER,
+    event_logger: CaseEventLoggerFactory | None | _DefaultEventLoggerSentinel = _DEFAULT_EVENT_LOGGER,
     run_dir: Path | None = None,
     schema_path: Path | None = None,
 ) -> RunResult:

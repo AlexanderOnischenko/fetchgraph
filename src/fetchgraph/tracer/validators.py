@@ -29,3 +29,6 @@ def validate_plan_normalize_spec_v1(out: dict) -> None:
             )
         raise AssertionError("Relational selectors missing required key 'root_entity'")
     TypeAdapter(RelationalRequest).validate_python(selectors)
+
+
+REPLAY_VALIDATORS = {"plan_normalize.spec_v1": validate_plan_normalize_spec_v1}

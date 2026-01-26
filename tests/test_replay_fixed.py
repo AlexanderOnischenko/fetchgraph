@@ -9,6 +9,7 @@ import pytest
 import fetchgraph.tracer.handlers  # noqa: F401
 import tests.helpers.handlers_resource_read  # noqa: F401
 from fetchgraph.tracer.runtime import load_case_bundle, run_case
+from fetchgraph.tracer.validators import REPLAY_VALIDATORS
 from fetchgraph.tracer.diff_utils import first_diff_path
 from tests.helpers.replay_dx import format_json, ids_from_path, truncate, truncate_limits
 
@@ -43,6 +44,10 @@ def test_replay_fixed_cases(case_path: Path) -> None:
         )
     root, ctx = load_case_bundle(case_path)
     out = run_case(root, ctx)
+    replay_id = root.get("id") if isinstance(root, dict) else None
+    validator = REPLAY_VALIDATORS.get(replay_id)
+    if validator is not None:
+        validator(out)
     expected = json.loads(expected_path.read_text(encoding="utf-8"))
     if out != expected:
         input_limit, meta_limit = truncate_limits()

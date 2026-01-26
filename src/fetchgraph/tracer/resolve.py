@@ -545,7 +545,7 @@ def _format_missing_case_runs(
                     f"status={info.status!r} "
                     f"missed={info.is_missed}"
                 )
-        details.append("Tip: verify TAG or pass RUN_ID/CASE_DIR/EVENTS.")
+        details.append("Tip: verify TAG or pass RUN_DIR/CASE_DIR/EVENTS.")
     else:
-        details.append("Tip: pass TAG/RUN_ID/CASE_DIR/EVENTS for a narrower selection.")
+        details.append("Tip: pass TAG/RUN_DIR/CASE_DIR/EVENTS for a narrower selection.")
     return "\n".join(details)

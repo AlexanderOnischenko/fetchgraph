@@ -234,8 +234,8 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 2) Иначе (auto-resolve через `.runs`):
    - обязателен `--case <CASE_ID>` и `--data <DATA_DIR>`
    - дальше выбираем конкретный run/case:
-     - `--case-dir <PATH>` или `--run-dir <PATH>` — явный путь
-     - `--run-id <RUN_ID>` — выбрать запуск и кейс внутри него
+     - `--case-dir <PATH>` — явный путь к кейсу
+     - `--run-dir <PATH>` — явный путь к run (кейс выбирается из `run_dir/cases`)
      - либо “самый свежий” по стратегии `--pick-run` (+ опционально `--tag`)
 
 Поддерживаемые имена файлов events (быстрый поиск):  
@@ -257,7 +257,7 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 - `--debug` — детальный вывод кандидатов (или `DEBUG=1`)
 
 Полезно:
-- `--print-resolve` — распечатать, во что именно разрешилось (`run_dir`, `events_path`).
+- `--print-resolve` — распечатать, во что именно разрешилось (`run_dir`, `case_dir`, `events_path`, `selection_method`).
 
 #### 6.1.3 Replay-case selection flags (когда в events много replay_case)
 

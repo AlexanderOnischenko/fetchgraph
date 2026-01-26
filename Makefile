@@ -56,7 +56,6 @@ PROVIDER ?=
 BUCKET ?= known_bad
 REPLAY_ID ?=
 EVENTS ?=
-RUN_ID ?=
 CASE_DIR ?=
 TRACER_ROOT ?= tests/fixtures/replay_cases
 TRACER_OUT_DIR ?= $(TRACER_ROOT)/$(BUCKET)
@@ -173,9 +172,9 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_ID=...] [CASE_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
+	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_DIR=...] [CASE_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
 	@echo "    PROVIDER фильтрует replay_case.meta.provider (обычно spec.provider: sql, relational, ...)"
-	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
+	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_DIR=...] [CASE_DIR=...]"
 	@echo "  make known-bad - запустить backlog-suite для known_bad (ожидаемо красный)"
 	@echo "  make known-bad-one NAME=fixture_stem - запустить один known_bad кейс"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
@@ -401,7 +400,6 @@ tracer-export:
 	  --data "$(REPLAY_IDATA)" \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
 	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
-	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
 	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	  $(if $(EVENTS),--events "$(EVENTS)",) \
@@ -415,7 +413,6 @@ tracer-ls:
 	  --case "$(CASE)" \
 	  --data "$(REPLAY_IDATA)" \
 	  --out "$(TRACER_OUT_DIR)" \
-	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
 	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	  $(if $(EVENTS),--events "$(EVENTS)",) \

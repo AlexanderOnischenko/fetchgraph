@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .diff_utils import first_diff_path
 from .fixture_layout import FixtureLayout, find_case_bundles
 from .runtime import load_case_bundle, run_case
 
@@ -58,6 +59,43 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
         encoding="utf-8",
     )
     tmp_path.replace(path)
+
+
+def _format_json(value: object, *, max_chars: int = 12_000) -> str:
+    text = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+    if len(text) <= max_chars:
+        return text
+    remaining = len(text) - max_chars
+    return f"{text[:max_chars]}...[truncated {remaining} chars]"
+
+
+def _top_level_key_diff(output: object, expected: object) -> tuple[list[str], list[str]]:
+    if not isinstance(output, dict) or not isinstance(expected, dict):
+        return ([], [])
+    output_keys = set(output.keys())
+    expected_keys = set(expected.keys())
+    missing = sorted(expected_keys - output_keys)
+    extra = sorted(output_keys - expected_keys)
+    return (missing, extra)
+
+
+def _format_fixture_diff(output: object, expected: object) -> str:
+    missing, extra = _top_level_key_diff(output, expected)
+    lines = [
+        "Fixture output mismatch.",
+        f"missing_keys: {missing}",
+        f"extra_keys: {extra}",
+    ]
+    if isinstance(output, dict) and isinstance(expected, dict):
+        out_spec = output.get("out_spec")
+        exp_spec = expected.get("out_spec")
+        if out_spec != exp_spec:
+            diff_path = first_diff_path(out_spec, exp_spec, prefix="out_spec")
+            if diff_path:
+                lines.append(f"out_spec diff path: {diff_path}")
+    lines.append(f"expected: {_format_json(expected)}")
+    lines.append(f"output: {_format_json(output)}")
+    return "\n".join(lines)
 
 
 def resolve_fixture_candidates(
@@ -304,7 +342,8 @@ def fixture_green(
     case_id: str | None = None,
     name: str | None = None,
     out_root: Path,
-    validate: bool = False,
+    validate: bool = True,
+    expected_from: str = "replay",
     overwrite_expected: bool = False,
     dry_run: bool = False,
     git_mode: str = "auto",
@@ -316,6 +355,8 @@ def fixture_green(
         raise ValueError("fixture-green requires --case, --case-id, or --name.")
     if case_path is not None and (case_id or name):
         raise ValueError("fixture-green accepts only one of --case, --case-id, or --name.")
+    if expected_from not in {"replay", "observed"}:
+        raise ValueError(f"Unsupported expected_from: {expected_from}")
     out_root = out_root.resolve()
     git_ops = _GitOps(out_root, git_mode)
     known_layout = FixtureLayout(out_root, "known_bad")
@@ -352,11 +393,11 @@ def fixture_green(
     payload = load_bundle_json(case_path)
     root = payload.get("root") or {}
     observed = root.get("observed")
-    if not isinstance(observed, dict):
+    if expected_from == "observed" and not isinstance(observed, dict):
         raise ValueError(
             "Cannot green fixture: root.observed is missing.\n"
             f"Case: {case_path}\n"
-            "Hint: export observed-first replay_case bundles; green requires observed to freeze behavior."
+            "Hint: re-export observed-first replay_case bundles or use --expected-from replay."
         )
 
     known_case_path = known_layout.case_path(stem)
@@ -384,17 +425,27 @@ def fixture_green(
         print("fixture-green:")
         print(f"  case:   {known_case_path}")
         print(f"  move:   -> {fixed_case_path}")
-        print(f"  write:  -> {fixed_expected_path} (from root.observed)")
+        source_label = "replay output" if expected_from == "replay" else "root.observed"
+        print(f"  write:  -> {fixed_expected_path} (from {source_label})")
         if resources_from.exists():
             print(f"  move:   resources -> {resources_to}")
         if validate:
             print("  validate: would run")
         return
 
+    if expected_from == "replay" or validate:
+        import fetchgraph.tracer.handlers  # noqa: F401
+
+        root_case, ctx = load_case_bundle(case_path)
+        replay_out = run_case(root_case, ctx)
+    else:
+        replay_out = None
+
+    expected_payload = replay_out if expected_from == "replay" else observed
     fixed_expected_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_expected_path = fixed_expected_path.with_suffix(fixed_expected_path.suffix + ".tmp")
     tmp_expected_path.write_text(
-        json.dumps(observed, ensure_ascii=False, sort_keys=True, indent=2),
+        json.dumps(expected_payload, ensure_ascii=False, sort_keys=True, indent=2),
         encoding="utf-8",
     )
     tx = _MoveTransaction(git_ops)
@@ -408,7 +459,6 @@ def fixture_green(
             tx.remove(known_expected_path)
 
         tmp_expected_path.replace(fixed_expected_path)
-        tx.commit()
     except Exception:
         if fixed_expected_path.exists():
             fixed_expected_path.unlink()
@@ -418,18 +468,29 @@ def fixture_green(
         raise
 
     if validate:
-        import fetchgraph.tracer.handlers  # noqa: F401
+        try:
+            root_case, ctx = load_case_bundle(fixed_case_path)
+            out = run_case(root_case, ctx)
+            expected = json.loads(fixed_expected_path.read_text(encoding="utf-8"))
+            if out != expected:
+                raise AssertionError(_format_fixture_diff(out, expected))
+        except Exception as exc:
+            tx.rollback()
+            if fixed_expected_path.exists():
+                fixed_expected_path.unlink()
+            raise AssertionError(
+                "fixture-green validation failed; rollback completed.\n"
+                f"fixture: {fixed_case_path}\n"
+                f"{exc}"
+            ) from exc
 
-        root_case, ctx = load_case_bundle(fixed_case_path)
-        out = run_case(root_case, ctx)
-        expected = json.loads(fixed_expected_path.read_text(encoding="utf-8"))
-        if out != expected:
-            raise AssertionError("Replay output does not match expected after fixture-green")
+    tx.commit()
 
     print("fixture-green:")
     print(f"  case:   {known_case_path}")
     print(f"  move:   -> {fixed_case_path}")
-    print(f"  write:  -> {fixed_expected_path} (from root.observed)")
+    source_label = "replay output" if expected_from == "replay" else "root.observed"
+    print(f"  write:  -> {fixed_expected_path} (from {source_label})")
     if resources_from.exists():
         print(f"  move:   resources -> {resources_to}")
     if validate:

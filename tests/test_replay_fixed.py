@@ -9,12 +9,8 @@ import pytest
 import fetchgraph.tracer.handlers  # noqa: F401
 import tests.helpers.handlers_resource_read  # noqa: F401
 from fetchgraph.tracer.runtime import load_case_bundle, run_case
-from tests.helpers.replay_dx import (
-    format_json,
-    ids_from_path,
-    truncate,
-    truncate_limits,
-)
+from fetchgraph.tracer.diff_utils import first_diff_path
+from tests.helpers.replay_dx import format_json, ids_from_path, truncate, truncate_limits
 
 REPLAY_CASES_ROOT = Path(__file__).parent / "fixtures" / "replay_cases"
 FIXED_DIR = REPLAY_CASES_ROOT / "fixed"
@@ -52,6 +48,19 @@ def test_replay_fixed_cases(case_path: Path) -> None:
         input_limit, meta_limit = truncate_limits()
         meta = root.get("meta") if isinstance(root, dict) else None
         note = root.get("note") if isinstance(root, dict) else None
+        missing_keys = []
+        extra_keys = []
+        if isinstance(out, dict) and isinstance(expected, dict):
+            out_keys = set(out.keys())
+            expected_keys = set(expected.keys())
+            missing_keys = sorted(expected_keys - out_keys)
+            extra_keys = sorted(out_keys - expected_keys)
+        out_spec_path = None
+        if isinstance(out, dict) and isinstance(expected, dict):
+            out_spec = out.get("out_spec")
+            expected_spec = expected.get("out_spec")
+            if out_spec != expected_spec:
+                out_spec_path = first_diff_path(out_spec, expected_spec, prefix="out_spec")
         message = "\n".join(
             [
                 "Fixed fixture mismatch.",
@@ -59,6 +68,10 @@ def test_replay_fixed_cases(case_path: Path) -> None:
                 f"meta: {truncate(format_json(meta, max_chars=meta_limit), limit=meta_limit)}",
                 f"note: {truncate(format_json(note, max_chars=meta_limit), limit=meta_limit)}",
                 f"out: {truncate(format_json(out, max_chars=input_limit), limit=input_limit)}",
+                f"expected: {truncate(format_json(expected, max_chars=input_limit), limit=input_limit)}",
+                f"missing_keys: {missing_keys}",
+                f"extra_keys: {extra_keys}",
+                f"out_spec_path: {out_spec_path}",
             ]
         )
         pytest.fail(message, pytrace=False)

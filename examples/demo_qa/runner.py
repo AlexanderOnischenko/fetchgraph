@@ -392,7 +392,7 @@ def run_one(
 
     run_dir.mkdir(parents=True, exist_ok=True)
     events_path = run_dir / "events.jsonl"
-    case_logger = event_logger.for_case(case.id, events_path) if event_logger else EventLogger(events_path, run_id, case.id)
+    case_logger = event_logger.for_case(case.id, events_path) if event_logger else None
     if case_logger:
         case_logger.emit({"type": "run_started", "case_id": case.id, "run_dir": str(run_dir)})
         case_logger.emit({"type": "case_started", "case_id": case.id, "run_dir": str(run_dir)})
@@ -481,7 +481,11 @@ def run_one(
             status="error",
             checked=case.has_asserts,
             reason=error_message,
-            details={"error": error_message, "traceback": tb, "events_path": str(events_path)},
+            details={
+                "error": error_message,
+                "traceback": tb,
+                **({"events_path": str(events_path)} if case_logger else {}),
+            },
             artifacts_dir=str(run_dir),
             duration_ms=0,
             tags=list(case.tags),

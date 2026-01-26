@@ -58,7 +58,7 @@ def build_rerun_hints(bundle_path: Path) -> list[str]:
     stem = bundle_path.stem
     return [
         f"pytest -k {stem} -m known_bad -vv",
-        f"fetchgraph-tracer fixture-green --case {bundle_path} --validate",
+        f"fetchgraph-tracer fixture-green --case {bundle_path}",
         f"fetchgraph-tracer replay --case {bundle_path} --debug",
     ]
 

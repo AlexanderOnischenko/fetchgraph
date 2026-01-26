@@ -108,7 +108,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     green.add_argument("--case-id", help="Case id to select fixture from known_bad")
     green.add_argument("--name", help="Fixture stem name to select")
     green.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
-    green.add_argument("--validate", action="store_true", help="Validate replay output")
+    green.add_argument("--no-validate", action="store_true", help="Disable validation after write")
+    green.add_argument(
+        "--expected-from",
+        choices=["replay", "observed"],
+        default="replay",
+        help="Source for expected output (default: replay)",
+    )
     green.add_argument(
         "--overwrite-expected",
         action="store_true",
@@ -428,7 +434,8 @@ def main(argv: list[str] | None = None) -> int:
                 case_id=args.case_id,
                 name=args.name,
                 out_root=args.root,
-                validate=args.validate,
+                validate=not args.no_validate,
+                expected_from=args.expected_from,
                 overwrite_expected=args.overwrite_expected,
                 dry_run=args.dry_run,
                 git_mode=args.git,

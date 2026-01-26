@@ -78,8 +78,12 @@ def test_replay_fixed_cases(case_path: Path) -> None:
         pytest.fail(message, pytrace=False)
     replay_id = root.get("id") if isinstance(root, dict) else None
     validator = REPLAY_VALIDATORS.get(replay_id)
-    if validator is not None:
-        validator(out)
+    if validator is None:
+        pytest.fail(
+            f"No validator registered for replay id={replay_id!r}. Add it to REPLAY_VALIDATORS.",
+            pytrace=False,
+        )
+    validator(out)
     assert out == expected
 
 

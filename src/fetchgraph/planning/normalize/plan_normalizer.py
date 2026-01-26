@@ -221,6 +221,9 @@ class PlanNormalizer:
                             selectors_schema=self.schema_registry[spec.provider],
                         )
                     )
+                requires = None
+                if not self._provider_info_snapshot_sufficient(provider_info_snapshot):
+                    requires = [{"kind": "extra", "id": "planner_input_v1"}]
                 input_payload = {
                     "spec": {
                         "provider": spec.provider,
@@ -254,6 +257,7 @@ class PlanNormalizer:
                         "selectors_valid_after": after_ok,
                         "rule_trace": rule_trace,
                     },
+                    requires=requires,
                     note=note,
                 )
             if use == selectors_before:
@@ -292,6 +296,15 @@ class PlanNormalizer:
             payload["selectors_before"] = selectors_before
             payload["selectors_after"] = selectors_after
         return json.dumps(payload, ensure_ascii=False, default=str)
+
+    @staticmethod
+    def _provider_info_snapshot_sufficient(snapshot: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(snapshot, dict):
+            return False
+        selectors_schema = snapshot.get("selectors_schema")
+        if isinstance(selectors_schema, dict) and selectors_schema:
+            return True
+        return False
 
     def _normalize_required_context(
         self, values: Iterable[str], notes: List[str]

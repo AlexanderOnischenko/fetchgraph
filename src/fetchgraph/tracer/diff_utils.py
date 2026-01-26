@@ -4,7 +4,7 @@ from __future__ import annotations
 def first_diff_path(left: object, right: object, *, prefix: str = "") -> str | None:
     if type(left) is not type(right):
         return prefix or "<root>"
-    if isinstance(left, dict):
+    if isinstance(left, dict) and isinstance(right, dict):
         left_keys = set(left.keys())
         right_keys = set(right.keys())
         for key in sorted(left_keys | right_keys):
@@ -15,7 +15,7 @@ def first_diff_path(left: object, right: object, *, prefix: str = "") -> str | N
             if diff is not None:
                 return diff
         return None
-    if isinstance(left, list):
+    if isinstance(left, list) and isinstance(right, list):
         if len(left) != len(right):
             return f"{prefix}.length" if prefix else "length"
         for idx, (l_item, r_item) in enumerate(zip(left, right), start=1):

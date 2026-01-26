@@ -153,7 +153,7 @@ def test_known_bad_backlog(bundle_path: Path) -> None:
             "KNOWN_BAD is now PASSING. Promote to fixed",
             *common_block,
             "Promote this fixture to fixed (freeze expected) and remove it from known_bad.",
-            f"Command: fetchgraph-tracer fixture-green --case {bundle_path} --validate",
+            f"Command: fetchgraph-tracer fixture-green --case {bundle_path}",
             "expected will be created from root.observed",
         ]
     )

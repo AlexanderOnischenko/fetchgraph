@@ -39,7 +39,7 @@ def test_fixture_green_requires_observed(tmp_path: Path) -> None:
     _write_bundle(case_path, payload)
 
     with pytest.raises(ValueError, match="root.observed is missing"):
-        fixture_green(case_path=case_path, out_root=root)
+        fixture_green(case_path=case_path, out_root=root, expected_from="observed")
 
 
 def test_fixture_green_moves_case_and_resources(tmp_path: Path) -> None:
@@ -53,13 +53,13 @@ def test_fixture_green_moves_case_and_resources(tmp_path: Path) -> None:
             "type": "replay_case",
             "v": 2,
             "id": "plan_normalize.spec_v1",
-            "input": {"spec": {"provider": "sql"}},
+            "input": {"spec": {"provider": "sql"}, "options": {}},
             "observed": {"out_spec": {"provider": "sql"}},
         }
     )
     _write_bundle(case_path, payload)
 
-    fixture_green(case_path=case_path, out_root=root)
+    fixture_green(case_path=case_path, out_root=root, expected_from="replay")
 
     fixed_case = root / "fixed" / "case.case.json"
     expected_path = root / "fixed" / "case.expected.json"
@@ -69,6 +69,28 @@ def test_fixture_green_moves_case_and_resources(tmp_path: Path) -> None:
     assert fixed_resources.exists()
     assert not (root / "known_bad" / "case.case.json").exists()
     assert not resources_dir.exists()
+
+
+def test_fixture_green_rolls_back_on_validation_failure(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    case_path = root / "known_bad" / "case.case.json"
+    payload = _bundle_payload(
+        {
+            "type": "replay_case",
+            "v": 2,
+            "id": "plan_normalize.spec_v1",
+            "input": {"spec": {"provider": "sql"}, "options": {}},
+            "observed": {"out_spec": {"provider": "other"}},
+        }
+    )
+    _write_bundle(case_path, payload)
+
+    with pytest.raises(AssertionError, match="rollback completed"):
+        fixture_green(case_path=case_path, out_root=root, expected_from="observed")
+
+    assert case_path.exists()
+    assert not (root / "fixed" / "case.case.json").exists()
+    assert not (root / "fixed" / "case.expected.json").exists()
 
 
 def test_fixture_fix_renames_and_updates_resource_paths(tmp_path: Path) -> None:

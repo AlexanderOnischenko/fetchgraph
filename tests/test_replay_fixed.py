@@ -36,6 +36,34 @@ def _expected_path(case_path: Path) -> Path:
     return case_path.with_name(case_path.name.replace(".case.json", ".expected.json"))
 
 
+def _first_diff_path(left: object, right: object, *, prefix: str = "") -> str | None:
+    if type(left) is not type(right):
+        return prefix or "<root>"
+    if isinstance(left, dict):
+        left_keys = set(left.keys())
+        right_keys = set(right.keys())
+        for key in sorted(left_keys | right_keys):
+            next_prefix = f"{prefix}.{key}" if prefix else str(key)
+            if key not in left or key not in right:
+                return next_prefix
+            diff = _first_diff_path(left[key], right[key], prefix=next_prefix)
+            if diff is not None:
+                return diff
+        return None
+    if isinstance(left, list):
+        if len(left) != len(right):
+            return f"{prefix}.length" if prefix else "length"
+        for idx, (l_item, r_item) in enumerate(zip(left, right), start=1):
+            next_prefix = f"{prefix}[{idx}]" if prefix else f"[{idx}]"
+            diff = _first_diff_path(l_item, r_item, prefix=next_prefix)
+            if diff is not None:
+                return diff
+        return None
+    if left != right:
+        return prefix or "<root>"
+    return None
+
+
 @pytest.mark.parametrize("case_path", _iter_case_params())
 def test_replay_fixed_cases(case_path: Path) -> None:
     expected_path = _expected_path(case_path)
@@ -52,6 +80,19 @@ def test_replay_fixed_cases(case_path: Path) -> None:
         input_limit, meta_limit = truncate_limits()
         meta = root.get("meta") if isinstance(root, dict) else None
         note = root.get("note") if isinstance(root, dict) else None
+        missing_keys = []
+        extra_keys = []
+        if isinstance(out, dict) and isinstance(expected, dict):
+            out_keys = set(out.keys())
+            expected_keys = set(expected.keys())
+            missing_keys = sorted(expected_keys - out_keys)
+            extra_keys = sorted(out_keys - expected_keys)
+        out_spec_path = None
+        if isinstance(out, dict) and isinstance(expected, dict):
+            out_spec = out.get("out_spec")
+            expected_spec = expected.get("out_spec")
+            if out_spec != expected_spec:
+                out_spec_path = _first_diff_path(out_spec, expected_spec, prefix="out_spec")
         message = "\n".join(
             [
                 "Fixed fixture mismatch.",
@@ -59,6 +100,10 @@ def test_replay_fixed_cases(case_path: Path) -> None:
                 f"meta: {truncate(format_json(meta, max_chars=meta_limit), limit=meta_limit)}",
                 f"note: {truncate(format_json(note, max_chars=meta_limit), limit=meta_limit)}",
                 f"out: {truncate(format_json(out, max_chars=input_limit), limit=input_limit)}",
+                f"expected: {truncate(format_json(expected, max_chars=input_limit), limit=input_limit)}",
+                f"missing_keys: {missing_keys}",
+                f"extra_keys: {extra_keys}",
+                f"out_spec_path: {out_spec_path}",
             ]
         )
         pytest.fail(message, pytrace=False)

@@ -36,6 +36,15 @@ def validate_plan_normalize_spec_v1(out: dict) -> None:
     TypeAdapter(RelationalRequest).validate_python(selectors)
 
 
+def validate_resource_read_v1(out: dict) -> None:
+    if not isinstance(out, dict):
+        raise AssertionError("Output must be a dict")
+    text = out.get("text")
+    if not isinstance(text, str):
+        raise AssertionError("Output must include text string")
+
+
 REPLAY_VALIDATORS = {
     "plan_normalize.spec_v1": validate_plan_normalize_spec_v1,
+    "resource_read.v1": validate_resource_read_v1,
 }

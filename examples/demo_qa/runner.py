@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, TypedDict
+from typing import Dict, Iterable, List, Mapping, Protocol, TypeAlias, TypedDict
 
 from typing_extensions import NotRequired
 
@@ -20,6 +20,15 @@ from fetchgraph.core.context import BaseGraphAgent
 from fetchgraph.core.models import TaskProfile
 from fetchgraph.replay.snapshots import snapshot_provider_catalog
 from fetchgraph.utils import set_run_id
+
+EventLoggerLike: TypeAlias = "EventLogger"
+
+
+class CaseEventLoggerFactory(Protocol):
+    def for_case(self, case_id: str, events_path: Path) -> EventLoggerLike: ...
+
+
+_DEFAULT_EVENT_LOGGER = object()
 
 
 @dataclass
@@ -380,7 +389,7 @@ def run_one(
     artifacts_root: Path,
     *,
     plan_only: bool = False,
-    event_logger: EventLogger | None = None,
+    event_logger: CaseEventLoggerFactory | None | object = _DEFAULT_EVENT_LOGGER,
     run_dir: Path | None = None,
     schema_path: Path | None = None,
 ) -> RunResult:
@@ -392,7 +401,12 @@ def run_one(
 
     run_dir.mkdir(parents=True, exist_ok=True)
     events_path = run_dir / "events.jsonl"
-    case_logger = event_logger.for_case(case.id, events_path) if event_logger else None
+    if event_logger is None:
+        case_logger = None
+    elif event_logger is _DEFAULT_EVENT_LOGGER:
+        case_logger = EventLogger(events_path, run_id, case.id)
+    else:
+        case_logger = event_logger.for_case(case.id, events_path)
     if case_logger:
         case_logger.emit({"type": "run_started", "case_id": case.id, "run_dir": str(run_dir)})
         case_logger.emit({"type": "case_started", "case_id": case.id, "run_dir": str(run_dir)})

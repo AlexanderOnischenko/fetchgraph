@@ -459,6 +459,9 @@ fixture-rm:
 	  if [ -f "$$case_value" ]; then \
 	    case_args="--case $$case_value"; \
 	  elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
+	    if [ "$(BUCKET)" = "all" ]; then \
+	      echo "CASE с относительным путем нельзя использовать при BUCKET=all; укажите --name/--case-id/--pattern." && exit 1; \
+	    fi; \
 	    case_args="--case $(TRACER_ROOT)/$(BUCKET)/$$case_value"; \
 	  else \
 	    case_args="--case-id $$case_value"; \

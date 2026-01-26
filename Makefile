@@ -180,7 +180,7 @@ help:
 	@echo "  make known-bad-one NAME=fixture_stem - запустить один known_bad кейс"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
-	@echo "  make fixture-green CASE=agg_003|fixture_stem|path/to/case.case.json [TRACER_ROOT=...] [VALIDATE=1] [OVERWRITE_EXPECTED=1] [DRY=1]"
+	@echo "  make fixture-green CASE=agg_003|fixture_stem|path/to/case.case.json [TRACER_ROOT=...] [NO_VALIDATE=1] [EXPECTED_FROM=replay|observed] [OVERWRITE_EXPECTED=1] [DRY=1]"
 	@echo "  make fixture-ls CASE=agg_003 [TRACER_ROOT=...] [BUCKET=known_bad]"
 	@echo "  make fixture-rm CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
 	@echo "  make fixture-migrate CASE=agg_003|fixture_stem|path [SELECT=latest|first|last] [SELECT_INDEX=N] [REQUIRE_UNIQUE=1] [ALL=1]"
@@ -436,6 +436,8 @@ fixture-green:
 	  case_args="--case $$case_value"; \
 	elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
 	  case_args="--case $(TRACER_ROOT)/known_bad/$$case_value"; \
+	elif [[ "$$case_value" == *"__"* ]]; then \
+	  case_args="--name $$case_value"; \
 	else \
 	  case_args="--case-id $$case_value"; \
 	fi; \
@@ -443,7 +445,8 @@ fixture-green:
 	  $(if $(strip $(SELECT)),--select "$(SELECT)",) \
 	  $(if $(strip $(SELECT_INDEX)),--select-index "$(SELECT_INDEX)",) \
 	  $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
-	  $(if $(filter 1 true yes on,$(VALIDATE)),--validate,) \
+	  $(if $(filter 1 true yes on,$(NO_VALIDATE)),--no-validate,) \
+	  $(if $(strip $(EXPECTED_FROM)),--expected-from "$(EXPECTED_FROM)",) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE_EXPECTED)),--overwrite-expected,) \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
@@ -459,6 +462,8 @@ fixture-rm:
 	    case_args="--case $$case_value"; \
 	  elif [[ "$$case_value" == *".case.json" || "$$case_value" == *"/"* ]]; then \
 	    case_args="--case $(TRACER_ROOT)/$(BUCKET)/$$case_value"; \
+	  elif [[ "$$case_value" == *"__"* ]]; then \
+	    case_args="--name $$case_value"; \
 	  else \
 	    case_args="--case-id $$case_value"; \
 	  fi; \

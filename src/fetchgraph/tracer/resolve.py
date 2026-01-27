@@ -127,13 +127,15 @@ def resolve_run_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: str
             run_folder_value = entry.get("run_folder")
             if not run_dir_value and not run_folder_value:
                 continue
-            candidate = None
+            candidate: Path | None = None
             if run_dir_value:
                 candidate = Path(run_dir_value)
                 if not candidate.is_absolute():
                     candidate = runs_root / candidate
             if candidate is None and run_folder_value:
                 candidate = runs_root / str(run_folder_value)
+            if candidate is None:
+                continue
             if candidate.exists():
                 return candidate
             history_candidates.append(candidate)

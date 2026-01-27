@@ -230,8 +230,10 @@ def index_requires(
 def _format_replay_case_ref(replay_case: dict | None) -> str:
     if not isinstance(replay_case, dict):
         return ""
-    replay_id = replay_case.get("id")
-    meta = replay_case.get("meta") if isinstance(replay_case.get("meta"), dict) else {}
+    replay_case_dict: dict = replay_case
+    replay_id = replay_case_dict.get("id")
+    meta_value = replay_case_dict.get("meta")
+    meta = meta_value if isinstance(meta_value, dict) else {}
     provider = meta.get("provider")
     spec_idx = meta.get("spec_idx")
     details = []
@@ -299,7 +301,8 @@ def _extract_extra_requires(
     schema_ref = extra.get("schema_ref")
     if isinstance(schema_ref, str) and schema_ref:
         requirements.append({"kind": "resource", "id": schema_ref})
-    extra_input = extra.get("input") if isinstance(extra.get("input"), dict) else {}
+    input_value = extra.get("input")
+    extra_input = input_value if isinstance(input_value, dict) else {}
     schema_ref = extra_input.get("schema_ref")
     if isinstance(schema_ref, str) and schema_ref:
         requirements.append({"kind": "resource", "id": schema_ref})

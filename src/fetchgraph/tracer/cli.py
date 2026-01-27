@@ -295,6 +295,8 @@ def main(argv: list[str] | None = None) -> int:
                         run_dir_source = "derived from case_dir"
                     else:
                         run_dir = args.run_dir
+                        if run_dir is None:
+                            raise ValueError("run_dir was not resolved.")
                         case_dir = _resolve_case_dir_from_run_dir(run_dir=run_dir, case_id=args.case)
                         selection_rule = "explicit RUN_DIR"
                         run_dir_source = "explicit RUN_DIR"

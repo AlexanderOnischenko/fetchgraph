@@ -1018,7 +1018,14 @@ def handle_batch(args) -> int:
         for case in cases:
             current_case_id = case.id
             try:
-                result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
+                result = run_one(
+                    case,
+                    runner,
+                    artifacts_root,
+                    plan_only=args.plan_only,
+                    event_logger=event_logger,
+                    schema_path=schema_path,
+                )
             except KeyboardInterrupt:
                 interrupted = True
                 interrupted_at_case_id = current_case_id
@@ -1390,7 +1397,13 @@ def handle_case_run(args) -> int:
     llm = build_llm(settings)
     runner = build_agent(llm, provider)
 
-    result = run_one(cases[args.case_id], runner, artifacts_root, plan_only=args.plan_only)
+    result = run_one(
+        cases[args.case_id],
+        runner,
+        artifacts_root,
+        plan_only=args.plan_only,
+        schema_path=args.schema,
+    )
     write_results(results_path, [result])
     counts = summarize([result])
     bad = bad_statuses("bad", False)
@@ -1437,7 +1450,10 @@ def handle_case_open(args) -> int:
     plan = case_dir / "plan.json"
     answer = case_dir / "answer.txt"
     status = case_dir / "status.json"
-    for path in [plan, answer, status]:
+    events = case_dir / "events.jsonl"
+    error = case_dir / "error.txt"
+    schema_snapshot = case_dir / "schema_snapshot.yaml"
+    for path in [plan, answer, status, events, error, schema_snapshot]:
         if path.exists():
             print(f"- {path}")
     return 0

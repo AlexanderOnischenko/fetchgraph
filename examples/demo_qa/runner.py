@@ -1,18 +1,35 @@
 from __future__ import annotations
 
 import datetime
+import traceback
+import hashlib
 import json
 import re
+import shutil
 import statistics
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, NotRequired, TypedDict
+from typing import Dict, Iterable, List, Mapping, Protocol, TypedDict
+
+from typing_extensions import NotRequired
 
 from fetchgraph.core import create_generic_agent
+from fetchgraph.core.context import BaseGraphAgent
 from fetchgraph.core.models import TaskProfile
+from fetchgraph.replay.snapshots import snapshot_provider_catalog
 from fetchgraph.utils import set_run_id
+
+class CaseEventLoggerFactory(Protocol):
+    def for_case(self, case_id: str, events_path: Path) -> "EventLogger": ...
+
+
+class _DefaultEventLoggerSentinel:
+    pass
+
+
+_DEFAULT_EVENT_LOGGER = _DefaultEventLoggerSentinel()
 
 
 @dataclass
@@ -114,7 +131,7 @@ class AgentRunner:
             ],
         )
 
-        self.agent = create_generic_agent(
+        self.agent: BaseGraphAgent = create_generic_agent(
             llm_invoke=llm,
             providers={provider.name: provider},
             saver=saver,
@@ -129,6 +146,7 @@ class AgentRunner:
         *,
         plan_only: bool = False,
         event_logger: EventLogger | None = None,
+        schema_ref: str | None = None,
     ) -> RunArtifacts:
         set_run_id(run_id)
         artifacts = RunArtifacts(run_id=run_id, run_dir=run_dir, question=case.question, plan_only=plan_only)
@@ -137,8 +155,19 @@ class AgentRunner:
         try:
             if event_logger:
                 event_logger.emit({"type": "plan_started", "case_id": case.id})
+                _emit_planner_input(
+                    event_logger,
+                    case=case,
+                    agent=self,
+                    schema_ref=schema_ref,
+                    plan_only=plan_only,
+                )
             plan_started = time.perf_counter()
-            plan = self.agent._plan(case.question)  # type: ignore[attr-defined]
+            if event_logger:
+                self.agent.set_event_logger(event_logger)
+            else:
+                self.agent.set_event_logger(None)
+            plan = self.agent._plan(case.question)
             artifacts.timings.plan_s = time.perf_counter() - plan_started
             artifacts.plan = plan.model_dump()
 
@@ -182,6 +211,70 @@ def _save_text(path: Path, content: str) -> None:
 
 def _save_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _hash_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8192), b""):
+            hasher.update(chunk)
+    return f"sha256:{hasher.hexdigest()}"
+
+
+def _provider_catalog_snapshot(agent: object) -> Dict[str, object]:
+    plan_normalizer = getattr(agent, "plan_normalizer", None)
+    provider_catalog = getattr(plan_normalizer, "provider_catalog", {}) if plan_normalizer else {}
+    return snapshot_provider_catalog(provider_catalog)
+
+
+def _emit_schema_snapshot(event_logger: EventLogger, run_dir: Path, schema_path: Path) -> str:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    suffix = schema_path.suffix.lstrip(".") or "txt"
+    snapshot_name = f"schema_snapshot.{suffix}"
+    snapshot_path = run_dir / snapshot_name
+    shutil.copy2(schema_path, snapshot_path)
+    file_hash = _hash_file(snapshot_path)
+    event_logger.emit(
+        {
+            "type": "replay_resource",
+            "v": 1,
+            "id": "schema_v1",
+            "meta": {"format": suffix},
+            "data": None,
+            "data_ref": {"file": snapshot_name, "hash": file_hash},
+            "hash": file_hash,
+        }
+    )
+    return "schema_v1"
+
+
+def _emit_planner_input(
+    event_logger: EventLogger,
+    *,
+    case: Case,
+    agent: AgentRunner,
+    schema_ref: str | None,
+    plan_only: bool,
+) -> None:
+    input_payload: Dict[str, object] = {
+        "feature_name": case.id,
+        "user_query": case.question,
+        "options": {"plan_only": plan_only},
+    }
+    if schema_ref:
+        input_payload["schema_ref"] = schema_ref
+    provider_catalog = _provider_catalog_snapshot(agent.agent)
+    if provider_catalog:
+        input_payload["provider_catalog"] = provider_catalog
+    event_logger.emit(
+        {
+            "type": "planner_input",
+            "v": 1,
+            "id": "planner_input_v1",
+            "case_id": case.id,
+            "input": input_payload,
+        }
+    )
 
 
 def save_artifacts(artifacts: RunArtifacts) -> None:
@@ -297,8 +390,9 @@ def run_one(
     artifacts_root: Path,
     *,
     plan_only: bool = False,
-    event_logger: EventLogger | None = None,
+    event_logger: CaseEventLoggerFactory | None | _DefaultEventLoggerSentinel = _DEFAULT_EVENT_LOGGER,
     run_dir: Path | None = None,
+    schema_path: Path | None = None,
 ) -> RunResult:
     if run_dir is None:
         run_id = uuid.uuid4().hex[:8]
@@ -306,60 +400,128 @@ def run_one(
     else:
         run_id = run_dir.name.split("_")[-1]
 
-    case_logger = event_logger.for_case(case.id, run_dir / "events.jsonl") if event_logger else None
+    run_dir.mkdir(parents=True, exist_ok=True)
+    events_path = run_dir / "events.jsonl"
+    if event_logger is None:
+        case_logger = None
+    elif event_logger is _DEFAULT_EVENT_LOGGER:
+        case_logger = EventLogger(events_path, run_id, case.id)
+    else:
+        case_logger = event_logger.for_case(case.id, events_path)
     if case_logger:
+        case_logger.emit({"type": "run_started", "case_id": case.id, "run_dir": str(run_dir)})
         case_logger.emit({"type": "case_started", "case_id": case.id, "run_dir": str(run_dir)})
-    if case.skip:
-        run_dir.mkdir(parents=True, exist_ok=True)
-        _save_text(run_dir / "skipped.txt", "Skipped by request")
+    schema_ref: str | None = None
+    ok = False
+    result: RunResult | None = None
+    try:
+        if case_logger and schema_path and schema_path.exists():
+            schema_ref = _emit_schema_snapshot(case_logger, run_dir, schema_path)
+        if case.skip:
+            _save_text(run_dir / "skipped.txt", "Skipped by request")
+            result = RunResult(
+                id=case.id,
+                question=case.question,
+                status="skipped",
+                checked=False,
+                reason="skipped",
+                details=None,
+                artifacts_dir=str(run_dir),
+                duration_ms=0,
+                tags=list(case.tags),
+                answer=None,
+                error=None,
+                plan_path=None,
+                timings=RunTimings(),
+                expected_check=None,
+            )
+            save_status(result)
+            ok = True
+            if case_logger:
+                case_logger.emit({"type": "case_finished", "case_id": case.id, "status": "skipped"})
+            return result
+
+        artifacts = runner.run_question(
+            case,
+            run_id,
+            run_dir,
+            plan_only=plan_only,
+            event_logger=case_logger,
+            schema_ref=schema_ref,
+        )
+        save_artifacts(artifacts)
+
+        expected_check = None if plan_only else _match_expected(case, artifacts.answer)
+        result = _build_result(case, artifacts, run_dir, expected_check)
+        save_status(result)
+        ok = result.status != "error"
+        if case_logger:
+            if result.status == "error":
+                case_logger.emit(
+                    {
+                        "type": "case_failed",
+                        "case_id": case.id,
+                        "status": result.status,
+                        "reason": result.reason,
+                        "artifacts_dir": result.artifacts_dir,
+                    }
+                )
+            case_logger.emit(
+                {
+                    "type": "case_finished",
+                    "case_id": case.id,
+                    "status": result.status,
+                    "duration_ms": result.duration_ms,
+                    "artifacts_dir": result.artifacts_dir,
+                }
+            )
+        return result
+    except BaseException as exc:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        error_message = str(exc) or repr(exc)
+        if case_logger:
+            case_logger.emit(
+                {
+                    "type": "run_failed",
+                    "case_id": case.id,
+                    "exc_type": type(exc).__name__,
+                    "exc_message": error_message,
+                    "traceback": tb,
+                    "artifacts_dir": str(run_dir),
+                }
+            )
         result = RunResult(
             id=case.id,
             question=case.question,
-            status="skipped",
-            checked=False,
-            reason="skipped",
-            details=None,
+            status="error",
+            checked=case.has_asserts,
+            reason=error_message,
+            details={
+                "error": error_message,
+                "traceback": tb,
+                **({"events_path": str(events_path)} if case_logger else {}),
+            },
             artifacts_dir=str(run_dir),
             duration_ms=0,
             tags=list(case.tags),
             answer=None,
-            error=None,
+            error=error_message,
             plan_path=None,
             timings=RunTimings(),
             expected_check=None,
         )
         save_status(result)
+        raise
+    finally:
         if case_logger:
-            case_logger.emit({"type": "case_finished", "case_id": case.id, "status": "skipped"})
-        return result
-
-    artifacts = runner.run_question(case, run_id, run_dir, plan_only=plan_only, event_logger=case_logger)
-    save_artifacts(artifacts)
-
-    expected_check = None if plan_only else _match_expected(case, artifacts.answer)
-    result = _build_result(case, artifacts, run_dir, expected_check)
-    save_status(result)
-    if case_logger:
-        if result.status == "error":
             case_logger.emit(
                 {
-                    "type": "case_failed",
+                    "type": "run_finished",
                     "case_id": case.id,
-                    "status": result.status,
-                    "reason": result.reason,
-                    "artifacts_dir": result.artifacts_dir,
+                    "ok": ok,
+                    "artifacts_dir": str(run_dir),
                 }
             )
-        case_logger.emit(
-            {
-                "type": "case_finished",
-                "case_id": case.id,
-                "status": result.status,
-                "duration_ms": result.duration_ms,
-                "artifacts_dir": result.artifacts_dir,
-            }
-        )
-    return result
 
 
 def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
@@ -791,9 +953,10 @@ def format_status_line(result: RunResult) -> str:
 
 
 class EventLogger:
-    def __init__(self, path: Path | None, run_id: str):
+    def __init__(self, path: Path | None, run_id: str, case_id: str | None = None):
         self.path = path
         self.run_id = run_id
+        self.case_id = case_id
         if path:
             path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -802,13 +965,13 @@ class EventLogger:
             return
         now = datetime.datetime.now(datetime.timezone.utc)
         payload = {"timestamp": now.isoformat().replace("+00:00", "Z"), "run_id": self.run_id, **event}
+        if self.case_id and "case_id" not in payload:
+            payload["case_id"] = self.case_id
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
-    def for_case(self, case_id: str, path: Path | None = None) -> "EventLogger":
-        if path is None:
-            return self
-        return EventLogger(path, self.run_id)
+    def for_case(self, case_id: str, path: Path) -> "EventLogger":
+        return EventLogger(path, self.run_id, case_id)
 
 
 DiffCaseChange = TypedDict(

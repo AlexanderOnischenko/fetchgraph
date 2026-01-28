@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional
 from collections.abc import Callable, MutableMapping
+from typing import Any, Dict, Optional
 
 from .types import SelectorsDict
 

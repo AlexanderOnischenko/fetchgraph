@@ -1,0 +1,23 @@
+{
+  "schema": "fetchgraph.tracer.case_bundle",
+  "v": 1,
+  "root": {
+    "type": "replay_case",
+    "v": 2,
+    "id": "resource_read.v1",
+    "input": {
+      "resource_id": "sample"
+    },
+    "observed": {
+      "text": "hello"
+    }
+  },
+  "resources": {
+    "sample": {
+      "data_ref": {
+        "file": "resources/resource_read.v1__sample/sample/sample.txt"
+      }
+    }
+  },
+  "extras": {}
+}

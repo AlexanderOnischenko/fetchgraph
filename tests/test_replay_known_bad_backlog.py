@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 import traceback
 from pathlib import Path
+
 import pytest
+from conftest import (  # лучше вынести в отдельный модуль, если не любишь импорт из conftest
+    KNOWN_BAD_PROMOTE_KEY,
+    PromoteCandidate,
+)
 from pydantic import ValidationError
 
 import fetchgraph.tracer.handlers  # noqa: F401
@@ -74,7 +79,7 @@ def _validate_root_schema(bundle: dict) -> None:
 
 @pytest.mark.known_bad
 @pytest.mark.parametrize("bundle_path", _iter_case_params())
-def test_known_bad_backlog(bundle_path: Path) -> None:
+def test_known_bad_backlog(bundle_path: Path, request: pytest.FixtureRequest) -> None:
     bundle_payload = json.loads(bundle_path.read_text(encoding="utf-8"))
     if not isinstance(bundle_payload, dict):
         pytest.fail(f"Unexpected bundle payload type: {type(bundle_payload)}", pytrace=False)
@@ -150,4 +155,15 @@ def test_known_bad_backlog(bundle_path: Path) -> None:
             "expected will be created from replay output (default)",
         ]
     )
-    pytest.fail(message, pytrace=False)
+    cmd = f"fetchgraph-tracer fixture-green --case {bundle_path}"
+    items = request.config.stash.get(KNOWN_BAD_PROMOTE_KEY, [])
+    items.append(
+        PromoteCandidate(
+            bundle_path=str(bundle_path),
+            replay_id=replay_id_str,
+            command=cmd,
+            full_message=message,
+        )
+    )
+    request.config.stash[KNOWN_BAD_PROMOTE_KEY] = items
+    return

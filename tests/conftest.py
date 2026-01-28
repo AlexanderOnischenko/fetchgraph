@@ -54,10 +54,10 @@ def pytest_terminal_summary(
     )
 
     if not verbose:
+        terminalreporter.line("The following cases are green and can be potentially promoted (copy-paste commands).")
+        terminalreporter.line("")
         # компактно
         for it in ordered:
-            name = Path(it.bundle_path).name
-            terminalreporter.line(f"- {name}  (id={it.replay_id})")
             terminalreporter.line(f"  {it.command}")
         terminalreporter.line("")
         terminalreporter.line("Tip: rerun with --known-bad-promote-verbose to print full details.")

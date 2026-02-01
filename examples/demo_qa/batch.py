@@ -1452,8 +1452,10 @@ def handle_case_open(args) -> int:
     status = case_dir / "status.json"
     events = case_dir / "events.jsonl"
     error = case_dir / "error.txt"
-    schema_snapshot = case_dir / "schema_snapshot.yaml"
-    for path in [plan, answer, status, events, error, schema_snapshot]:
+    # Schema snapshots may use the schema file extension (json/yaml), so match all.
+    schema_snapshots = sorted(case_dir.glob("schema_snapshot.*"))
+    artifacts = [plan, answer, status, events, error, *schema_snapshots]
+    for path in artifacts:
         if path.exists():
             print(f"- {path}")
     return 0

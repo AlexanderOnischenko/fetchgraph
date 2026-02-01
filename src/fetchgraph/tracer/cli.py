@@ -17,6 +17,7 @@ from fetchgraph.tracer.resolve import (
     select_case_run,
 )
 from fetchgraph.tracer.export import (
+    collect_replay_case_ids,
     export_replay_case_bundle,
     export_replay_case_bundles,
     find_replay_case_matches,
@@ -38,7 +39,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     export = sub.add_parser("export-case-bundle", help="Export replay case bundle from events.jsonl")
     export.add_argument("--events", type=Path, help="Path to events.jsonl")
-    export.add_argument("--out", type=Path, required=True, help="Output directory for bundle")
+    export.add_argument("--out", type=Path, help="Output directory for bundle")
     export.add_argument("--id", help="Replay case id to export")
     export.add_argument("--spec-idx", type=int, default=None, help="Filter replay_case by meta.spec_idx")
     export.add_argument(
@@ -105,6 +106,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--list-replay-matches",
         action="store_true",
         help="List replay_case matches and exit",
+    )
+    export.add_argument(
+        "--list-replay-ids",
+        action="store_true",
+        help="List replay_case ids from events.jsonl and exit",
     )
     export.add_argument("--require-unique", action="store_true", help="Error if multiple matches exist")
 
@@ -267,6 +273,10 @@ def main(argv: list[str] | None = None) -> int:
             selection_rule = "unknown"
             run_dir_source = "unresolved"
             auto_resolve = False
+            pick_run = args.pick_run
+            list_only = args.list_matches or args.list_replay_matches or args.list_replay_ids
+            if not args.out and not list_only and not args.print_resolve:
+                raise ValueError("--out is required unless using list-only or print-resolve modes.")
             if args.events:
                 if args.case or args.data or args.tag or args.run_id:
                     raise ValueError("Do not combine --events with --case/--data/--tag/--run-id.")
@@ -315,7 +325,12 @@ def main(argv: list[str] | None = None) -> int:
                     if not args.case or not args.data:
                         raise ValueError("--case and --data are required when --events is not provided.")
                     if args.pick_run == "latest_with_replay" and not args.id:
-                        raise ValueError("--id is required when pick_run=latest_with_replay.")
+                        print(
+                            "WARNING: pick_run=latest_with_replay requires --id; "
+                            "using pick_run=latest_non_missed for replay-id discovery.",
+                            file=sys.stderr,
+                        )
+                        pick_run = "latest_non_missed"
                     infos, stats = scan_case_runs(
                         case_id=args.case,
                         data_dir=args.data,
@@ -328,8 +343,8 @@ def main(argv: list[str] | None = None) -> int:
                         case_id=args.case,
                         data_dir=args.data,
                         tag=args.tag,
-                        pick_run=args.pick_run,
-                        replay_id=args.id if args.pick_run == "latest_with_replay" else None,
+                        pick_run=pick_run,
+                        replay_id=args.id if pick_run == "latest_with_replay" else None,
                         runs_subdir=args.runs_subdir,
                     )
                     if args.list_matches:
@@ -339,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
                                     stats,
                                     case_id=args.case,
                                     tag=args.tag,
-                                    pick_run=args.pick_run,
+                                    pick_run=pick_run,
                                 )
                             )
                         print(format_case_runs(candidates, limit=20))
@@ -347,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
                     selected = select_case_run(candidates, select_index=args.select_index)
                     run_dir = selected.run_dir
                     case_dir = selected.case_dir
-                    selection_rule = _format_selection_rule(tag=args.tag, pick_run=args.pick_run)
+                    selection_rule = _format_selection_rule(tag=args.tag, pick_run=pick_run)
                     events_path = selected.events_path
                     auto_resolve = True
                     run_dir_source = "auto-resolve"
@@ -366,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     events_path = events_resolution.events_path
             if args.print_resolve:
+                rejections = []
                 print("Input flags:")
                 print(f"  run_id: {args.run_id}")
                 print(f"  run_dir: {args.run_dir}")
@@ -386,18 +402,45 @@ def main(argv: list[str] | None = None) -> int:
                     rejections = collect_rejections(
                         infos,
                         tag=args.tag,
-                        pick_run=args.pick_run,
+                        pick_run=pick_run,
                         replay_id=args.id,
                     )
-                    if rejections:
-                        print("Rejected candidates:")
-                        for reject in rejections:
-                            print(f"- {reject.case_dir} ({reject.reason})")
+                if rejections:
+                    print("Rejected candidates:")
+                    for reject in rejections:
+                        print(f"- {reject.case_dir} ({reject.reason})")
+            if events_path is None:
+                raise ValueError("events_path was not resolved.")
+            if args.list_replay_ids:
+                if auto_resolve and not args.events:
+                    print(
+                        f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",
+                        file=sys.stderr,
+                    )
+                replay_ids = collect_replay_case_ids(
+                    events_path,
+                    spec_idx=args.spec_idx,
+                    provider=args.provider,
+                    allow_bad_json=args.allow_bad_json,
+                )
+                if not replay_ids:
+                    raise LookupError(_format_no_replay_ids_error(events_path))
+                for line in _format_replay_id_lines(replay_ids, include_counts=True):
+                    print(line)
+                return 0
             if args.list_replay_matches:
-                if events_path is None:
-                    raise ValueError("events_path was not resolved.")
                 if not args.id:
                     raise ValueError("--id is required to list replay_case matches.")
+                replay_ids = collect_replay_case_ids(
+                    events_path,
+                    spec_idx=None,
+                    provider=None,
+                    allow_bad_json=args.allow_bad_json,
+                )
+                if not replay_ids:
+                    raise LookupError(_format_no_replay_ids_error(events_path))
+                if args.id not in replay_ids:
+                    raise LookupError(_format_missing_replay_id_error(args.id, events_path, replay_ids))
                 selections = find_replay_case_matches(
                     events_path,
                     replay_id=args.id,
@@ -443,10 +486,50 @@ def main(argv: list[str] | None = None) -> int:
                 and not args.require_unique
                 and not args.list_replay_matches
             )
-            if events_path is None:
-                raise ValueError("events_path was not resolved.")
+            replay_ids = collect_replay_case_ids(
+                events_path,
+                spec_idx=None,
+                provider=None,
+                allow_bad_json=args.allow_bad_json,
+            )
+            if not replay_ids:
+                raise LookupError(_format_no_replay_ids_error(events_path))
+            if args.id and args.id not in replay_ids:
+                raise LookupError(_format_missing_replay_id_error(args.id, events_path, replay_ids))
             if not args.id:
-                raise ValueError("--id is required to export replay case bundles.")
+                sorted_ids = _sorted_replay_ids(replay_ids)
+                if len(sorted_ids) == 1:
+                    args.id = sorted_ids[0]
+                    print(
+                        f"WARNING: --id not provided; using the only replay id found: {args.id}.",
+                        file=sys.stderr,
+                    )
+                else:
+                    raise LookupError(
+                        _format_missing_replay_id_selection_error(events_path, replay_ids)
+                    )
+            if args.pick_run == "latest_with_replay" and auto_resolve and args.case and args.data:
+                rerun_candidates, rerun_stats = list_case_runs(
+                    case_id=args.case,
+                    data_dir=args.data,
+                    tag=args.tag,
+                    pick_run="latest_with_replay",
+                    replay_id=args.id,
+                    runs_subdir=args.runs_subdir,
+                )
+                if rerun_candidates:
+                    selected = select_case_run(rerun_candidates, select_index=args.select_index)
+                    run_dir = selected.run_dir
+                    case_dir = selected.case_dir
+                    events_path = selected.events_path
+                    selection_rule = _format_selection_rule(tag=args.tag, pick_run="latest_with_replay")
+                    run_dir_source = "auto-resolve (replay-id)"
+                else:
+                    print(
+                        "WARNING: pick_run=latest_with_replay did not find a run for the "
+                        f"resolved replay id {args.id!r}; using previously resolved run.",
+                        file=sys.stderr,
+                    )
             if args.all:
                 export_replay_case_bundles(
                     events_path=events_path,
@@ -654,6 +737,61 @@ def _format_selection_rule(*, tag: str | None, pick_run: str) -> str:
     if tag:
         return f"{base} filtered by TAG={tag!r}"
     return base
+
+
+def _sorted_replay_ids(replay_ids: dict[str, int]) -> list[str]:
+    return sorted(replay_ids.keys())
+
+
+def _format_replay_id_lines(replay_ids: dict[str, int], *, include_counts: bool) -> list[str]:
+    lines: list[str] = []
+    for replay_id in _sorted_replay_ids(replay_ids):
+        if include_counts:
+            lines.append(f"{replay_id}\t{replay_ids[replay_id]}")
+        else:
+            lines.append(replay_id)
+    return lines
+
+
+def _format_no_replay_ids_error(events_path: Path) -> str:
+    return "\n".join(
+        [
+            f"ERROR: No replay_case events found in {events_path}.",
+            "Tip: ensure events emission is enabled and the run contains replay points.",
+            "Try:",
+            "  fetchgraph-tracer export-case-bundle ... --list-replay-ids",
+        ]
+    )
+
+
+def _format_missing_replay_id_error(
+    replay_id: str, events_path: Path, replay_ids: dict[str, int]
+) -> str:
+    sorted_ids = _sorted_replay_ids(replay_ids)
+    lines = [
+        f"ERROR: replay id {replay_id!r} not found in {events_path}.",
+        "Found replay ids:",
+    ]
+    lines.extend([f"  - {candidate}" for candidate in sorted_ids])
+    if sorted_ids:
+        lines.append(f'Tip (CLI): use --id "{sorted_ids[0]}"')
+        lines.append(f"Tip (Make): use REPLAY_ID={sorted_ids[0]}")
+    return "\n".join(lines)
+
+
+def _format_missing_replay_id_selection_error(events_path: Path, replay_ids: dict[str, int]) -> str:
+    sorted_ids = _sorted_replay_ids(replay_ids)
+    lines = [
+        f"ERROR: --id is required when multiple replay ids are present in {events_path}.",
+        "Found replay ids:",
+    ]
+    lines.extend([f"  - {candidate}" for candidate in sorted_ids])
+    if sorted_ids:
+        lines.append(f'Tip (CLI): use --id "{sorted_ids[0]}"')
+        lines.append(f"Tip (Make): use REPLAY_ID={sorted_ids[0]}")
+    lines.append("Try:")
+    lines.append("  fetchgraph-tracer export-case-bundle ... --list-replay-ids")
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":

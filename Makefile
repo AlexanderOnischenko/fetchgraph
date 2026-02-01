@@ -124,7 +124,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls known-bad known-bad-one \
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls tracer-replay-ids known-bad known-bad-one \
         fixture-green fixture-demote fixture-ls fixture-rm fixture-fix fixture-migrate \
         compare compare-tag
 
@@ -177,6 +177,7 @@ help:
 	@echo "    PROVIDER фильтрует replay_case.meta.provider (обычно spec.provider: sql, relational, ...)"
 	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
 	@echo "    RUN_ID берётся из make stats/history-case"
+	@echo "  make tracer-replay-ids CASE=... [RUN_ID=...] [DATA=...] [PROVIDER=...] [SPEC_IDX=...]"
 	@echo "  make known-bad - запустить backlog-suite для known_bad (ожидаемо красный)"
 	@echo "  make known-bad-one NAME=fixture_stem - запустить один known_bad кейс"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
@@ -443,13 +444,38 @@ tracer-ls: warn-missing-tracer
 	@fetchgraph-tracer export-case-bundle \
 	  --case "$(CASE)" \
 	  --data "$(REPLAY_IDATA)" \
-	  --out "$(TRACER_OUT_DIR)" \
+	  $(if $(strip $(REPLAY_ID)),--id "$(REPLAY_ID)" --pick-run latest_with_replay,--pick-run latest_non_missed) \
 	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
 	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	  $(if $(EVENTS),--events "$(EVENTS)",) \
 	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
 	  --list-matches
+
+tracer-replay-ids: warn-missing-tracer
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-replay-ids CASE=agg_003" && exit 2)
+	@set -euo pipefail; \
+	output="$$(fetchgraph-tracer export-case-bundle \
+	  --case "$(CASE)" \
+	  --data "$(REPLAY_IDATA)" \
+	  --pick-run latest_non_missed \
+	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
+	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
+	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
+	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
+	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
+	  $(if $(EVENTS),--events "$(EVENTS)",) \
+	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
+	  --list-replay-ids)"; \
+	echo "$$output"; \
+	ids="$$(printf "%s\n" "$$output" | awk '{print $$1}' | sed '/^$$/d')"; \
+	count="$$(printf "%s\n" "$$ids" | wc -l | tr -d ' ')"; \
+	first="$$(printf "%s\n" "$$ids" | head -n1)"; \
+	if [ "$$count" -eq 1 ]; then \
+	  echo "Suggested: REPLAY_ID=$$first"; \
+	else \
+	  printf "REPLAY_ID=%s\n" $$ids; \
+	fi
 
 known-bad:
 	@pytest -m known_bad -vv

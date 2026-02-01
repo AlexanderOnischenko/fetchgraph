@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from fetchgraph.tracer.layout import (
+from fetchgraph.utils.path_layout import (
     case_dir_from_run_root,
     events_path_for_case,
     run_relative_posix_path,

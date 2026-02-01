@@ -150,6 +150,18 @@ out = run_case(root, ctx)
 - `extras` — dict extras по id
 - `source` — метаданные (минимум: `events_path`, `line`, опционально `run_id`, `timestamp`, `case_id`)
 
+### 4.0 Canonical run/case layout
+
+Общий контракт на layout прогонов и кейсов:
+
+- `run_root`: `<data>/.runs/runs/<run_dir>/`
+- `case_dir`: `<run_root>/cases/<case_id>_<suffix>/`
+- `events.jsonl`: `<case_dir>/events.jsonl`
+- `replay_resource.data_ref.file`: **POSIX-relative** путь от `run_root`
+
+Это базовый контракт для emitter’ов, auto-resolve и export’а; любые абсолютные пути
+или `..` в `data_ref.file` считаются ошибкой и должны быть исправлены у источника.
+
 ### 4.1 Layout фикстур и ресурсов
 
 Рекомендуемый layout:

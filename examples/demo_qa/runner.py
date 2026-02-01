@@ -19,7 +19,7 @@ from fetchgraph.core import create_generic_agent
 from fetchgraph.core.context import BaseGraphAgent
 from fetchgraph.core.models import TaskProfile
 from fetchgraph.replay.snapshots import snapshot_provider_catalog
-from fetchgraph.tracer.layout import run_relative_posix_path, run_root_from_case_dir
+from fetchgraph.utils.path_layout import run_relative_posix_path, run_root_from_case_dir
 from fetchgraph.utils import set_run_id
 
 class CaseEventLoggerFactory(Protocol):

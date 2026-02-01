@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable
 
-from fetchgraph.tracer.layout import validate_run_relative_posix
+from fetchgraph.utils.path_layout import validate_run_relative_posix
 
 logger = logging.getLogger(__name__)
 

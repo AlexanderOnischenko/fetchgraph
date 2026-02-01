@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from fetchgraph.tracer.layout import run_root_from_case_dir
+from fetchgraph.utils.path_layout import run_root_from_case_dir
 from fetchgraph.tracer.resolve import (
     collect_rejections,
     find_events_file,

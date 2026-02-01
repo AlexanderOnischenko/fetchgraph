@@ -118,7 +118,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
 # ==============================================================================
 # 8) PHONY
 # ==============================================================================
-.PHONY: help init show-config check ensure-runs-dir venv-check \
+.PHONY: help init show-config warn-config check ensure-runs-dir venv-check \
         llm-init llm-show llm-edit \
         chat \
         batch batch-tag batch-failed batch-failed-from \
@@ -277,10 +277,27 @@ venv-check:
 	  echo "INFO: venv не найден: $(VENV) (использую системный python: $$(command -v $(PYTHON) || echo 'python'))"; \
 	fi
 
-check:
+warn-config:
+	@if [ ! -f "$(CONFIG)" ]; then \
+	  echo "WARNING: local defaults not initialized (run: make init). Using Makefile defaults / environment vars."; \
+	fi
+	@if [ -z "$(strip $(SCHEMA))" ]; then \
+	  echo "WARNING: SCHEMA is not set (SCHEMA='$(SCHEMA)')"; \
+	elif [ ! -f "$(SCHEMA)" ]; then \
+	  echo "WARNING: SCHEMA path not found (SCHEMA='$(SCHEMA)')"; \
+	fi
+	@if [ -z "$(strip $(CASES))" ]; then \
+	  echo "WARNING: CASES is not set (CASES='$(CASES)')"; \
+	elif [ ! -f "$(CASES)" ]; then \
+	  echo "WARNING: CASES path not found (CASES='$(CASES)')"; \
+	fi
+
+check: warn-config
 	@test -n "$(strip $(DATA))"   || (echo "DATA не задан. Запусти: make init (или передай DATA=...)" && exit 1)
 	@test -n "$(strip $(SCHEMA))" || (echo "SCHEMA не задан. Запусти: make init (или передай SCHEMA=...)" && exit 1)
 	@test -n "$(strip $(CASES))"  || (echo "CASES не задан. Запусти: make init (или передай CASES=...)" && exit 1)
+	@test -f "$(SCHEMA)" || (echo "SCHEMA не найден: $(SCHEMA)" && exit 1)
+	@test -f "$(CASES)"  || (echo "CASES не найден: $(CASES)" && exit 1)
 
 ensure-runs-dir: check
 	@mkdir -p "$(DATA)/.runs"
@@ -391,7 +408,7 @@ case-open: check
 	@test -n "$(strip $(CASE))" || (echo "Нужно задать CASE=case_42" && exit 1)
 	@$(CLI) case open "$(CASE)" --data "$(DATA)"
 
-tracer-export:
+tracer-export: warn-config
 	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 2)
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-export CASE=agg_003" && exit 2)
 	@case "$(BUCKET)" in fixed|known_bad) ;; *) echo "BUCKET должен быть fixed или known_bad для tracer-export" && exit 2 ;; esac
@@ -430,7 +447,7 @@ known-bad-one:
 	@test -n "$(strip $(NAME))" || (echo "NAME обязателен: make known-bad-one NAME=fixture_stem" && exit 2)
 	@pytest -m known_bad -k "$(NAME)" -vv
 
-fixture-green:
+fixture-green: warn-config
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-green CASE=agg_003 или CASE=path/to/fixture.case.json" && exit 1)
 	@case_value="$(CASE)"; \
 	if [ -f "$$case_value" ]; then \
@@ -451,11 +468,11 @@ fixture-green:
 	  $(if $(filter 1 true yes on,$(OVERWRITE_EXPECTED)),--overwrite-expected,) \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
-fixture-ls:
+fixture-ls: warn-config
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-ls CASE=agg_003" && exit 1)
 	@$(PYTHON) -m fetchgraph.tracer.cli fixture-ls --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" --case-id "$(CASE)"
 
-fixture-rm:
+fixture-rm: warn-config
 	@case "$(BUCKET)" in fixed|known_bad|all) ;; *) echo "BUCKET должен быть fixed, known_bad или all для fixture-rm" && exit 1 ;; esac
 	@case_value="$(CASE)"; \
 	if [ -n "$$case_value" ]; then \
@@ -479,14 +496,14 @@ fixture-rm:
 	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
-fixture-fix:
+fixture-fix: warn-config
 	@test -n "$(strip $(NAME))" || (echo "NAME обязателен: make fixture-fix NAME=old_stem NEW_NAME=new_stem" && exit 1)
 	@test -n "$(strip $(NEW_NAME))" || (echo "NEW_NAME обязателен: make fixture-fix NAME=old_stem NEW_NAME=new_stem" && exit 1)
 	@$(PYTHON) -m fetchgraph.tracer.cli fixture-fix --root "$(TRACER_ROOT)" --bucket "$(BUCKET)" \
 	  --name "$(NAME)" --new-name "$(NEW_NAME)" \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
-fixture-migrate:
+fixture-migrate: warn-config
 	@case_value="$(CASE)"; \
 	if [ -n "$$case_value" ]; then \
 	  if [ -f "$$case_value" ]; then \
@@ -505,7 +522,7 @@ fixture-migrate:
 	  $(if $(filter 1 true yes on,$(ALL)),--all,) \
 	  $(if $(filter 1 true yes on,$(DRY)),--dry-run,)
 
-fixture-demote:
+fixture-demote: warn-config
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make fixture-demote CASE=agg_003" && exit 1)
 	@case_value="$(CASE)"; \
 	if [ -f "$$case_value" ]; then \

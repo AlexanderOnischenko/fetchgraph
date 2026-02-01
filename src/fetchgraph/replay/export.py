@@ -9,7 +9,7 @@ import logging
 import shutil
 import textwrap
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable
 
@@ -236,7 +236,7 @@ def format_replay_case_match_table(matches: list[ReplayCaseMatch]) -> str:
                 [
                     str(idx),
                     str(match.line),
-                    "" if match.timestamp is None else str(match.timestamp),
+                    "" if match.timestamp is None else _format_timestamp_short(match.timestamp),
                     match.replay_id,
                     "" if match.provider is None else str(match.provider),
                     "" if match.spec_idx is None else str(match.spec_idx),
@@ -284,6 +284,23 @@ def _parse_timestamp(value: object) -> datetime | None:
         return datetime.fromisoformat(cleaned)
     except ValueError:
         return None
+
+
+def _format_timestamp_short(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        return ""
+    cleaned = value
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    parsed = _parse_timestamp(cleaned)
+    if parsed is None:
+        if "." in value:
+            return value.split(".", 1)[0]
+        return value
+    if parsed.tzinfo is None:
+        return parsed.isoformat(timespec="seconds")
+    normalized = parsed.astimezone(timezone.utc)
+    return normalized.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _select_by_timestamp(selections: list[ExportSelection]) -> ExportSelection:

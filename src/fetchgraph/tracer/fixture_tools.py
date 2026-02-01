@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import filecmp
 import json
 import shutil
 import subprocess
@@ -705,42 +704,18 @@ def fixture_migrate(
             if not isinstance(file_name, str) or not file_name:
                 continue
             rel = _safe_resource_path(file_name, stem=stem)
-            rel_tail: Path
-            if rel.parts[:3] == ("resources", stem, resource_id):
-                rel_tail = Path(*rel.parts[3:])
-                if not rel_tail.parts:
-                    rel_tail = Path(rel.name)
-                src_rel = rel
-            elif len(rel.parts) >= 3 and rel.parts[0] == "resources" and rel.parts[2] == resource_id:
-                rel_tail = Path(*rel.parts[3:])
-                if not rel_tail.parts:
-                    rel_tail = Path(rel.name)
-                src_rel = rel
-            else:
-                rel_tail = rel
-                src_rel = rel
-            target_rel = Path("resources") / stem / resource_id / rel_tail
-            src_path = case_path.parent / src_rel
-            dest_path = case_path.parent / target_rel
-            if not src_path.exists():
-                if dest_path.exists():
-                    src_path = dest_path
-                else:
-                    raise FileNotFoundError(f"Missing resource file: {src_path}")
-            if dest_path.exists() and dest_path != src_path and not filecmp.cmp(src_path, dest_path, shallow=False):
-                raise FileExistsError(
-                    "Resource collision at destination:\n"
-                    f"  dest: {dest_path}\n"
-                    "Hint: clean the destination or run migrate in an empty output directory."
+            if rel.parts[:3] != ("resources", stem, resource_id):
+                raise ValueError(
+                    "Resource path must be in resources/<stem>/<resource_id>/...; "
+                    f"found {file_name!r} in {case_path}"
                 )
-            if src_path != dest_path:
-                if dry_run:
-                    print(f"Would move {src_path} -> {dest_path}")
-                else:
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    if not dest_path.exists():
-                        git_ops.move(src_path, dest_path)
-                        files_moved += 1
+            rel_tail = Path(*rel.parts[3:])
+            if not rel_tail.parts:
+                raise ValueError(f"Resource path must include a file name: {file_name!r} in {case_path}")
+            target_rel = Path("resources") / stem / resource_id / rel_tail
+            src_path = case_path.parent / target_rel
+            if not src_path.exists():
+                raise FileNotFoundError(f"Missing resource file: {src_path}")
             canonical_file = target_rel.as_posix()
             if file_name != canonical_file:
                 data_ref["file"] = canonical_file

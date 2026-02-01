@@ -11,6 +11,7 @@ from fetchgraph.tracer.resolve import (
     find_events_file,
     format_case_runs,
     format_case_run_debug,
+    has_replay_case,
     format_events_search,
     list_case_runs,
     resolve_run_dir_from_run_id,
@@ -277,6 +278,7 @@ def main(argv: list[str] | None = None) -> int:
             selection_rule = "unknown"
             run_dir_source = "unresolved"
             auto_resolve = False
+            selected_candidate = None
             pick_run = args.pick_run
             list_only = args.list_matches or args.list_replay_matches or args.list_replay_ids
             if not args.out and not list_only and not args.print_resolve:
@@ -363,11 +365,11 @@ def main(argv: list[str] | None = None) -> int:
                             )
                         print(format_case_runs(candidates, limit=20))
                         return 0
-                    selected = select_case_run(candidates, select_index=args.select_index)
-                    run_dir = selected.run_dir
-                    case_dir = selected.case_dir
+                    selected_candidate = select_case_run(candidates, select_index=args.select_index)
+                    run_dir = selected_candidate.run_dir
+                    case_dir = selected_candidate.case_dir
                     selection_rule = _format_selection_rule(tag=args.tag, pick_run=pick_run)
-                    events_path = selected.events_path
+                    events_path = selected_candidate.events_path
                     auto_resolve = True
                     run_dir_source = "auto-resolve"
                 if events_path is None:
@@ -395,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"run_dir_source: {run_dir_source}")
                 print(f"Resolved case_dir: {case_dir}")
                 print(f"Resolved events.jsonl: {events_path}")
+                if selected_candidate:
+                    print(f"Selected: {selected_candidate.case_dir}")
                 if args.events and run_dir is None:
                     print("Note: run_dir not provided; file resources cannot be exported.")
                 if auto_resolve and args.case and args.data:
@@ -408,6 +412,7 @@ def main(argv: list[str] | None = None) -> int:
                         tag=args.tag,
                         pick_run=pick_run,
                         replay_id=args.id,
+                        selected_case_dir=case_dir,
                     )
                 if rejections:
                     print("Rejected candidates:")
@@ -430,6 +435,27 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_replay_case_match_table(matches))
                 return 0
             if args.list_replay_ids:
+                if auto_resolve and not args.events and args.case and args.data:
+                    candidates, _ = list_case_runs(
+                        case_id=args.case,
+                        data_dir=args.data,
+                        tag=args.tag,
+                        pick_run=pick_run,
+                        replay_id=args.id if pick_run == "latest_with_replay" else None,
+                        runs_subdir=args.runs_subdir,
+                    )
+                    selected_candidate = None
+                    for candidate in candidates:
+                        if has_replay_case(candidate.events_path):
+                            selected_candidate = candidate
+                            break
+                    if selected_candidate is None:
+                        raise LookupError(_format_no_replay_ids_error(events_path))
+                    run_dir = selected_candidate.run_dir
+                    case_dir = selected_candidate.case_dir
+                    events_path = selected_candidate.events_path
+                    selection_rule = _format_selection_rule(tag=args.tag, pick_run=pick_run)
+                    run_dir_source = "auto-resolve (replay-id list)"
                 if auto_resolve and not args.events:
                     print(
                         f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",

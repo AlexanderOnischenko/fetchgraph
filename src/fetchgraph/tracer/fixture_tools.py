@@ -602,6 +602,25 @@ def fixture_fix(
         raise FileExistsError(f"Target resources already exist: {new_resources_dir}")
 
     payload = load_bundle_json(case_path)
+    resources = payload.get("resources") or {}
+    updated = False
+    if isinstance(resources, dict):
+        for resource in resources.values():
+            if not isinstance(resource, dict):
+                continue
+            data_ref = resource.get("data_ref")
+            if not isinstance(data_ref, dict):
+                continue
+            file_name = data_ref.get("file")
+            if not isinstance(file_name, str) or not file_name:
+                continue
+            rel = _safe_resource_path(file_name, stem=name)
+            if len(rel.parts) >= 2 and rel.parts[0] == "resources" and rel.parts[1] == name:
+                new_rel = Path("resources") / new_name / Path(*rel.parts[2:])
+                canonical_file = new_rel.as_posix()
+                if file_name != canonical_file:
+                    data_ref["file"] = canonical_file
+                    updated = True
     if dry_run:
         print("fixture-fix:")
         print(f"  rename: {case_path} -> {new_case_path}")
@@ -609,6 +628,8 @@ def fixture_fix(
             print(f"  move:   {expected_path} -> {new_expected_path}")
         if resources_dir.exists():
             print(f"  move:   {resources_dir} -> {new_resources_dir}")
+        if updated:
+            print(f"  update bundle: {new_case_path}")
         return
 
     tx = _MoveTransaction(git_ops)
@@ -622,6 +643,8 @@ def fixture_fix(
     except Exception:
         tx.rollback()
         raise
+    if updated:
+        _atomic_write_json(new_case_path, payload)
 
     print("fixture-fix:")
     print(f"  rename: {case_path} -> {new_case_path}")
@@ -682,15 +705,20 @@ def fixture_migrate(
             if not isinstance(file_name, str) or not file_name:
                 continue
             rel = _safe_resource_path(file_name, stem=stem)
-            legacy_resource_path = rel.parts[:3] == ("resources", stem, resource_id)
-            if legacy_resource_path:
+            rel_tail: Path
+            if rel.parts[:3] == ("resources", stem, resource_id):
+                rel_tail = Path(*rel.parts[3:])
+                if not rel_tail.parts:
+                    rel_tail = Path(rel.name)
+                src_rel = rel
+            elif len(rel.parts) >= 3 and rel.parts[0] == "resources" and rel.parts[2] == resource_id:
                 rel_tail = Path(*rel.parts[3:])
                 if not rel_tail.parts:
                     rel_tail = Path(rel.name)
                 src_rel = rel
             else:
                 rel_tail = rel
-                src_rel = Path("resources") / stem / resource_id / rel_tail
+                src_rel = rel
             target_rel = Path("resources") / stem / resource_id / rel_tail
             src_path = case_path.parent / src_rel
             dest_path = case_path.parent / target_rel
@@ -713,7 +741,7 @@ def fixture_migrate(
                     if not dest_path.exists():
                         git_ops.move(src_path, dest_path)
                         files_moved += 1
-            canonical_file = rel_tail.as_posix()
+            canonical_file = target_rel.as_posix()
             if file_name != canonical_file:
                 data_ref["file"] = canonical_file
                 updated = True

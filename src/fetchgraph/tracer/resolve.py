@@ -39,6 +39,7 @@ class CaseRunInfo:
     tag_source: str | None
     status: str | None
     is_missed: bool
+    run_order: tuple[int, int | float, float, str]
     run_mtime: float
     case_mtime: float
 
@@ -173,7 +174,29 @@ def resolve_run_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: str
 
 def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
     candidates = [p for p in runs_root.iterdir() if p.is_dir()]
-    return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
+    return sorted(candidates, key=_run_dir_sort_key, reverse=True)
+
+
+def _run_dir_sort_key(run_dir: Path) -> tuple[int, int | float, float, str]:
+    run_mtime = run_dir.stat().st_mtime
+    ts_key = _run_dir_timestamp_key(run_dir.name)
+    if ts_key is None:
+        return (0, run_mtime, run_mtime, run_dir.name)
+    return (1, ts_key, run_mtime, run_dir.name)
+
+
+def _run_dir_timestamp_key(name: str) -> int | None:
+    if not name:
+        return None
+    prefix = name.split("_", 2)
+    if len(prefix) < 2:
+        return None
+    date_part = prefix[0]
+    time_part = prefix[1]
+    combined = f"{date_part}{time_part}"
+    if len(date_part) != 8 or len(time_part) != 6 or not combined.isdigit():
+        return None
+    return int(combined)
 
 
 def _case_dirs(run_dir: Path, case_id: str) -> list[Path]:
@@ -236,6 +259,7 @@ def scan_case_runs(
             missing_cases += 1
             continue
         run_mtime = run_dir.stat().st_mtime
+        run_order = _run_dir_sort_key(run_dir)
         for case_dir in case_dirs:
             inspected_cases += 1
             events = find_events_file(case_dir)
@@ -255,12 +279,13 @@ def scan_case_runs(
                     tag_source=tag_source,
                     status=status_value,
                     is_missed=is_missed,
+                    run_order=run_order,
                     run_mtime=run_mtime,
                     case_mtime=case_mtime,
                 )
             )
 
-    infos.sort(key=lambda info: (info.run_mtime, info.case_mtime), reverse=True)
+    infos.sort(key=lambda info: (info.run_order, info.case_mtime), reverse=True)
     stats = RunScanStats(
         runs_root=runs_root,
         inspected_runs=inspected_runs,
@@ -517,15 +542,28 @@ def _has_replay_case_id(events_path: Path, replay_id: str) -> bool:
     return False
 
 
+def has_replay_case(events_path: Path) -> bool:
+    try:
+        for _, event in iter_events(events_path, allow_bad_json=True):
+            if event.get("type") == "replay_case":
+                return True
+    except FileNotFoundError:
+        return False
+    return False
+
+
 def collect_rejections(
     infos: list[CaseRunInfo],
     *,
     tag: str | None,
     pick_run: str,
     replay_id: str | None,
+    selected_case_dir: Path | None = None,
 ) -> list[RejectionReason]:
     rejections: list[RejectionReason] = []
     for info in infos:
+        if selected_case_dir and info.case_dir == selected_case_dir:
+            continue
         if tag and info.tag != tag:
             rejections.append(RejectionReason(info.run_dir, info.case_dir, "tag_mismatch"))
             continue
@@ -536,10 +574,13 @@ def collect_rejections(
             rejections.append(RejectionReason(info.run_dir, info.case_dir, "missed"))
             continue
         if pick_run == "latest_with_replay":
-            if replay_id is None or not _has_replay_case_id(info.events.events_path, replay_id):
+            if replay_id is None:
+                if not has_replay_case(info.events.events_path):
+                    rejections.append(RejectionReason(info.run_dir, info.case_dir, "no_replay_case"))
+                continue
+            if not _has_replay_case_id(info.events.events_path, replay_id):
                 rejections.append(RejectionReason(info.run_dir, info.case_dir, "no_replay_id"))
                 continue
-        rejections.append(RejectionReason(info.run_dir, info.case_dir, "filtered"))
     return rejections
 
 

@@ -120,7 +120,16 @@ def find_case_dirs(run_root: Path, case_id: str, cfg: LayoutConfig | None = None
     cases_dir = _find_cases_dir(run_root, cfg)
     if not cases_dir.exists():
         return []
-    return sorted(cases_dir.glob(f"{case_id}_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    candidates: list[Path] = []
+    direct = cases_dir / case_id
+    if direct.exists() and direct.is_dir():
+        candidates.append(direct)
+    candidates.extend([path for path in cases_dir.glob(f"{case_id}_*") if path.is_dir()])
+    unique: dict[Path, Path] = {}
+    for path in candidates:
+        resolved = path.resolve()
+        unique[resolved] = path
+    return sorted(unique.values(), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def canonical_events_path(case_dir: Path, cfg: LayoutConfig | None = None) -> Path:

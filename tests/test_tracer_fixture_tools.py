@@ -128,14 +128,13 @@ def test_fixture_fix_renames_and_updates_resource_paths(tmp_path: Path) -> None:
     assert data["resources"]["rid1"]["data_ref"]["file"] == "resources/new/rid1/file.txt"
 
 
-def test_fixture_migrate_moves_resources(tmp_path: Path) -> None:
+def test_fixture_migrate_leaves_canonical_paths(tmp_path: Path) -> None:
     root = tmp_path / "fixtures"
     bucket = "fixed"
     case_path = root / bucket / "case.case.json"
-    legacy_dir = root / bucket / "legacy"
-    legacy_dir.mkdir(parents=True, exist_ok=True)
-    legacy_path = legacy_dir / "file.txt"
-    legacy_path.write_text("data", encoding="utf-8")
+    resources_dir = root / bucket / "resources" / "case" / "rid1"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    (resources_dir / "file.txt").write_text("data", encoding="utf-8")
     payload = _bundle_payload(
         {
             "type": "replay_case",
@@ -144,41 +143,13 @@ def test_fixture_migrate_moves_resources(tmp_path: Path) -> None:
             "input": {"spec": {"provider": "sql"}},
             "observed": {"out_spec": {"provider": "sql"}},
         },
-        resources={"rid1": {"data_ref": {"file": "legacy/file.txt"}}},
+        resources={"rid1": {"data_ref": {"file": "resources/case/rid1/file.txt"}}},
     )
     _write_bundle(case_path, payload)
 
     bundles_updated, files_moved = fixture_migrate(root=root, bucket=bucket, dry_run=False)
-    assert bundles_updated == 1
-    assert files_moved == 1
-    data = json.loads(case_path.read_text(encoding="utf-8"))
-    assert data["resources"]["rid1"]["data_ref"]["file"] == "resources/case/rid1/legacy/file.txt"
-    assert (root / bucket / "resources" / "case" / "rid1" / "legacy" / "file.txt").exists()
-
-
-def test_fixture_migrate_resources_with_existing_resource_id_segment(tmp_path: Path) -> None:
-    root = tmp_path / "fixtures"
-    bucket = "fixed"
-    case_path = root / bucket / "case.case.json"
-    legacy_dir = root / bucket / "resources" / "old" / "rid1"
-    legacy_dir.mkdir(parents=True, exist_ok=True)
-    legacy_path = legacy_dir / "file.txt"
-    legacy_path.write_text("data", encoding="utf-8")
-    payload = _bundle_payload(
-        {
-            "type": "replay_case",
-            "v": 2,
-            "id": "plan_normalize.spec_v1",
-            "input": {"spec": {"provider": "sql"}},
-            "observed": {"out_spec": {"provider": "sql"}},
-        },
-        resources={"rid1": {"data_ref": {"file": "resources/old/rid1/file.txt"}}},
-    )
-    _write_bundle(case_path, payload)
-
-    bundles_updated, files_moved = fixture_migrate(root=root, bucket=bucket, dry_run=False)
-    assert bundles_updated == 1
-    assert files_moved == 1
+    assert bundles_updated == 0
+    assert files_moved == 0
     data = json.loads(case_path.read_text(encoding="utf-8"))
     assert data["resources"]["rid1"]["data_ref"]["file"] == "resources/case/rid1/file.txt"
     assert (root / bucket / "resources" / "case" / "rid1" / "file.txt").exists()
@@ -188,10 +159,9 @@ def test_fixture_migrate_normalizes_backslashes(tmp_path: Path) -> None:
     root = tmp_path / "fixtures"
     bucket = "fixed"
     case_path = root / bucket / "case.case.json"
-    legacy_dir = root / bucket / "resources" / "old" / "rid1"
-    legacy_dir.mkdir(parents=True, exist_ok=True)
-    legacy_path = legacy_dir / "file.txt"
-    legacy_path.write_text("data", encoding="utf-8")
+    resources_dir = root / bucket / "resources" / "case" / "rid1"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    (resources_dir / "file.txt").write_text("data", encoding="utf-8")
     payload = _bundle_payload(
         {
             "type": "replay_case",
@@ -200,13 +170,13 @@ def test_fixture_migrate_normalizes_backslashes(tmp_path: Path) -> None:
             "input": {"spec": {"provider": "sql"}},
             "observed": {"out_spec": {"provider": "sql"}},
         },
-        resources={"rid1": {"data_ref": {"file": r"resources\\old\\rid1\\file.txt"}}},
+        resources={"rid1": {"data_ref": {"file": r"resources\\case\\rid1\\file.txt"}}},
     )
     _write_bundle(case_path, payload)
 
     bundles_updated, files_moved = fixture_migrate(root=root, bucket=bucket, dry_run=False)
     assert bundles_updated == 1
-    assert files_moved == 1
+    assert files_moved == 0
     data = json.loads(case_path.read_text(encoding="utf-8"))
     assert data["resources"]["rid1"]["data_ref"]["file"] == "resources/case/rid1/file.txt"
     assert (root / bucket / "resources" / "case" / "rid1" / "file.txt").exists()

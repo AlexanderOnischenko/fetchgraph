@@ -118,7 +118,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
 # ==============================================================================
 # 8) PHONY
 # ==============================================================================
-.PHONY: help init show-config warn-config check ensure-runs-dir venv-check \
+.PHONY: help init show-config warn-config warn-missing-init warn-missing-tracer warn-missing-llm-config check ensure-runs-dir venv-check \
         llm-init llm-show llm-edit \
         chat \
         batch batch-tag batch-failed batch-failed-from \
@@ -277,10 +277,21 @@ venv-check:
 	  echo "INFO: venv не найден: $(VENV) (использую системный python: $$(command -v $(PYTHON) || echo 'python'))"; \
 	fi
 
-warn-config:
+warn-missing-init:
 	@if [ ! -f "$(CONFIG)" ]; then \
 	  echo "WARNING: local defaults not initialized (run: make init). Using Makefile defaults / environment vars."; \
 	fi
+
+warn-missing-tracer:
+	@command -v fetchgraph-tracer >/dev/null 2>&1 || \
+	  echo "WARNING: fetchgraph-tracer not installed. Run: pip install -e ."
+
+warn-missing-llm-config:
+	@if [ ! -f "$(LLM_TOML)" ]; then \
+	  echo "WARNING: LLM config not found (LLM_TOML='$(LLM_TOML)'). Run: make llm-init"; \
+	fi
+
+warn-config: warn-missing-init
 	@if [ -z "$(strip $(SCHEMA))" ]; then \
 	  echo "WARNING: SCHEMA is not set (SCHEMA='$(SCHEMA)')"; \
 	elif [ ! -f "$(SCHEMA)" ]; then \
@@ -330,7 +341,7 @@ llm-edit:
 # ==============================================================================
 # Алиасы под команды CLI
 # ==============================================================================
-chat: check
+chat: warn-missing-llm-config check
 	@$(CLI) chat --data "$(DATA)" --schema "$(SCHEMA)"
 
 # 1) Полный прогон всего набора
@@ -408,7 +419,7 @@ case-open: check
 	@test -n "$(strip $(CASE))" || (echo "Нужно задать CASE=case_42" && exit 1)
 	@$(CLI) case open "$(CASE)" --data "$(DATA)"
 
-tracer-export: warn-config
+tracer-export: warn-config warn-missing-tracer
 	@test -n "$(strip $(REPLAY_ID))" || (echo "REPLAY_ID обязателен: make tracer-export REPLAY_ID=plan_normalize.spec_v1" && exit 2)
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-export CASE=agg_003" && exit 2)
 	@case "$(BUCKET)" in fixed|known_bad) ;; *) echo "BUCKET должен быть fixed или known_bad для tracer-export" && exit 2 ;; esac
@@ -427,7 +438,7 @@ tracer-export: warn-config
 	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
 
-tracer-ls:
+tracer-ls: warn-missing-tracer
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-ls CASE=agg_003" && exit 2)
 	@fetchgraph-tracer export-case-bundle \
 	  --case "$(CASE)" \

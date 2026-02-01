@@ -31,6 +31,19 @@ class CaseRunCandidate:
 
 
 @dataclass(frozen=True)
+class CaseRunListing:
+    run_dir: Path
+    case_dir: Path | None
+    events_path: Path | None
+    tag: str | None
+    tag_source: str | None
+    status: str | None
+    is_missed: bool
+    run_mtime: float | None
+    case_mtime: float | None
+
+
+@dataclass(frozen=True)
 class CaseRunInfo:
     run_dir: Path
     case_dir: Path
@@ -172,6 +185,119 @@ def resolve_run_dir_from_run_id(*, data_dir: Path, runs_subdir: str, run_id: str
     )
 
 
+def _load_history_entries(history_path: Path) -> list[dict]:
+    if not history_path.exists():
+        return []
+    entries: list[dict] = []
+    with history_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                entries.append(payload)
+    return entries
+
+
+def _runs_suffix_from_history(value: str) -> str | None:
+    normalized = value.replace("\\", "/")
+    if normalized.startswith(".runs/"):
+        return normalized
+    marker = "/.runs/"
+    if marker in normalized:
+        idx = normalized.index(marker) + 1
+        return normalized[idx:]
+    return None
+
+
+def _normalize_history_run_dir(
+    value: str,
+    *,
+    data_dir: Path,
+) -> HistoryRunDir:
+    raw = value
+    initial = Path(value)
+    if initial.is_absolute():
+        normalized = initial
+        return HistoryRunDir(run_dir=normalized, exists=normalized.exists(), raw=raw)
+    candidates = [Path(value).resolve()] + [Path(data_dir / initial).resolve()]
+    suffix = _runs_suffix_from_history(value)
+    if suffix:
+        candidates.append(Path(data_dir / suffix).resolve())
+    normalized = candidates[-1]
+    for item in candidates:
+        if item.exists():
+            normalized = item
+            break
+    return HistoryRunDir(run_dir=normalized, exists=normalized.exists(), raw=raw)
+
+
+def _detect_runs_roots(runs_root_cli: Path) -> tuple[list[Path], Path | None]:
+    roots: list[Path] = []
+    runs_root_effective = None
+    if runs_root_cli.exists():
+        roots.append(runs_root_cli)
+    nested = runs_root_cli / "runs"
+    if nested.exists():
+        nested_dirs = [p for p in nested.iterdir() if p.is_dir()]
+        if nested_dirs:
+            roots.append(nested)
+            runs_root_effective = nested
+    return roots, runs_root_effective
+
+
+def _iter_fs_run_dirs(roots: list[Path]) -> list[Path]:
+    candidates: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        candidates.extend([p for p in root.iterdir() if p.is_dir()])
+    return sorted(candidates, key=_run_dir_sort_key, reverse=True)
+
+
+def _collect_run_dir_inventory(*, case_id: str, data_dir: Path, runs_subdir: str) -> RunDirInventory:
+    runs_root_cli = (data_dir / runs_subdir).resolve()
+    history_path = data_dir / ".runs" / "runs" / "cases" / f"{case_id}.jsonl"
+    history_entries = _load_history_entries(history_path)
+    history_dirs: list[HistoryRunDir] = []
+    if history_entries:
+        for entry in reversed(history_entries):
+            run_dir_value = entry.get("run_dir")
+            if not run_dir_value:
+                continue
+            history_dirs.append(
+                _normalize_history_run_dir(str(run_dir_value), data_dir=data_dir)
+            )
+    runs_roots, runs_root_effective = _detect_runs_roots(runs_root_cli)
+    fs_dirs = _iter_fs_run_dirs(runs_roots)
+    run_dirs: list[Path] = []
+    seen: set[Path] = set()
+    for entry in history_dirs:
+        if entry.run_dir in seen:
+            continue
+        seen.add(entry.run_dir)
+        run_dirs.append(entry.run_dir)
+    for run_dir in fs_dirs:
+        if run_dir in seen:
+            continue
+        seen.add(run_dir)
+        run_dirs.append(run_dir)
+    return RunDirInventory(
+        runs_root_cli=runs_root_cli,
+        runs_root_effective=runs_root_effective,
+        runs_roots=runs_roots,
+        history_path=history_path,
+        history_entries=len(history_entries),
+        history_dirs=history_dirs,
+        fs_dirs=fs_dirs,
+        run_dirs=run_dirs,
+    )
+
+
 def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
     candidates = [p for p in runs_root.iterdir() if p.is_dir()]
     return sorted(candidates, key=_run_dir_sort_key, reverse=True)
@@ -203,9 +329,32 @@ def _case_dirs(run_dir: Path, case_id: str) -> list[Path]:
     return find_case_dirs(run_dir, case_id, LayoutConfig())
 
 
+def _sorted_case_dirs(case_dirs: list[Path]) -> list[Path]:
+    def _mtime(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    return sorted(case_dirs, key=_mtime, reverse=True)
+
+
+def _format_mtime(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:.0f}"
+
+
 @dataclass(frozen=True)
 class RunScanStats:
-    runs_root: Path
+    runs_root_cli: Path
+    runs_root_effective: Path | None
+    runs_roots: list[Path]
+    history_path: Path
+    history_entries: int
+    history_candidates: int
+    fs_candidates: int
+    history_missing: list[Path]
     inspected_runs: int
     inspected_cases: int
     missing_cases: int
@@ -213,6 +362,25 @@ class RunScanStats:
     missed_cases: int
     tag_mismatches: int
     recent: list[CaseRunInfo]
+
+
+@dataclass(frozen=True)
+class HistoryRunDir:
+    run_dir: Path
+    exists: bool
+    raw: str
+
+
+@dataclass(frozen=True)
+class RunDirInventory:
+    runs_root_cli: Path
+    runs_root_effective: Path | None
+    runs_roots: list[Path]
+    history_path: Path
+    history_entries: int
+    history_dirs: list[HistoryRunDir]
+    fs_dirs: list[Path]
+    run_dirs: list[Path]
 
 
 def list_case_runs(
@@ -234,6 +402,109 @@ def list_case_runs(
     return candidates, stats
 
 
+def list_case_run_listings(
+    *,
+    case_id: str,
+    data_dir: Path,
+    tag: str | None = None,
+    runs_subdir: str = ".runs/runs",
+) -> tuple[list[CaseRunListing], RunScanStats]:
+    inventory = _collect_run_dir_inventory(case_id=case_id, data_dir=data_dir, runs_subdir=runs_subdir)
+    listings: list[CaseRunListing] = []
+    inspected_runs = 0
+    inspected_cases = 0
+    missing_cases = 0
+    missing_events = 0
+    missed_cases = 0
+    tag_mismatches = 0
+    for run_dir in inventory.run_dirs:
+        if not run_dir.exists():
+            listings.append(
+                CaseRunListing(
+                    run_dir=run_dir,
+                    case_dir=None,
+                    events_path=None,
+                    tag=None,
+                    tag_source=None,
+                    status="missing_on_disk",
+                    is_missed=False,
+                    run_mtime=None,
+                    case_mtime=None,
+                )
+            )
+            continue
+        inspected_runs += 1
+        case_dirs = _case_dirs(run_dir, case_id)
+        if not case_dirs:
+            missing_cases += 1
+            listings.append(
+                CaseRunListing(
+                    run_dir=run_dir,
+                    case_dir=None,
+                    events_path=None,
+                    tag=None,
+                    tag_source=None,
+                    status="missing_case_dir",
+                    is_missed=False,
+                    run_mtime=run_dir.stat().st_mtime,
+                    case_mtime=None,
+                )
+            )
+            continue
+        case_dirs = _sorted_case_dirs(case_dirs)
+        run_mtime = run_dir.stat().st_mtime
+        for case_dir in case_dirs:
+            inspected_cases += 1
+            events = find_events_file(case_dir)
+            if events.events_path is None:
+                missing_events += 1
+            case_mtime = case_dir.stat().st_mtime
+            status_value, is_missed = _case_status(case_dir)
+            if is_missed:
+                missed_cases += 1
+            tag_value, tag_source = _extract_case_tag(case_dir)
+            if tag and tag_value != tag:
+                tag_mismatches += 1
+            listing_status = status_value
+            if events.events_path is None:
+                listing_status = "missing_events"
+            elif tag and tag_value != tag:
+                listing_status = "tag_mismatch"
+            elif is_missed:
+                listing_status = "missed"
+            listings.append(
+                CaseRunListing(
+                    run_dir=run_dir,
+                    case_dir=case_dir,
+                    events_path=events.events_path,
+                    tag=tag_value,
+                    tag_source=tag_source,
+                    status=listing_status,
+                    is_missed=is_missed,
+                    run_mtime=run_mtime,
+                    case_mtime=case_mtime,
+                )
+            )
+    stats = RunScanStats(
+        runs_root_cli=inventory.runs_root_cli,
+        runs_root_effective=inventory.runs_root_effective,
+        runs_roots=inventory.runs_roots,
+        history_path=inventory.history_path,
+        history_entries=inventory.history_entries,
+        history_candidates=len(inventory.history_dirs),
+        fs_candidates=len(inventory.fs_dirs),
+        history_missing=[entry.run_dir for entry in inventory.history_dirs if not entry.exists],
+        inspected_runs=inspected_runs,
+        inspected_cases=inspected_cases,
+        missing_cases=missing_cases,
+        missing_events=missing_events,
+        missed_cases=missed_cases,
+        tag_mismatches=tag_mismatches,
+        recent=[],
+    )
+    return listings, stats
+
+
 def scan_case_runs(
     *,
     case_id: str,
@@ -241,9 +512,9 @@ def scan_case_runs(
     tag: str | None = None,
     runs_subdir: str = ".runs/runs",
 ) -> tuple[list[CaseRunInfo], RunScanStats]:
-    runs_root = (data_dir / runs_subdir).resolve()
-    if not runs_root.exists():
-        raise FileNotFoundError(f"Runs directory does not exist: {runs_root}")
+    inventory = _collect_run_dir_inventory(case_id=case_id, data_dir=data_dir, runs_subdir=runs_subdir)
+    if not inventory.run_dirs and not inventory.runs_root_cli.exists():
+        raise FileNotFoundError(f"Runs directory does not exist: {inventory.runs_root_cli}")
 
     infos: list[CaseRunInfo] = []
     inspected_runs = 0
@@ -252,7 +523,9 @@ def scan_case_runs(
     missing_events = 0
     missed_cases = 0
 
-    for run_dir in _iter_run_dirs(runs_root):
+    for run_dir in inventory.run_dirs:
+        if not run_dir.exists():
+            continue
         inspected_runs += 1
         case_dirs = _case_dirs(run_dir, case_id)
         if not case_dirs:
@@ -260,7 +533,7 @@ def scan_case_runs(
             continue
         run_mtime = run_dir.stat().st_mtime
         run_order = _run_dir_sort_key(run_dir)
-        for case_dir in case_dirs:
+        for case_dir in _sorted_case_dirs(case_dirs):
             inspected_cases += 1
             events = find_events_file(case_dir)
             if events.events_path is None:
@@ -285,9 +558,27 @@ def scan_case_runs(
                 )
             )
 
-    infos.sort(key=lambda info: (info.run_order, info.case_mtime), reverse=True)
+    if inventory.history_dirs:
+        order_map = {
+            run_dir.resolve(): idx for idx, run_dir in enumerate(inventory.run_dirs)
+        }
+
+        def _history_sort_key(info: CaseRunInfo) -> tuple[int, float]:
+            order = order_map.get(info.run_dir.resolve(), len(inventory.run_dirs))
+            return (order, -info.case_mtime)
+
+        infos.sort(key=_history_sort_key)
+    else:
+        infos.sort(key=lambda info: (info.run_order, info.case_mtime), reverse=True)
     stats = RunScanStats(
-        runs_root=runs_root,
+        runs_root_cli=inventory.runs_root_cli,
+        runs_root_effective=inventory.runs_root_effective,
+        runs_roots=inventory.runs_roots,
+        history_path=inventory.history_path,
+        history_entries=inventory.history_entries,
+        history_candidates=len(inventory.history_dirs),
+        fs_candidates=len(inventory.fs_dirs),
+        history_missing=[entry.run_dir for entry in inventory.history_dirs if not entry.exists],
         inspected_runs=inspected_runs,
         inspected_cases=inspected_cases,
         missing_cases=missing_cases,
@@ -370,6 +661,27 @@ def format_case_runs(candidates: list[CaseRunCandidate], *, limit: int | None = 
         )
     if len(candidates) > (limit or 0):
         rows.append(f"  ... ({len(candidates) - (limit or 0)} more)")
+    return "\n".join(rows)
+
+
+def format_case_run_listings(listings: list[CaseRunListing], *, limit: int | None = 10) -> str:
+    rows = []
+    for idx, listing in enumerate(listings[:limit], start=1):
+        case_dir_name = listing.case_dir.name if listing.case_dir else "<missing>"
+        case_dir_value = str(listing.case_dir) if listing.case_dir else "<missing>"
+        rows.append(
+            "  "
+            f"{idx}. run_dir={listing.run_dir} "
+            f"case_dir={case_dir_name} "
+            f"case_path={case_dir_value} "
+            f"tag={listing.tag!r} "
+            f"status={listing.status!r} "
+            f"missed={listing.is_missed} "
+            f"run_mtime={_format_mtime(listing.run_mtime)} "
+            f"case_mtime={_format_mtime(listing.case_mtime)}"
+        )
+    if len(listings) > (limit or 0):
+        rows.append(f"  ... ({len(listings) - (limit or 0)} more)")
     return "\n".join(rows)
 
 
@@ -603,7 +915,7 @@ def _format_missing_case_runs(
     details = [
         "No suitable case run found.",
         f"selection_rule: {rule}",
-        f"runs_root: {stats.runs_root}",
+        f"runs_root: {stats.runs_root_cli}",
         f"case_id: {case_id}",
         f"inspected_runs: {stats.inspected_runs}",
         f"inspected_cases: {stats.inspected_cases}",

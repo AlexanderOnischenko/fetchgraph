@@ -436,6 +436,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.list_replay_ids:
                 if auto_resolve and not args.events and args.case and args.data:
+                    original_case_dir = case_dir
+                    original_events_path = events_path
                     candidates, _ = list_case_runs(
                         case_id=args.case,
                         data_dir=args.data,
@@ -450,12 +452,17 @@ def main(argv: list[str] | None = None) -> int:
                             selected_candidate = candidate
                             break
                     if selected_candidate is None:
-                        raise LookupError(_format_no_replay_ids_error(events_path))
+                        raise LookupError(_format_no_replay_ids_all_candidates_error(candidates))
                     run_dir = selected_candidate.run_dir
                     case_dir = selected_candidate.case_dir
                     events_path = selected_candidate.events_path
                     selection_rule = _format_selection_rule(tag=args.tag, pick_run=pick_run)
                     run_dir_source = "auto-resolve (replay-id list)"
+                    if args.print_resolve and (
+                        case_dir != original_case_dir or events_path != original_events_path
+                    ):
+                        print(f"Adjusted for replay-id listing: case_dir={case_dir}")
+                        print(f"Adjusted events.jsonl: {events_path}")
                 if auto_resolve and not args.events:
                     print(
                         f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",
@@ -753,6 +760,21 @@ def _format_no_replay_ids_error(events_path: Path) -> str:
             "  fetchgraph-tracer export-case-bundle ... --list-replay-matches",
         ]
     )
+
+
+def _format_no_replay_ids_all_candidates_error(candidates) -> str:
+    lines = [
+        "ERROR: No replay_case events found in any candidate run.",
+        f"inspected_candidates: {len(candidates)}",
+    ]
+    if candidates:
+        lines.append("candidate_events:")
+        for candidate in candidates[:5]:
+            lines.append(f"  - {candidate.events_path}")
+    lines.append("Tip: ensure events emission is enabled and the run contains replay points.")
+    lines.append("Try:")
+    lines.append("  fetchgraph-tracer export-case-bundle ... --list-replay-matches")
+    return "\n".join(lines)
 
 
 def _format_no_replay_cases_error(events_path: Path) -> str:

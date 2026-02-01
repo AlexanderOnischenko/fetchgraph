@@ -228,14 +228,14 @@ def _provider_catalog_snapshot(agent: object) -> Dict[str, object]:
     return snapshot_provider_catalog(provider_catalog)
 
 
-def _emit_schema_snapshot(event_logger: EventLogger, run_dir: Path, schema_path: Path) -> str:
-    run_dir.mkdir(parents=True, exist_ok=True)
+def _emit_schema_snapshot(event_logger: EventLogger, case_dir: Path, schema_path: Path) -> str:
+    case_dir.mkdir(parents=True, exist_ok=True)
     suffix = schema_path.suffix.lstrip(".") or "txt"
     snapshot_name = f"schema_snapshot.{suffix}"
-    snapshot_path = run_dir / snapshot_name
+    snapshot_path = case_dir / snapshot_name
     shutil.copy2(schema_path, snapshot_path)
     file_hash = _hash_file(snapshot_path)
-    run_root = run_root_from_case_dir(run_dir)
+    run_root = run_root_from_case_dir(case_dir)
     data_ref_path = run_relative_posix_path(run_root, snapshot_path)
     event_logger.emit(
         {

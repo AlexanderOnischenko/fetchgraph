@@ -50,6 +50,7 @@ def test_run_relative_posix_path(tmp_path: Path) -> None:
         "//server/share/file.json",
         "C:/temp/file.json",
         "c:/temp/file.json",
+        "C:temp/file.json",
         "cases/case_1:bad/schema.json",
         r"cases\\case_1\\schema.json",
     ],

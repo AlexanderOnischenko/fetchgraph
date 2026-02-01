@@ -80,6 +80,45 @@ def test_resolve_latest_non_missed(tmp_path: Path) -> None:
     assert resolution.run_dir == run_old
 
 
+def test_resolve_latest_non_missed_ignores_other_missed_cases(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_old = runs_root / "run_old"
+    run_old.mkdir()
+    _make_case_dir(run_old, "agg_003", "aaa", status="ok")
+    _set_mtime(run_old, 100)
+
+    run_new = runs_root / "run_new"
+    run_new.mkdir()
+    _make_case_dir(run_new, "agg_003", "bbb", status="error")
+    _make_case_dir(run_new, "other_case", "ccc", status="missed")
+    _set_mtime(run_new, 200)
+
+    resolution = resolve_case_events(case_id="agg_003", data_dir=data_dir, pick_run="latest_non_missed")
+    assert resolution.run_dir == run_new
+
+
+def test_resolve_latest_non_missed_skips_runs_without_case(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_old = runs_root / "run_old"
+    run_old.mkdir()
+    _make_case_dir(run_old, "agg_003", "aaa", status="ok")
+    _set_mtime(run_old, 100)
+
+    run_new = runs_root / "run_new"
+    run_new.mkdir()
+    _make_case_dir(run_new, "other_case", "ccc", status="ok")
+    _set_mtime(run_new, 200)
+
+    resolution = resolve_case_events(case_id="agg_003", data_dir=data_dir, pick_run="latest_non_missed")
+    assert resolution.run_dir == run_old
+
+
 def test_resolve_with_tag(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     runs_root = data_dir / ".runs" / "runs"

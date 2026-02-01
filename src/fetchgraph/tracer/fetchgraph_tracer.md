@@ -285,7 +285,7 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 - `--runs-subdir <REL>` — где искать `runs` относительно `DATA_DIR` (default `.runs/runs`)
 - `--tag <TAG>` — фильтр по tag (если теги ведутся)
 - `--pick-run <MODE>` — стратегия выбора запуска:
-  - `latest_non_missed`
+  - `latest_non_missed` (учитывает missed только для выбранного `CASE_ID`, а не статус всего прогона)
   - `latest_with_replay` (default; требует `--id`)
 - `--select-index <N>` — выбрать конкретный run-candidate (1-based)
 - `--list-matches` — вывести список кандидатов run/case и выйти

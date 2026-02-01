@@ -4,6 +4,8 @@ import json
 import logging
 from pathlib import Path
 
+from _pytest.logging import LogCaptureFixture
+
 from fetchgraph.replay.export import export_replay_case_bundle
 
 
@@ -35,7 +37,9 @@ def test_export_without_provider_specidx_for_single_match(tmp_path: Path) -> Non
     assert out_path.exists()
 
 
-def test_export_warns_with_select_index_and_input_hash(tmp_path: Path, caplog: object) -> None:
+def test_export_warns_with_select_index_and_input_hash(
+    tmp_path: Path, caplog: LogCaptureFixture
+) -> None:
     events_path = tmp_path / "events.jsonl"
     out_dir = tmp_path / "out"
     events = [

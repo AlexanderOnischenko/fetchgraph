@@ -251,7 +251,8 @@ def format_replay_case_matches(selections: list[ExportSelection], *, limit: int 
     rows = []
     for idx, selection in enumerate(selections[:limit], start=1):
         event = selection.event
-        meta = event.get("meta") or {}
+        meta = event.get("meta")
+        meta = meta if isinstance(meta, dict) else {}
         provider = meta.get("provider")
         spec_idx = meta.get("spec_idx")
         timestamp = event.get("timestamp")

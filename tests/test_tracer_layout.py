@@ -47,6 +47,10 @@ def test_run_relative_posix_path(tmp_path: Path) -> None:
     [
         "/absolute/path.json",
         "../escape.json",
+        "//server/share/file.json",
+        "C:/temp/file.json",
+        "c:/temp/file.json",
+        "cases/case_1:bad/schema.json",
         r"cases\\case_1\\schema.json",
     ],
 )

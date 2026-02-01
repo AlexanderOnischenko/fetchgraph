@@ -171,25 +171,24 @@ help:
 	@echo "  make stats                - stats по последним 10 прогонов"
 	@echo "  make tags                 - список тегов (effective snapshots)"
 	@echo ""
-	@echo "Диагностика / анализ:"
-	@echo "  make history-case CASE=case_42 [TAG=...] [LIMIT=50] - история по кейсу"
-	@echo "  make report-tag TAG=...    - сводка по тегу (effective snapshot)"
-	@echo "  make report-tag-changes TAG=... [CHANGES=10] - сводка + последние изменения effective snapshot"
-	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
-	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
-	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
 	@echo ""
-	@echo "Tracer: найти и экспортировать фикстуру (export-case-bundle)"
+	@echo "Tracer → Export fixture (4 шага):"
 	@echo "  Примечание: DATA обычно подтягивается из $(CONFIG) (make init)."
+	@echo "  0) (опционально) история по кейсу:"
+	@echo "     make history-case CASE=agg_003 [TAG=...] [LIMIT=50]"
 	@echo "  1) Найти кандидатов прогонов по CASE:"
-	@echo "     make tracer-ls CASE=agg_003 [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...] [EVENTS=... (без CASE/DATA/TAG/RUN_ID)]"
-	@echo "  2) Узнать доступные REPLAY_ID в выбранном events:"
-	@echo "     make tracer-replay-ids CASE=agg_003 [DATA=...] [RUN_ID=...] [PROVIDER=...] [SPEC_IDX=...] [EVENTS=... (без CASE/DATA/TAG/RUN_ID)]"
-	@echo "  3) Посмотреть матчи конкретного REPLAY_ID (подсказки для фильтрации):"
-	@echo "     make tracer-matches CASE=agg_003 REPLAY_ID=plan_normalize.spec_v1 [SPEC_IDX=...] [PROVIDER=...] [INPUT_HASH=...] [EVENTS=... (без CASE/DATA/TAG/RUN_ID)]"
+	@echo "     make tracer-ls CASE=agg_003 [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
+	@echo "     или explicit: make tracer-ls EVENTS=... [RUN_DIR=...]"
+	@echo "  2) Узнать доступные REPLAY_ID:"
+	@echo "     make tracer-replay-ids CASE=agg_003 [DATA=...] [RUN_ID=...] [PROVIDER=...] [SPEC_IDX=...]"
+	@echo "     или explicit: make tracer-replay-ids EVENTS=... [RUN_DIR=...]"
+	@echo "  3) Посмотреть матчи REPLAY_ID (подсказки для фильтрации):"
+	@echo "     make tracer-matches CASE=agg_003 REPLAY_ID=plan_normalize.spec_v1 [SPEC_IDX=...] [PROVIDER=...] [INPUT_HASH=...]"
+	@echo "     или explicit: make tracer-matches REPLAY_ID=plan_normalize.spec_v1 EVENTS=... [RUN_DIR=...]"
 	@echo "  4) Экспортировать:"
-	@echo "     make tracer-export CASE=agg_003 REPLAY_ID=plan_normalize.spec_v1 [BUCKET=known_bad|fixed] [OVERWRITE=1] [ALLOW_BAD_JSON=1] [EVENTS=... (без CASE/DATA/TAG/RUN_ID)]"
-	@echo "  Advanced: RUN_SELECT_INDEX / REPLAY_SELECT_INDEX / SELECT / REQUIRE_UNIQUE / RUN_ID / CASE_DIR / TAG / RUN_DIR"
+	@echo "     make tracer-export CASE=agg_003 REPLAY_ID=plan_normalize.spec_v1 [BUCKET=known_bad|fixed] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
+	@echo "     или explicit: make tracer-export REPLAY_ID=plan_normalize.spec_v1 EVENTS=... RUN_DIR=... [OVERWRITE=1]"
+	@echo "  Advanced: RUN_SELECT_INDEX / REPLAY_SELECT_INDEX / SELECT / REQUIRE_UNIQUE / RUN_ID / CASE_DIR / TAG"
 	@echo ""
 	@echo "Фикстуры (fixture tools):"
 	@echo "  fixtures layout: replay_cases/<bucket>/<name>.case.json, resources: replay_cases/<bucket>/resources/<fixture_stem>/<resource_id>/..."
@@ -206,6 +205,15 @@ help:
 	@echo "  make known-bad - запустить backlog-suite для known_bad (ожидаемо красный)"
 	@echo "  make known-bad-one NAME=fixture_stem - запустить один known_bad кейс"
 	@echo ""
+	@echo "Диагностика / отчёты / сравнение:"
+	@echo "  make report-tag TAG=...    - сводка по тегу (effective snapshot)"
+	@echo "  make report-tag-changes TAG=... [CHANGES=10] - сводка + последние изменения effective snapshot"
+	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
+	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
+	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
+	@echo "  make compare BASE=... NEW=... [DIFF_OUT=...] [JUNIT=...]"
+	@echo "  make compare-tag BASE_TAG=baseline NEW_TAG=... [COMPARE_TAG_OUT=...] [COMPARE_TAG_JUNIT=...]"
+	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
 	@echo "    - удаляет effective snapshot тега и tag-latest* указатели"
@@ -213,10 +221,6 @@ help:
 	@echo "    PURGE_RUNS=1          - дополнительно удалить все runs, где run_meta.tag == TAG"
 	@echo "    PRUNE_HISTORY=1       - вычистить записи с этим тегом из $${DATA}/.runs/history.jsonl"
 	@echo "    PRUNE_CASE_HISTORY=1  - вычистить записи с этим тегом из $${DATA}/.runs/runs/cases/*.jsonl"
-	@echo ""
-	@echo "Сравнение результатов:"
-	@echo "  make compare BASE=... NEW=... [DIFF_OUT=...] [JUNIT=...]"
-	@echo "  make compare-tag BASE_TAG=baseline NEW_TAG=... [COMPARE_TAG_OUT=...] [COMPARE_TAG_JUNIT=...]"
 	@echo ""
 	@echo "LLM конфиг:"
 	@echo "  make llm-init             - создать $(LLM_TOML) из $(LLM_TOML_EXAMPLE)"
@@ -459,6 +463,7 @@ tracer-export: warn-config warn-missing-tracer
 	    --id "$(REPLAY_ID)" \
 	    --out "$(TRACER_OUT_DIR)" \
 	    --events "$(EVENTS)" \
+	    $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	    $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	    $(if $(strip $(INPUT_HASH)),--input-hash "$(INPUT_HASH)",) \
 	    $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
@@ -504,6 +509,12 @@ tracer-matches: warn-missing-tracer
 	    --events "$(EVENTS)" \
 	    $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	    --pick-run latest_with_replay \
+	    $(if $(strip $(INPUT_HASH)),--input-hash "$(INPUT_HASH)",) \
+	    $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
+	    $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
+	    $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	    $(if $(strip $(REPLAY_SELECT_INDEX)),--replay-select-index "$(REPLAY_SELECT_INDEX)",) \
+	    $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
 	    --list-replay-matches)"; \
 	else \
 	  output="$$(fetchgraph-tracer export-case-bundle \
@@ -511,6 +522,12 @@ tracer-matches: warn-missing-tracer
 	    --id "$(REPLAY_ID)" \
 	    --data "$(REPLAY_IDATA)" \
 	    --pick-run latest_with_replay \
+	    $(if $(strip $(INPUT_HASH)),--input-hash "$(INPUT_HASH)",) \
+	    $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
+	    $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
+	    $(if $(strip $(SELECT)),--select "$(SELECT)",) \
+	    $(if $(strip $(REPLAY_SELECT_INDEX)),--replay-select-index "$(REPLAY_SELECT_INDEX)",) \
+	    $(if $(filter 1 true yes on,$(REQUIRE_UNIQUE)),--require-unique,) \
 	    $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
 	    $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	    $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
@@ -518,7 +535,7 @@ tracer-matches: warn-missing-tracer
 	    --list-replay-matches)"; \
 	fi; \
 	echo "$$output"; \
-	match_lines="$$(printf "%s\n" "$$output" | sed '1d' | sed '/^$$/d')"; \
+	match_lines="$$(printf "%s\n" "$$output" | grep -E '^[0-9]+\t' || true)"; \
 	if [ -n "$$match_lines" ]; then \
 	  last_line="$$(printf "%s\n" "$$match_lines" | tail -n1)"; \
 	  idx="$$(printf "%s" "$$last_line" | awk -F '\t' '{print $$1}')"; \

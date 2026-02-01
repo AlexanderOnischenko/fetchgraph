@@ -293,6 +293,7 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 
 Полезно:
 - `--print-resolve` — распечатать входные флаги и резолв (`run_dir`, `case_dir`, `events_path`, `selection_method`).
+- INFO/WARNING выводятся в stderr, чтобы stdout оставался табличным для парсинга.
 
 #### 6.1.3 Replay-case selection flags (когда в events много replay_case)
 

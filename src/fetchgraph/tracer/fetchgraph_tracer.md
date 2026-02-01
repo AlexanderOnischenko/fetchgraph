@@ -295,6 +295,10 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 - `--print-resolve` — распечатать входные флаги и резолв (`run_dir`, `case_dir`, `events_path`, `selection_method`).
 - INFO/WARNING выводятся в stderr, чтобы stdout оставался табличным для парсинга.
 
+Примечание про сканирование FS:
+- По умолчанию сканируются только каталоги запусков с timestamp-префиксом (`YYYYMMDD_HHMMSS_...`).
+- Нестандартные имена каталогов могут появиться в списке только через case-history (history-only entries).
+
 #### 6.1.3 Replay-case selection flags (когда в events много replay_case)
 
 - `--spec-idx <INT>` — фильтр по `meta.spec_idx`

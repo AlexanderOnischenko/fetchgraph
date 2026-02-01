@@ -340,21 +340,21 @@ def main(argv: list[str] | None = None) -> int:
                             file=sys.stderr,
                         )
                         pick_run = "latest_non_missed"
-                    infos, stats = scan_case_runs(
-                        case_id=args.case,
-                        data_dir=args.data,
-                        runs_subdir=args.runs_subdir,
-                    )
                     if debug_enabled:
+                        infos, stats = scan_case_runs(
+                            case_id=args.case,
+                            data_dir=args.data,
+                            runs_subdir=args.runs_subdir,
+                        )
                         print("Debug: case run candidates (most recent first):")
                         print(format_case_run_debug(infos, limit=10))
-                    listings, stats = list_case_run_listings(
-                        case_id=args.case,
-                        data_dir=args.data,
-                        tag=args.tag,
-                        runs_subdir=args.runs_subdir,
-                    )
                     if args.list_matches:
+                        listings, stats = list_case_run_listings(
+                            case_id=args.case,
+                            data_dir=args.data,
+                            tag=args.tag,
+                            runs_subdir=args.runs_subdir,
+                        )
                         if not listings:
                             raise LookupError(
                                 _format_case_run_error(

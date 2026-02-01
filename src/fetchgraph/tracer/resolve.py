@@ -237,11 +237,14 @@ def _normalize_history_run_dir(
 
 
 def _has_run_dir_candidates(root: Path) -> bool:
-    for entry in root.iterdir():
-        if not entry.is_dir():
-            continue
-        if _run_dir_timestamp_key(entry.name) is not None:
-            return True
+    try:
+        for entry in root.iterdir():
+            if not entry.is_dir():
+                continue
+            if _run_dir_timestamp_key(entry.name) is not None:
+                return True
+    except OSError:
+        return False
     return False
 
 
@@ -262,14 +265,17 @@ def _iter_fs_run_dirs(roots: list[Path]) -> list[Path]:
     for root in roots:
         if not root.exists():
             continue
-        for entry in root.iterdir():
-            if not entry.is_dir():
-                continue
-            if entry.name in {"cases", "runs"}:
-                continue
-            if _run_dir_timestamp_key(entry.name) is None:
-                continue
-            candidates.append(entry)
+        try:
+            for entry in root.iterdir():
+                if not entry.is_dir():
+                    continue
+                if entry.name in {"cases", "runs"}:
+                    continue
+                if _run_dir_timestamp_key(entry.name) is None:
+                    continue
+                candidates.append(entry)
+        except OSError:
+            continue
     return sorted(candidates, key=_run_dir_sort_key, reverse=True)
 
 
@@ -318,7 +324,10 @@ def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
 
 
 def _run_dir_sort_key(run_dir: Path) -> tuple[int, int | float, float, str]:
-    run_mtime = run_dir.stat().st_mtime
+    try:
+        run_mtime = run_dir.stat().st_mtime
+    except OSError:
+        run_mtime = 0.0
     ts_key = _run_dir_timestamp_key(run_dir.name)
     if ts_key is None:
         return (0, run_mtime, run_mtime, run_dir.name)

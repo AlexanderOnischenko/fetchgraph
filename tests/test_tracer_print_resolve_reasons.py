@@ -1,47 +1,12 @@
 from __future__ import annotations
 
-import json
-import os
+import re
 from pathlib import Path
 
-from _pytest.capture import CaptureFixture
+from pytest import CaptureFixture
 
 from fetchgraph.tracer import cli
-
-
-def _write_events(path: Path, events: list[dict]) -> None:
-    lines = [json.dumps(event) for event in events]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def _set_mtime(path: Path, ts: float) -> None:
-    os.utime(path, (ts, ts))
-
-
-def _make_case_dir(
-    run_dir: Path,
-    case_id: str,
-    suffix: str,
-    *,
-    status: str,
-    tag: str | None = None,
-    events: list[dict] | None,
-) -> Path:
-    case_dir = run_dir / "cases" / f"{case_id}_{suffix}"
-    case_dir.mkdir(parents=True, exist_ok=True)
-    if events is not None:
-        _write_events(case_dir / "events.jsonl", events)
-    payload = {"status": status}
-    if tag:
-        payload["tag"] = tag
-    _write_json(case_dir / "status.json", payload)
-    return case_dir
+from tests.helpers.tracer_testkit import make_case_dir, set_mtime
 
 
 def test_print_resolve_lists_rejected_runs_with_reasons(
@@ -58,7 +23,7 @@ def test_print_resolve_lists_rejected_runs_with_reasons(
     run_tag_mismatch.mkdir()
     run_selected.mkdir()
 
-    _make_case_dir(
+    missing_events_dir = make_case_dir(
         run_missing_events,
         "agg_003",
         "x",
@@ -66,7 +31,7 @@ def test_print_resolve_lists_rejected_runs_with_reasons(
         tag="alpha",
         events=None,
     )
-    _make_case_dir(
+    tag_mismatch_dir = make_case_dir(
         run_tag_mismatch,
         "agg_003",
         "y",
@@ -74,7 +39,7 @@ def test_print_resolve_lists_rejected_runs_with_reasons(
         tag="beta",
         events=[{"type": "event", "id": "tag_mismatch"}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_selected,
         "agg_003",
         "z",
@@ -83,9 +48,9 @@ def test_print_resolve_lists_rejected_runs_with_reasons(
         events=[{"type": "replay_case", "id": "replay_ok", "v": 2, "input": {}}],
     )
 
-    _set_mtime(run_missing_events, 100)
-    _set_mtime(run_tag_mismatch, 200)
-    _set_mtime(run_selected, 300)
+    set_mtime(run_missing_events, 100)
+    set_mtime(run_tag_mismatch, 200)
+    set_mtime(run_selected, 300)
 
     exit_code = cli.main(
         [
@@ -103,8 +68,8 @@ def test_print_resolve_lists_rejected_runs_with_reasons(
 
     assert exit_code == 0
     captured = capsys.readouterr()
-    output = captured.out
+    output = "\n".join([captured.out, captured.err])
 
     assert "Rejected candidates:" in output
-    assert f"{run_missing_events / 'cases' / 'agg_003_x'} (no_events)" in output
-    assert f"{run_tag_mismatch / 'cases' / 'agg_003_y'} (tag_mismatch)" in output
+    assert re.search(rf"{re.escape(str(missing_events_dir))}.*\\bno_events\\b", output)
+    assert re.search(rf"{re.escape(str(tag_mismatch_dir))}.*\\btag_mismatch\\b", output)

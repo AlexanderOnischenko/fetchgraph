@@ -1,54 +1,18 @@
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 
-from _pytest.capture import CaptureFixture
+from pytest import CaptureFixture
 
 from examples.demo_qa.runs.case_history import _load_case_history
 from fetchgraph.tracer import cli
-
-
-def _write_events(path: Path, events: list[dict]) -> None:
-    lines = [json.dumps(event) for event in events]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def _set_mtime(path: Path, ts: float) -> None:
-    os.utime(path, (ts, ts))
-
-
-def _make_case_dir(
-    run_dir: Path,
-    case_id: str,
-    suffix: str,
-    *,
-    status: str,
-    events: list[dict] | None,
-    tag: str | None = None,
-) -> Path:
-    case_dir = run_dir / "cases" / f"{case_id}_{suffix}"
-    case_dir.mkdir(parents=True, exist_ok=True)
-    if events is not None:
-        _write_events(case_dir / "events.jsonl", events)
-    payload = {"status": status}
-    if tag:
-        payload["tag"] = tag
-    _write_json(case_dir / "status.json", payload)
-    return case_dir
-
-
-def _write_history_entry(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload) + "\n")
+from fetchgraph.tracer.resolve import list_case_runs
+from tests.helpers.tracer_testkit import (
+    case_history_path,
+    make_case_dir,
+    set_mtime,
+    write_history_entry,
+)
 
 
 def _history_run_dirs(path: Path) -> list[Path]:
@@ -81,21 +45,21 @@ def test_run_candidates_parity_history_vs_tracer(
     run_mid.mkdir()
     run_new.mkdir()
 
-    _make_case_dir(
+    make_case_dir(
         run_old,
         "agg_003",
         "x",
         status="ok",
         events=[{"type": "event", "id": "run_old"}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_mid,
         "agg_003",
         "y",
         status="ok",
         events=[{"type": "replay_case", "id": "replay_mid", "v": 2, "input": {}}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_new,
         "agg_003",
         "z",
@@ -103,16 +67,18 @@ def test_run_candidates_parity_history_vs_tracer(
         events=[{"type": "replay_case", "id": "replay_new", "v": 2, "input": {}}],
     )
 
-    _set_mtime(run_old, 100)
-    _set_mtime(run_mid, 200)
-    _set_mtime(run_new, 300)
+    set_mtime(run_old, 100)
+    set_mtime(run_mid, 200)
+    set_mtime(run_new, 300)
 
-    history_path = data_dir / ".runs" / "runs" / "cases" / "agg_003.jsonl"
-    _write_history_entry(history_path, {"run_dir": str(run_old)})
-    _write_history_entry(history_path, {"run_dir": str(run_mid)})
-    _write_history_entry(history_path, {"run_dir": str(run_new)})
+    history_path = case_history_path(data_dir, "agg_003")
+    write_history_entry(history_path, {"run_dir": str(run_old)})
+    write_history_entry(history_path, {"run_dir": str(run_mid)})
+    write_history_entry(history_path, {"run_dir": str(run_new)})
 
     history_dirs = _history_run_dirs(history_path)
+    candidates, _ = list_case_runs(case_id="agg_003", data_dir=data_dir)
+    candidate_dirs = [candidate.run_dir for candidate in candidates]
 
     exit_code = cli.main(
         [
@@ -129,6 +95,7 @@ def test_run_candidates_parity_history_vs_tracer(
     captured = capsys.readouterr()
     tracer_dirs = _parse_listed_run_dirs(captured.out)
 
+    assert candidate_dirs == history_dirs
     assert tracer_dirs == history_dirs
 
 
@@ -146,21 +113,21 @@ def test_latest_ordering_is_consistent_across_tools(
     run_mid.mkdir()
     run_new.mkdir()
 
-    _make_case_dir(
+    make_case_dir(
         run_old,
         "agg_003",
         "x",
         status="ok",
         events=[{"type": "event", "id": "run_old"}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_mid,
         "agg_003",
         "y",
         status="ok",
         events=[{"type": "event", "id": "run_mid"}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_new,
         "agg_003",
         "z",
@@ -168,16 +135,18 @@ def test_latest_ordering_is_consistent_across_tools(
         events=[{"type": "event", "id": "run_new"}],
     )
 
-    _set_mtime(run_old, 300)
-    _set_mtime(run_mid, 100)
-    _set_mtime(run_new, 200)
+    set_mtime(run_old, 300)
+    set_mtime(run_mid, 100)
+    set_mtime(run_new, 200)
 
-    history_path = data_dir / ".runs" / "runs" / "cases" / "agg_003.jsonl"
-    _write_history_entry(history_path, {"run_dir": str(run_old)})
-    _write_history_entry(history_path, {"run_dir": str(run_mid)})
-    _write_history_entry(history_path, {"run_dir": str(run_new)})
+    history_path = case_history_path(data_dir, "agg_003")
+    write_history_entry(history_path, {"run_dir": str(run_old)})
+    write_history_entry(history_path, {"run_dir": str(run_mid)})
+    write_history_entry(history_path, {"run_dir": str(run_new)})
 
     history_dirs = _history_run_dirs(history_path)
+    candidates, _ = list_case_runs(case_id="agg_003", data_dir=data_dir)
+    candidate_dirs = [candidate.run_dir for candidate in candidates]
 
     exit_code = cli.main(
         [
@@ -194,6 +163,7 @@ def test_latest_ordering_is_consistent_across_tools(
     captured = capsys.readouterr()
     tracer_dirs = _parse_listed_run_dirs(captured.out)
 
+    assert candidate_dirs == history_dirs
     assert tracer_dirs == history_dirs
 
 
@@ -209,14 +179,14 @@ def test_tracer_ls_includes_run_selected_by_exporter(
     run_old.mkdir()
     run_new.mkdir()
 
-    _make_case_dir(
+    make_case_dir(
         run_old,
         "agg_003",
         "x",
         status="ok",
         events=[{"type": "replay_case", "id": "replay_old", "v": 2, "input": {}}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_new,
         "agg_003",
         "y",
@@ -224,8 +194,8 @@ def test_tracer_ls_includes_run_selected_by_exporter(
         events=[{"type": "replay_case", "id": "replay_new", "v": 2, "input": {}}],
     )
 
-    _set_mtime(run_old, 100)
-    _set_mtime(run_new, 200)
+    set_mtime(run_old, 100)
+    set_mtime(run_new, 200)
 
     exit_code = cli.main(
         [

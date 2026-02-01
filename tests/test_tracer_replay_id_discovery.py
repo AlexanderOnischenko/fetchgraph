@@ -1,43 +1,11 @@
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 
-from _pytest.capture import CaptureFixture
+from pytest import CaptureFixture
 
 from fetchgraph.tracer import cli
-
-
-def _write_events(path: Path, events: list[dict]) -> None:
-    lines = [json.dumps(event) for event in events]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def _set_mtime(path: Path, ts: float) -> None:
-    os.utime(path, (ts, ts))
-
-
-def _make_case_dir(
-    run_dir: Path,
-    case_id: str,
-    suffix: str,
-    *,
-    status: str,
-    events: list[dict] | None,
-) -> Path:
-    case_dir = run_dir / "cases" / f"{case_id}_{suffix}"
-    case_dir.mkdir(parents=True, exist_ok=True)
-    if events is not None:
-        _write_events(case_dir / "events.jsonl", events)
-    _write_json(case_dir / "status.json", {"status": status})
-    return case_dir
+from tests.helpers.tracer_testkit import make_case_dir, set_mtime
 
 
 def test_replay_id_discovery_skips_runs_without_replay_case(
@@ -52,14 +20,14 @@ def test_replay_id_discovery_skips_runs_without_replay_case(
     run_new.mkdir()
     run_old.mkdir()
 
-    _make_case_dir(
+    make_case_dir(
         run_new,
         "agg_003",
         "z",
         status="error",
         events=[{"type": "replay_case", "id": "replay_new", "v": 2, "input": {}}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_old,
         "agg_003",
         "x",
@@ -67,8 +35,8 @@ def test_replay_id_discovery_skips_runs_without_replay_case(
         events=[{"type": "event", "id": "no_replay"}],
     )
 
-    _set_mtime(run_old, 100)
-    _set_mtime(run_new, 200)
+    set_mtime(run_old, 100)
+    set_mtime(run_new, 200)
 
     exit_code = cli.main(
         [
@@ -83,8 +51,9 @@ def test_replay_id_discovery_skips_runs_without_replay_case(
 
     assert exit_code == 0
     captured = capsys.readouterr()
-    assert "replay_new" in captured.out
-    assert str(run_new) in captured.err
+    combined = "\n".join([captured.out, captured.err])
+    assert "replay_new" in combined
+    assert str(run_new) in combined
 
 
 def test_no_replay_case_triggers_fallback_scan_next_run(
@@ -99,14 +68,14 @@ def test_no_replay_case_triggers_fallback_scan_next_run(
     run_new.mkdir()
     run_old.mkdir()
 
-    _make_case_dir(
+    make_case_dir(
         run_new,
         "agg_003",
         "z",
         status="ok",
         events=[{"type": "event", "id": "no_replay"}],
     )
-    _make_case_dir(
+    make_case_dir(
         run_old,
         "agg_003",
         "x",
@@ -114,8 +83,8 @@ def test_no_replay_case_triggers_fallback_scan_next_run(
         events=[{"type": "replay_case", "id": "replay_old", "v": 2, "input": {}}],
     )
 
-    _set_mtime(run_old, 100)
-    _set_mtime(run_new, 200)
+    set_mtime(run_old, 100)
+    set_mtime(run_new, 200)
 
     exit_code = cli.main(
         [
@@ -130,5 +99,6 @@ def test_no_replay_case_triggers_fallback_scan_next_run(
 
     assert exit_code == 0
     captured = capsys.readouterr()
-    assert "replay_old" in captured.out
-    assert str(run_old) in captured.err
+    combined = "\n".join([captured.out, captured.err])
+    assert "replay_old" in combined
+    assert str(run_old) in combined

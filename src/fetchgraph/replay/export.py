@@ -209,7 +209,8 @@ def collect_replay_case_matches(
         replay_id = event.get("id")
         if not isinstance(replay_id, str):
             continue
-        meta = event.get("meta") if isinstance(event.get("meta"), dict) else {}
+        raw_meta = event.get("meta")
+        meta: dict[str, object] = raw_meta if isinstance(raw_meta, dict) else {}
         payload = event.get("input")
         matches.append(
             ReplayCaseMatch(

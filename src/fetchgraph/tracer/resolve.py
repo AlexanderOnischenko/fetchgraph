@@ -626,8 +626,9 @@ def _filter_case_run_infos(
             continue
         if pick_run == "latest_with_replay":
             if replay_id is None:
-                raise ValueError("replay_id is required for latest_with_replay selection")
-            if not _has_replay_case_id(info.events.events_path, replay_id):
+                if not has_replay_case(info.events.events_path):
+                    continue
+            elif not _has_replay_case_id(info.events.events_path, replay_id):
                 continue
         if tag and info.tag != tag:
             continue

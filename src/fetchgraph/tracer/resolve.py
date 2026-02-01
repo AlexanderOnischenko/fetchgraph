@@ -271,8 +271,6 @@ def _iter_fs_run_dirs(roots: list[Path]) -> list[Path]:
                     continue
                 if entry.name in {"cases", "runs"}:
                     continue
-                if _run_dir_timestamp_key(entry.name) is None:
-                    continue
                 candidates.append(entry)
         except OSError:
             continue

@@ -16,6 +16,7 @@ from fetchgraph.tracer.resolve import (
     format_events_search,
     list_case_run_listings,
     list_case_runs,
+    RunScanStats,
     resolve_run_dir_from_run_id,
     scan_case_runs,
     select_case_run,
@@ -281,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
             run_dir_source = "unresolved"
             auto_resolve = False
             selected_candidate = None
+            stats: RunScanStats | None = None
             pick_run = args.pick_run
             list_only = args.list_matches or args.list_replay_matches or args.list_replay_ids
             if not args.out and not list_only and not args.print_resolve:
@@ -299,7 +301,6 @@ def main(argv: list[str] | None = None) -> int:
                     run_dir_source = "derived from case_dir"
                 selection_rule = "explicit EVENTS"
             else:
-                stats = None
                 if args.run_id and (args.case_dir or args.run_dir):
                     raise ValueError("Do not combine --run-id with --run-dir/--case-dir.")
                 if args.run_id and not args.data:

@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from examples.demo_qa.runner import Case, RunArtifacts, RunTimings, run_one
+from typing import cast
+
+from examples.demo_qa.runner import AgentRunner, Case, RunArtifacts, RunTimings, run_one
 
 from fetchgraph.tracer.resolve import EventsResolution, find_events_file, resolve_case_events
 
@@ -228,7 +230,7 @@ def test_runtime_layout_resolves_with_tracer(tmp_path: Path) -> None:
     runs_root.mkdir(parents=True, exist_ok=True)
     case = Case(id="agg_003", question="Q")
 
-    result = run_one(case, _ArtifactRunner(), runs_root)
+    result = run_one(case, cast(AgentRunner, _ArtifactRunner()), runs_root)
     resolution = resolve_case_events(case_id=case.id, data_dir=data_dir)
 
     assert Path(result.artifacts_dir) / "events.jsonl" == resolution.events_path

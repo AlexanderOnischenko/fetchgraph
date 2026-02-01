@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 
+from fetchgraph.tracer.layout import run_root_from_case_dir
 from fetchgraph.tracer.resolve import (
     collect_rejections,
     find_events_file,
@@ -683,7 +684,7 @@ def _resolve_case_dir_from_run_dir(*, run_dir: Path, case_id: str) -> Path:
 
 
 def _run_dir_from_case_dir(case_dir: Path) -> Path:
-    run_dir = case_dir.parent.parent
+    run_dir = run_root_from_case_dir(case_dir)
     if not run_dir.exists():
         raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
     return run_dir

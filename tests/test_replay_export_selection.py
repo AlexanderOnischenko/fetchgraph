@@ -140,3 +140,43 @@ def test_export_replay_case_overwrite_cleans_resources(tmp_path: Path) -> None:
     )
     assert out_path.exists()
     assert not extra_path.exists()
+
+
+@pytest.mark.parametrize(
+    "path_value",
+    [
+        "/absolute/file.txt",
+        "../escape.txt",
+        r"cases\\case_1\\schema.json",
+    ],
+)
+def test_export_replay_case_rejects_bad_resource_paths(tmp_path: Path, path_value: str) -> None:
+    events_path = tmp_path / "events.jsonl"
+    out_dir = tmp_path / "out"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    events = [
+        {
+            "type": "replay_resource",
+            "id": "rid1",
+            "data_ref": {"file": path_value},
+        },
+        {
+            "type": "replay_case",
+            "v": 2,
+            "id": "plan_normalize.spec_v1",
+            "input": {"spec": {"provider": "sql"}},
+            "observed": {"out_spec": {"provider": "sql"}},
+            "requires": [{"kind": "resource", "id": "rid1"}],
+        },
+    ]
+    _write_events(events_path, events)
+
+    with pytest.raises(ValueError, match="path must"):
+        export_replay_case_bundle(
+            events_path=events_path,
+            out_dir=out_dir,
+            replay_id="plan_normalize.spec_v1",
+            run_dir=run_dir,
+        )

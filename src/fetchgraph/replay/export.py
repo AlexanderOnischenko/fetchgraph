@@ -105,6 +105,25 @@ def find_replay_case_matches(
     )
 
 
+def collect_replay_case_ids(
+    events_path: Path,
+    *,
+    spec_idx: int | None = None,
+    provider: str | None = None,
+    allow_bad_json: bool = False,
+) -> dict[str, int]:
+    counts: dict[str, int] = collections.Counter()
+    for _, event in iter_events(events_path, allow_bad_json=allow_bad_json):
+        if event.get("type") != "replay_case":
+            continue
+        if not _match_meta(event, spec_idx=spec_idx, provider=provider):
+            continue
+        replay_id = event.get("id")
+        if isinstance(replay_id, str) and replay_id:
+            counts[replay_id] += 1
+    return dict(counts)
+
+
 def format_replay_case_matches(selections: list[ExportSelection], *, limit: int | None = 10) -> str:
     rows = []
     for idx, selection in enumerate(selections[:limit], start=1):

@@ -370,14 +370,7 @@ def format_case_run_debug(infos: list[CaseRunInfo], *, limit: int = 10) -> str:
     return "\n".join(rows)
 
 
-_EVENTS_CANDIDATES = (
-    "events.jsonl",
-    "events.ndjson",
-    "trace.jsonl",
-    "trace.ndjson",
-    "traces/events.jsonl",
-    "traces/trace.jsonl",
-)
+_EVENTS_CANDIDATES = ("events.jsonl",)
 
 
 def find_events_file(run_dir: Path) -> EventsResolution:
@@ -387,23 +380,6 @@ def find_events_file(run_dir: Path) -> EventsResolution:
         candidate = run_dir / rel
         if candidate.exists():
             return EventsResolution(events_path=candidate, searched=searched, found=found)
-
-    candidates = []
-    for path in run_dir.rglob("*"):
-        if path.is_dir():
-            continue
-        if path.suffix not in {".jsonl", ".ndjson"}:
-            continue
-        rel_parts = path.relative_to(run_dir).parts
-        if "resources" in rel_parts:
-            continue
-        if len(rel_parts) > 3:
-            continue
-        candidates.append(path)
-    if candidates:
-        candidates.sort(key=lambda p: p.stat().st_size, reverse=True)
-        found = candidates
-        return EventsResolution(events_path=candidates[0], searched=searched, found=found)
 
     return EventsResolution(events_path=None, searched=searched, found=found)
 

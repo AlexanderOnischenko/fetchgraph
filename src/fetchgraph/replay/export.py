@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable
 
+from fetchgraph.utils.path_layout import validate_run_relative_posix
+
 logger = logging.getLogger(__name__)
 
 
@@ -482,11 +484,7 @@ def copy_resource_files(
         file_name = data_ref.get("file")
         if not isinstance(file_name, str) or not file_name:
             continue
-        rel_path = Path(file_name)
-        if rel_path.is_absolute():
-            raise ValueError(f"Resource file path must be relative: {file_name}")
-        if ".." in rel_path.parts:
-            raise ValueError(f"Resource file path must not traverse parents: {file_name}")
+        rel_path = validate_run_relative_posix(file_name)
         src_path = run_dir / rel_path
         if not src_path.exists():
             raise FileNotFoundError(
@@ -525,7 +523,6 @@ def copy_resource_files(
                 )
         else:
             shutil.copy2(src_path, dest_path)
-        data_ref["file"] = dest_rel.as_posix()
 
 
 def _has_resource_files(resources: dict[str, dict]) -> bool:

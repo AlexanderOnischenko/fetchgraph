@@ -19,6 +19,7 @@ from fetchgraph.core import create_generic_agent
 from fetchgraph.core.context import BaseGraphAgent
 from fetchgraph.core.models import TaskProfile
 from fetchgraph.replay.snapshots import snapshot_provider_catalog
+from fetchgraph.utils.path_layout import run_relative_posix_path, run_root_from_case_dir
 from fetchgraph.utils import set_run_id
 
 class CaseEventLoggerFactory(Protocol):
@@ -227,13 +228,15 @@ def _provider_catalog_snapshot(agent: object) -> Dict[str, object]:
     return snapshot_provider_catalog(provider_catalog)
 
 
-def _emit_schema_snapshot(event_logger: EventLogger, run_dir: Path, schema_path: Path) -> str:
-    run_dir.mkdir(parents=True, exist_ok=True)
+def _emit_schema_snapshot(event_logger: EventLogger, case_dir: Path, schema_path: Path) -> str:
+    case_dir.mkdir(parents=True, exist_ok=True)
     suffix = schema_path.suffix.lstrip(".") or "txt"
     snapshot_name = f"schema_snapshot.{suffix}"
-    snapshot_path = run_dir / snapshot_name
+    snapshot_path = case_dir / snapshot_name
     shutil.copy2(schema_path, snapshot_path)
     file_hash = _hash_file(snapshot_path)
+    run_root = run_root_from_case_dir(case_dir)
+    data_ref_path = run_relative_posix_path(run_root, snapshot_path)
     event_logger.emit(
         {
             "type": "replay_resource",
@@ -241,7 +244,7 @@ def _emit_schema_snapshot(event_logger: EventLogger, run_dir: Path, schema_path:
             "id": "schema_v1",
             "meta": {"format": suffix},
             "data": None,
-            "data_ref": {"file": snapshot_name, "hash": file_hash},
+            "data_ref": {"file": data_ref_path, "hash": file_hash},
             "hash": file_hash,
         }
     )

@@ -26,6 +26,7 @@ def test_replay_id_discovery_skips_runs_without_replay_case(
         "z",
         status="error",
         events=[{"type": "replay_case", "id": "replay_new", "v": 2, "input": {}}],
+        mtime=200,
     )
     make_case_dir(
         run_old,
@@ -33,6 +34,7 @@ def test_replay_id_discovery_skips_runs_without_replay_case(
         "x",
         status="ok",
         events=[{"type": "event", "id": "no_replay"}],
+        mtime=100,
     )
 
     set_mtime(run_old, 100)
@@ -74,6 +76,7 @@ def test_no_replay_case_triggers_fallback_scan_next_run(
         "z",
         status="ok",
         events=[{"type": "event", "id": "no_replay"}],
+        mtime=200,
     )
     make_case_dir(
         run_old,
@@ -81,6 +84,7 @@ def test_no_replay_case_triggers_fallback_scan_next_run(
         "x",
         status="ok",
         events=[{"type": "replay_case", "id": "replay_old", "v": 2, "input": {}}],
+        mtime=100,
     )
 
     set_mtime(run_old, 100)

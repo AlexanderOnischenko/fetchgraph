@@ -28,6 +28,7 @@ def make_case_dir(
     status: str,
     events: list[dict] | None = None,
     tag: str | None = None,
+    mtime: float | None = None,
 ) -> Path:
     case_dir = run_dir / "cases" / f"{case_id}_{suffix}"
     case_dir.mkdir(parents=True, exist_ok=True)
@@ -37,6 +38,11 @@ def make_case_dir(
     if tag:
         payload["tag"] = tag
     write_json(case_dir / "status.json", payload)
+    if mtime is not None:
+        set_mtime(case_dir, mtime)
+        events_path = case_dir / "events.jsonl"
+        if events_path.exists():
+            set_mtime(events_path, mtime)
     return case_dir
 
 

@@ -71,5 +71,5 @@ def test_print_resolve_lists_rejected_runs_with_reasons(
     output = "\n".join([captured.out, captured.err])
 
     assert "Rejected candidates:" in output
-    assert re.search(rf"{re.escape(str(missing_events_dir))}.*\\bno_events\\b", output)
-    assert re.search(rf"{re.escape(str(tag_mismatch_dir))}.*\\btag_mismatch\\b", output)
+    assert re.search(rf"{re.escape(str(missing_events_dir))}.*\bno_events\b", output)
+    assert re.search(rf"{re.escape(str(tag_mismatch_dir))}.*\btag_mismatch\b", output)

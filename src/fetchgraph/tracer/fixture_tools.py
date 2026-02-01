@@ -5,7 +5,7 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .diff_utils import first_diff_path
 from .fixture_layout import FixtureLayout, find_case_bundles
@@ -47,10 +47,15 @@ def load_bundle_json(path: Path) -> dict:
 
 
 def _safe_resource_path(path: str, *, stem: str) -> Path:
-    rel = Path(path)
-    if rel.is_absolute() or ".." in rel.parts:
+    normalized = path.replace("\\", "/")
+    if ":" in normalized:
         raise ValueError(f"Invalid resource path in bundle {stem}: {path}")
-    return rel
+    if normalized.startswith(("/", "//")):
+        raise ValueError(f"Invalid resource path in bundle {stem}: {path}")
+    rel = PurePosixPath(normalized)
+    if ".." in rel.parts:
+        raise ValueError(f"Invalid resource path in bundle {stem}: {path}")
+    return Path(*rel.parts)
 
 
 def _atomic_write_json(path: Path, payload: dict) -> None:

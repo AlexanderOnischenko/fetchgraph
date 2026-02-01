@@ -523,7 +523,6 @@ def copy_resource_files(
                 )
         else:
             shutil.copy2(src_path, dest_path)
-        data_ref["file"] = dest_rel.as_posix()
 
 
 def _has_resource_files(resources: dict[str, dict]) -> bool:

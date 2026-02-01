@@ -73,8 +73,9 @@
 
 - **Extras**: события `type="planner_input"`, индексируются по `id`.
 - **Resources**: события `type="replay_resource"`, индексируются по `id`.
-  - Если ресурс указывает `data_ref.file`, это **относительный путь** внутри `run_dir` во время экспорта.
-  - При экспорте файлы копируются в fixture-layout (см. ниже) и `data_ref.file` переписывается на новый относительный путь.
+  - Если ресурс указывает `data_ref.file`, это **POSIX-relative путь от `run_root`**.
+  - При экспорте файлы копируются в fixture-layout (см. ниже), но `data_ref.file` сохраняется
+    как run_root-relative путь (контракт адресации не переписывается под fixture).
 
 ---
 
@@ -127,6 +128,8 @@ class ReplayContext:
 
     def resolve_resource_path(self, resource_path: str | Path) -> Path:
         # относительные пути резолвятся относительно base_dir
+        # если resource_path совпадает с resources[*].data_ref.file,
+        # путь ищется под base_dir/resources/<stem>/<rid>/<resource_path>
 ```
 
 ### 3.3 run_case и load_case_bundle
@@ -159,6 +162,8 @@ out = run_case(root, ctx)
 - `events.jsonl`: `<case_dir>/events.jsonl`
 - `replay_resource.data_ref.file`: **POSIX-relative** путь от `run_root`
 
+`cases/` интерпретируется case-insensitive (для Windows).
+
 Это базовый контракт для emitter’ов, auto-resolve и export’а; любые абсолютные пути
 или `..` в `data_ref.file` считаются ошибкой и должны быть исправлены у источника.
 
@@ -182,7 +187,7 @@ tests/fixtures/replay_cases/
 При экспорте файлы ресурсов копируются в:
 
 ```
-resources/<stem>/<resource_id>/<relative_path_from_run_dir>
+resources/<stem>/<resource_id>/<data_ref.file>
 ```
 
 С коллизиями экспорт падает fail-fast (чтобы не смешивать фикстуры из разных прогонов).

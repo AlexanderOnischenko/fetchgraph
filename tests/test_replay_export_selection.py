@@ -180,3 +180,41 @@ def test_export_replay_case_rejects_bad_resource_paths(tmp_path: Path, path_valu
             replay_id="plan_normalize.spec_v1",
             run_dir=run_dir,
         )
+
+
+def test_export_replay_case_preserves_run_root_relative_paths(tmp_path: Path) -> None:
+    events_path = tmp_path / "events.jsonl"
+    out_dir = tmp_path / "out"
+    run_dir = tmp_path / "run"
+    resource_path = Path("cases") / "case_1_abcd" / "schema_snapshot.json"
+    (run_dir / resource_path).parent.mkdir(parents=True, exist_ok=True)
+    (run_dir / resource_path).write_text("schema", encoding="utf-8")
+
+    events = [
+        {
+            "type": "replay_resource",
+            "id": "rid1",
+            "data_ref": {"file": resource_path.as_posix()},
+        },
+        {
+            "type": "replay_case",
+            "v": 2,
+            "id": "plan_normalize.spec_v1",
+            "input": {"spec": {"provider": "sql"}},
+            "observed": {"out_spec": {"provider": "sql"}},
+            "requires": [{"kind": "resource", "id": "rid1"}],
+        },
+    ]
+    _write_events(events_path, events)
+
+    out_path = export_replay_case_bundle(
+        events_path=events_path,
+        out_dir=out_dir,
+        replay_id="plan_normalize.spec_v1",
+        run_dir=run_dir,
+    )
+    bundle = json.loads(out_path.read_text(encoding="utf-8"))
+    assert bundle["resources"]["rid1"]["data_ref"]["file"] == resource_path.as_posix()
+    fixture_stem = case_bundle_name("plan_normalize.spec_v1", events[1]["input"]).replace(".case.json", "")
+    copied = out_dir / "resources" / fixture_stem / "rid1" / resource_path
+    assert copied.exists()

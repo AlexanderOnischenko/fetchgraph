@@ -602,25 +602,6 @@ def fixture_fix(
         raise FileExistsError(f"Target resources already exist: {new_resources_dir}")
 
     payload = load_bundle_json(case_path)
-    resources = payload.get("resources") or {}
-    updated = False
-    if isinstance(resources, dict):
-        for resource in resources.values():
-            if not isinstance(resource, dict):
-                continue
-            data_ref = resource.get("data_ref")
-            if not isinstance(data_ref, dict):
-                continue
-            file_name = data_ref.get("file")
-            if not isinstance(file_name, str) or not file_name:
-                continue
-            rel = _safe_resource_path(file_name, stem=name)
-            old_prefix = f"resources/{name}/"
-            rel_posix = rel.as_posix()
-            if rel_posix.startswith(old_prefix):
-                data_ref["file"] = f"resources/{new_name}/{rel_posix[len(old_prefix):]}"
-                updated = True
-
     if dry_run:
         print("fixture-fix:")
         print(f"  rename: {case_path} -> {new_case_path}")
@@ -628,11 +609,8 @@ def fixture_fix(
             print(f"  move:   {expected_path} -> {new_expected_path}")
         if resources_dir.exists():
             print(f"  move:   {resources_dir} -> {new_resources_dir}")
-        if updated:
-            print("  rewrite: data_ref.file paths updated")
         return
 
-    original_text = case_path.read_text(encoding="utf-8") if updated else None
     tx = _MoveTransaction(git_ops)
     try:
         tx.move(case_path, new_case_path)
@@ -640,12 +618,8 @@ def fixture_fix(
             tx.move(expected_path, new_expected_path)
         if resources_dir.exists():
             tx.move(resources_dir, new_resources_dir)
-        if updated:
-            _atomic_write_json(new_case_path, payload)
         tx.commit()
     except Exception:
-        if updated and original_text is not None and new_case_path.exists():
-            new_case_path.write_text(original_text, encoding="utf-8")
         tx.rollback()
         raise
 
@@ -655,8 +629,6 @@ def fixture_fix(
         print(f"  move:   {expected_path} -> {new_expected_path}")
     if resources_dir.exists():
         print(f"  move:   {resources_dir} -> {new_resources_dir}")
-    if updated:
-        print("  rewrite: data_ref.file paths updated")
 
 
 def fixture_migrate(
@@ -710,41 +682,41 @@ def fixture_migrate(
             if not isinstance(file_name, str) or not file_name:
                 continue
             rel = _safe_resource_path(file_name, stem=stem)
-            if rel.parts[:3] == ("resources", stem, resource_id):
-                continue
-            # If the existing path is already under resources/<stem>/<resource_id>/...,
-            # strip the leading segments without duplicating resource_id on re-prefix.
-            if rel.parts[:1] == ("resources",) and len(rel.parts) >= 3:
-                if rel.parts[2] == resource_id:
-                    rel_tail = Path(*rel.parts[3:])
-                else:
-                    rel_tail = Path(*rel.parts[2:])
-            elif rel.parts[:1] == ("resources",) and len(rel.parts) >= 2:
-                rel_tail = Path(*rel.parts[2:])
+            legacy_resource_path = rel.parts[:3] == ("resources", stem, resource_id)
+            if legacy_resource_path:
+                rel_tail = Path(*rel.parts[3:])
+                if not rel_tail.parts:
+                    rel_tail = Path(rel.name)
+                src_rel = rel
             else:
                 rel_tail = rel
-            if not rel_tail.parts:
-                rel_tail = Path(rel.name)
+                src_rel = Path("resources") / stem / resource_id / rel_tail
             target_rel = Path("resources") / stem / resource_id / rel_tail
-            src_path = case_path.parent / rel
-            if not src_path.exists():
-                raise FileNotFoundError(f"Missing resource file: {src_path}")
+            src_path = case_path.parent / src_rel
             dest_path = case_path.parent / target_rel
-            if dest_path.exists() and not filecmp.cmp(src_path, dest_path, shallow=False):
+            if not src_path.exists():
+                if dest_path.exists():
+                    src_path = dest_path
+                else:
+                    raise FileNotFoundError(f"Missing resource file: {src_path}")
+            if dest_path.exists() and dest_path != src_path and not filecmp.cmp(src_path, dest_path, shallow=False):
                 raise FileExistsError(
                     "Resource collision at destination:\n"
                     f"  dest: {dest_path}\n"
                     "Hint: clean the destination or run migrate in an empty output directory."
                 )
-            if dry_run:
-                print(f"Would move {src_path} -> {dest_path}")
-            else:
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                if not dest_path.exists():
-                    git_ops.move(src_path, dest_path)
-                    files_moved += 1
-            data_ref["file"] = target_rel.as_posix()
-            updated = True
+            if src_path != dest_path:
+                if dry_run:
+                    print(f"Would move {src_path} -> {dest_path}")
+                else:
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    if not dest_path.exists():
+                        git_ops.move(src_path, dest_path)
+                        files_moved += 1
+            canonical_file = rel_tail.as_posix()
+            if file_name != canonical_file:
+                data_ref["file"] = canonical_file
+                updated = True
         if updated:
             bundles_updated += 1
             if dry_run:

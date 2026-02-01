@@ -334,7 +334,10 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     if not args.case or not args.data:
                         raise ValueError("--case and --data are required when --events is not provided.")
-                    if args.pick_run == "latest_with_replay":
+                    if list_only and (args.list_replay_ids or args.list_replay_matches):
+                        pick_run = "latest_with_replay"
+                        replay_id_for_pick = args.id if args.id else None
+                    elif args.pick_run == "latest_with_replay":
                         if list_only:
                             replay_id_for_pick = None
                         elif not args.id:
@@ -461,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
                         infos,
                         tag=args.tag,
                         pick_run=pick_run,
-                        replay_id=args.id,
+                        replay_id=replay_id_for_pick,
                         selected_case_dir=case_dir,
                     )
                 if rejections:

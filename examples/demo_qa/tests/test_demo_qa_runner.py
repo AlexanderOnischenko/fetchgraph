@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import cast
 
 import pytest
+
+from fetchgraph.utils.path_layout import LayoutConfig, find_case_dirs, run_root_from_case_dir
 
 from examples.demo_qa.runner import (
     Case,
@@ -38,12 +42,14 @@ def _read_events(path):
 
 def test_run_one_writes_events_on_early_failure(tmp_path) -> None:
     case = Case(id="case_fail", question="Q")
-    artifacts_root = tmp_path / "runs"
+    runs_root = tmp_path / "runs"
 
     with pytest.raises(RuntimeError):
-        run_one(case, _FailingRunner(), artifacts_root)
+        run_one(case, _FailingRunner(), runs_root)
 
-    case_dirs = list(artifacts_root.iterdir())
+    run_roots = list(runs_root.iterdir())
+    assert run_roots
+    case_dirs = find_case_dirs(run_roots[0], case.id, LayoutConfig())
     assert case_dirs
     events_path = case_dirs[0] / "events.jsonl"
     assert events_path.exists()
@@ -55,7 +61,7 @@ def test_run_one_writes_events_on_early_failure(tmp_path) -> None:
 
 def test_run_one_writes_events_on_late_failure(tmp_path, monkeypatch) -> None:
     case = Case(id="case_late", question="Q", expected="ok")
-    artifacts_root = tmp_path / "runs"
+    runs_root = tmp_path / "runs"
 
     def _boom(*args, **kwargs):
         raise ValueError("late boom")
@@ -63,9 +69,11 @@ def test_run_one_writes_events_on_late_failure(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("examples.demo_qa.runner._match_expected", _boom)
 
     with pytest.raises(ValueError):
-        run_one(case, _ArtifactRunner(), artifacts_root)
+        run_one(case, _ArtifactRunner(), runs_root)
 
-    case_dirs = list(artifacts_root.iterdir())
+    run_roots = list(runs_root.iterdir())
+    assert run_roots
+    case_dirs = find_case_dirs(run_roots[0], case.id, LayoutConfig())
     assert case_dirs
     events_path = case_dirs[0] / "events.jsonl"
     assert events_path.exists()
@@ -76,14 +84,49 @@ def test_run_one_writes_events_on_late_failure(tmp_path, monkeypatch) -> None:
 
 def test_run_one_with_events_disabled_does_not_write_file(tmp_path) -> None:
     case = Case(id="case_no_events", question="Q")
-    artifacts_root = tmp_path / "runs"
+    runs_root = tmp_path / "runs"
 
-    run_one(case, _ArtifactRunner(), artifacts_root, event_logger=None)
+    run_one(case, _ArtifactRunner(), runs_root, event_logger=None)
 
-    case_dirs = list(artifacts_root.iterdir())
+    run_roots = list(runs_root.iterdir())
+    assert run_roots
+    case_dirs = find_case_dirs(run_roots[0], case.id, LayoutConfig())
     assert case_dirs
     events_path = case_dirs[0] / "events.jsonl"
     assert not events_path.exists()
+
+
+def test_run_one_writes_case_layout_and_events_payload(tmp_path) -> None:
+    case = Case(id="case_layout", question="Q")
+    runs_root = tmp_path / "runs"
+
+    result = run_one(case, _ArtifactRunner(), runs_root)
+
+    case_dir = Path(result.artifacts_dir)
+    assert case_dir.name.startswith(f"{case.id}_")
+    assert case_dir.parent.name.lower() == LayoutConfig().cases_dirname
+    events_path = case_dir / "events.jsonl"
+    assert events_path.exists()
+    events = [json.loads(line) for line in _read_events(events_path)]
+    assert any(event.get("artifacts_dir") == str(case_dir) for event in events)
+
+
+def test_run_one_schema_snapshot_relative_to_run_root(tmp_path) -> None:
+    case = Case(id="case_schema", question="Q")
+    runs_root = tmp_path / "runs"
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text("{}", encoding="utf-8")
+
+    result = run_one(case, _ArtifactRunner(), runs_root, schema_path=schema_path)
+
+    case_dir = Path(result.artifacts_dir)
+    events_path = case_dir / "events.jsonl"
+    events = [json.loads(line) for line in _read_events(events_path)]
+    replay_events = [event for event in events if event.get("type") == "replay_resource"]
+    assert replay_events
+    data_ref = replay_events[0]["data_ref"]["file"]
+    run_root = run_root_from_case_dir(case_dir)
+    assert (run_root / data_ref).exists()
 
 
 def test_match_expected_unchecked_when_no_expectations() -> None:

@@ -19,7 +19,14 @@ from fetchgraph.core import create_generic_agent
 from fetchgraph.core.context import BaseGraphAgent
 from fetchgraph.core.models import TaskProfile
 from fetchgraph.replay.snapshots import snapshot_provider_catalog
-from fetchgraph.utils.path_layout import run_relative_posix_path, run_root_from_case_dir
+from fetchgraph.utils.path_layout import (
+    LayoutConfig,
+    RunLayout,
+    ensure_dirs,
+    make_case_dir,
+    run_relative_posix_path,
+    run_root_from_case_dir,
+)
 from fetchgraph.utils import set_run_id
 
 class CaseEventLoggerFactory(Protocol):
@@ -390,21 +397,30 @@ def _build_result(
 def run_one(
     case: Case,
     runner: AgentRunner,
-    artifacts_root: Path,
+    runs_root: Path,
     *,
     plan_only: bool = False,
     event_logger: CaseEventLoggerFactory | None | _DefaultEventLoggerSentinel = _DEFAULT_EVENT_LOGGER,
     run_dir: Path | None = None,
+    run_dir_name: str | None = None,
     schema_path: Path | None = None,
 ) -> RunResult:
+    cfg = LayoutConfig()
     if run_dir is None:
         run_id = uuid.uuid4().hex[:8]
-        run_dir = artifacts_root / f"{case.id}_{run_id}"
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir_name = run_dir_name or f"{timestamp}_{run_id}"
+        run_root = runs_root / run_dir_name
     else:
-        run_id = run_dir.name.split("_")[-1]
-
-    run_dir.mkdir(parents=True, exist_ok=True)
-    events_path = run_dir / "events.jsonl"
+        run_root = run_dir
+        run_dir_name = run_dir_name or run_root.name
+        run_id = run_dir_name.split("_")[-1]
+    data_dir = runs_root.parent.parent
+    run_layout = RunLayout(data_dir=data_dir, run_root=run_root, run_dir_name=run_dir_name, run_id=run_id)
+    case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
+    ensure_dirs(run_layout, case_layout, cfg=cfg)
+    case_dir = case_layout.case_dir
+    events_path = case_layout.events_path
     if event_logger is None:
         case_logger = None
     elif event_logger is _DEFAULT_EVENT_LOGGER:
@@ -412,16 +428,16 @@ def run_one(
     else:
         case_logger = event_logger.for_case(case.id, events_path)
     if case_logger:
-        case_logger.emit({"type": "run_started", "case_id": case.id, "run_dir": str(run_dir)})
-        case_logger.emit({"type": "case_started", "case_id": case.id, "run_dir": str(run_dir)})
+        case_logger.emit({"type": "run_started", "case_id": case.id, "artifacts_dir": str(case_dir)})
+        case_logger.emit({"type": "case_started", "case_id": case.id, "artifacts_dir": str(case_dir)})
     schema_ref: str | None = None
     ok = False
     result: RunResult | None = None
     try:
         if case_logger and schema_path and schema_path.exists():
-            schema_ref = _emit_schema_snapshot(case_logger, run_dir, schema_path)
+            schema_ref = _emit_schema_snapshot(case_logger, case_dir, schema_path)
         if case.skip:
-            _save_text(run_dir / "skipped.txt", "Skipped by request")
+            _save_text(case_dir / "skipped.txt", "Skipped by request")
             result = RunResult(
                 id=case.id,
                 question=case.question,
@@ -429,7 +445,7 @@ def run_one(
                 checked=False,
                 reason="skipped",
                 details=None,
-                artifacts_dir=str(run_dir),
+                artifacts_dir=str(case_dir),
                 duration_ms=0,
                 tags=list(case.tags),
                 answer=None,
@@ -447,7 +463,7 @@ def run_one(
         artifacts = runner.run_question(
             case,
             run_id,
-            run_dir,
+            case_dir,
             plan_only=plan_only,
             event_logger=case_logger,
             schema_ref=schema_ref,
@@ -455,7 +471,7 @@ def run_one(
         save_artifacts(artifacts)
 
         expected_check = None if plan_only else _match_expected(case, artifacts.answer)
-        result = _build_result(case, artifacts, run_dir, expected_check)
+        result = _build_result(case, artifacts, case_dir, expected_check)
         save_status(result)
         ok = result.status != "error"
         if case_logger:
@@ -490,7 +506,7 @@ def run_one(
                     "exc_type": type(exc).__name__,
                     "exc_message": error_message,
                     "traceback": tb,
-                    "artifacts_dir": str(run_dir),
+                    "artifacts_dir": str(case_dir),
                 }
             )
         result = RunResult(
@@ -504,7 +520,7 @@ def run_one(
                 "traceback": tb,
                 **({"events_path": str(events_path)} if case_logger else {}),
             },
-            artifacts_dir=str(run_dir),
+            artifacts_dir=str(case_dir),
             duration_ms=0,
             tags=list(case.tags),
             answer=None,
@@ -522,7 +538,7 @@ def run_one(
                     "type": "run_finished",
                     "case_id": case.id,
                     "ok": ok,
-                    "artifacts_dir": str(run_dir),
+                    "artifacts_dir": str(case_dir),
                 }
             )
 

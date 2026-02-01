@@ -285,7 +285,7 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 - `--runs-subdir <REL>` — где искать `runs` относительно `DATA_DIR` (default `.runs/runs`)
 - `--tag <TAG>` — фильтр по tag (если теги ведутся)
 - `--pick-run <MODE>` — стратегия выбора запуска:
-  - `latest_non_missed`
+  - `latest_non_missed` (учитывает missed только для выбранного `CASE_ID`, а не статус всего прогона)
   - `latest_with_replay` (default; требует `--id`)
 - `--select-index <N>` — выбрать конкретный run-candidate (1-based)
 - `--list-matches` — вывести список кандидатов run/case и выйти
@@ -293,6 +293,11 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 
 Полезно:
 - `--print-resolve` — распечатать входные флаги и резолв (`run_dir`, `case_dir`, `events_path`, `selection_method`).
+- INFO/WARNING выводятся в stderr, чтобы stdout оставался табличным для парсинга.
+
+Примечание про сканирование FS:
+- По умолчанию сканируются только каталоги запусков с timestamp-префиксом (`YYYYMMDD_HHMMSS_...`).
+- Нестандартные имена каталогов могут появиться в списке только через case-history (history-only entries).
 
 #### 6.1.3 Replay-case selection flags (когда в events много replay_case)
 

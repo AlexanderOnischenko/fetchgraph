@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from typing import cast
+
+from examples.demo_qa.runner import AgentRunner, Case, RunArtifacts, RunTimings, run_one
+
 from fetchgraph.tracer.resolve import EventsResolution, find_events_file, resolve_case_events
 
 
@@ -20,6 +24,17 @@ def _touch(path: Path) -> None:
 
 def _set_mtime(path: Path, ts: float) -> None:
     os.utime(path, (ts, ts))
+
+
+class _ArtifactRunner:
+    def run_question(self, case, run_id, run_dir, **kwargs):
+        return RunArtifacts(
+            run_id=run_id,
+            run_dir=run_dir,
+            question=case.question,
+            answer="ok",
+            timings=RunTimings(total_s=0.01),
+        )
 
 
 def _make_case_dir(
@@ -77,6 +92,45 @@ def test_resolve_latest_non_missed(tmp_path: Path) -> None:
     _set_mtime(run_new, 200)
 
     resolution = resolve_case_events(case_id="case_4", data_dir=data_dir)
+    assert resolution.run_dir == run_old
+
+
+def test_resolve_latest_non_missed_ignores_other_missed_cases(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_old = runs_root / "run_old"
+    run_old.mkdir()
+    _make_case_dir(run_old, "agg_003", "aaa", status="ok")
+    _set_mtime(run_old, 100)
+
+    run_new = runs_root / "run_new"
+    run_new.mkdir()
+    _make_case_dir(run_new, "agg_003", "bbb", status="error")
+    _make_case_dir(run_new, "other_case", "ccc", status="missed")
+    _set_mtime(run_new, 200)
+
+    resolution = resolve_case_events(case_id="agg_003", data_dir=data_dir, pick_run="latest_non_missed")
+    assert resolution.run_dir == run_new
+
+
+def test_resolve_latest_non_missed_skips_runs_without_case(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_old = runs_root / "run_old"
+    run_old.mkdir()
+    _make_case_dir(run_old, "agg_003", "aaa", status="ok")
+    _set_mtime(run_old, 100)
+
+    run_new = runs_root / "run_new"
+    run_new.mkdir()
+    _make_case_dir(run_new, "other_case", "ccc", status="ok")
+    _set_mtime(run_new, 200)
+
+    resolution = resolve_case_events(case_id="agg_003", data_dir=data_dir, pick_run="latest_non_missed")
     assert resolution.run_dir == run_old
 
 
@@ -163,8 +217,20 @@ def test_resolve_not_found(tmp_path: Path) -> None:
 
 
 def test_find_events_file_not_found(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    resolution = find_events_file(run_dir)
+    case_dir = tmp_path / "run" / "cases" / "case_1_abc"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    resolution = find_events_file(case_dir)
     assert isinstance(resolution, EventsResolution)
     assert resolution.events_path is None
+
+
+def test_runtime_layout_resolves_with_tracer(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+    case = Case(id="agg_003", question="Q")
+
+    result = run_one(case, cast(AgentRunner, _ArtifactRunner()), runs_root)
+    resolution = resolve_case_events(case_id=case.id, data_dir=data_dir)
+
+    assert Path(result.artifacts_dir) / "events.jsonl" == resolution.events_path

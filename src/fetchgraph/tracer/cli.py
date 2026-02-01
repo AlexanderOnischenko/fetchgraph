@@ -12,7 +12,6 @@ from fetchgraph.tracer.resolve import (
     format_case_run_listings,
     format_case_runs,
     format_case_run_debug,
-    has_replay_case,
     format_events_search,
     list_case_run_listings,
     list_case_runs,
@@ -285,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
             stats: RunScanStats | None = None
             pick_run = args.pick_run
             list_only = args.list_matches or args.list_replay_matches or args.list_replay_ids
+            replay_id_for_pick: str | None = None
             if not args.out and not list_only and not args.print_resolve:
                 raise ValueError("--out is required unless using list-only or print-resolve modes.")
             if args.events:
@@ -334,13 +334,16 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     if not args.case or not args.data:
                         raise ValueError("--case and --data are required when --events is not provided.")
-                    if args.pick_run == "latest_with_replay" and not args.id:
-                        print(
-                            "WARNING: pick_run=latest_with_replay requires --id; "
-                            "using pick_run=latest_non_missed for replay-id discovery.",
-                            file=sys.stderr,
-                        )
-                        pick_run = "latest_non_missed"
+                    if args.pick_run == "latest_with_replay":
+                        if list_only:
+                            replay_id_for_pick = None
+                        elif not args.id:
+                            raise ValueError(
+                                "--id is required when pick_run=latest_with_replay "
+                                "(except list-replay-ids/matches)."
+                            )
+                        else:
+                            replay_id_for_pick = args.id
                     if debug_enabled:
                         infos, stats = scan_case_runs(
                             case_id=args.case,
@@ -372,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
                         data_dir=args.data,
                         tag=args.tag,
                         pick_run=pick_run,
-                        replay_id=args.id if pick_run == "latest_with_replay" else None,
+                        replay_id=replay_id_for_pick,
                         runs_subdir=args.runs_subdir,
                     )
                     if not candidates:
@@ -424,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
                             data_dir=args.data,
                             tag=args.tag,
                             pick_run=pick_run,
-                            replay_id=args.id if pick_run == "latest_with_replay" else None,
+                            replay_id=replay_id_for_pick,
                             runs_subdir=args.runs_subdir,
                         )
                     print(f"runs_root_cli: {resolve_stats.runs_root_cli}")
@@ -482,34 +485,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_replay_case_match_table(matches))
                 return 0
             if args.list_replay_ids:
-                if auto_resolve and not args.events and args.case and args.data:
-                    original_case_dir = case_dir
-                    original_events_path = events_path
-                    candidates, _ = list_case_runs(
-                        case_id=args.case,
-                        data_dir=args.data,
-                        tag=args.tag,
-                        pick_run=pick_run,
-                        replay_id=args.id if pick_run == "latest_with_replay" else None,
-                        runs_subdir=args.runs_subdir,
-                    )
-                    selected_candidate = None
-                    for candidate in candidates:
-                        if has_replay_case(candidate.events_path):
-                            selected_candidate = candidate
-                            break
-                    if selected_candidate is None:
-                        raise LookupError(_format_no_replay_ids_all_candidates_error(candidates))
-                    run_dir = selected_candidate.run_dir
-                    case_dir = selected_candidate.case_dir
-                    events_path = selected_candidate.events_path
-                    selection_rule = _format_selection_rule(tag=args.tag, pick_run=pick_run)
-                    run_dir_source = "auto-resolve (replay-id list)"
-                    if args.print_resolve and (
-                        case_dir != original_case_dir or events_path != original_events_path
-                    ):
-                        print(f"Adjusted for replay-id listing: case_dir={case_dir}")
-                        print(f"Adjusted events.jsonl: {events_path}")
                 if auto_resolve and not args.events:
                     print(
                         f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",

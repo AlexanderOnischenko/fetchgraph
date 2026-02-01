@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from _pytest.capture import CaptureFixture
+
 from fetchgraph.replay.export import input_hash8
 from fetchgraph.tracer import cli
 
@@ -12,7 +14,7 @@ def _write_events(path: Path, events: list[dict]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_export_filters_by_input_hash(tmp_path: Path, capsys: object) -> None:
+def test_export_filters_by_input_hash(tmp_path: Path, capsys: CaptureFixture[str]) -> None:
     events_path = tmp_path / "events.jsonl"
     out_dir = tmp_path / "out"
     events = [

@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from _pytest.capture import CaptureFixture
+
 from fetchgraph.tracer import cli
 
 
@@ -17,7 +19,9 @@ def _make_case_dir(run_dir: Path, case_id: str, suffix: str) -> Path:
     return case_dir
 
 
-def test_latest_with_replay_ignores_provider_specidx(tmp_path: Path, capsys: object) -> None:
+def test_latest_with_replay_ignores_provider_specidx(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
     data_dir = tmp_path / "data"
     runs_root = data_dir / ".runs" / "runs"
     runs_root.mkdir(parents=True, exist_ok=True)

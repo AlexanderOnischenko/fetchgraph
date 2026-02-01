@@ -28,6 +28,7 @@ def test_make_tracer_matches_lists_replay_matches() -> None:
             "-n",
             "tracer-matches",
             "CASE=agg_003",
+            "REPLAY_ID=plan_normalize.spec_v1",
         ],
         capture_output=True,
         text=True,
@@ -35,4 +36,4 @@ def test_make_tracer_matches_lists_replay_matches() -> None:
     )
     output = result.stdout + result.stderr
     assert "--list-replay-matches" in output
-    assert "--id" not in output
+    assert "--id" in output

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -40,7 +39,7 @@ class CaseRunInfo:
     tag_source: str | None
     status: str | None
     is_missed: bool
-    run_order: float
+    run_order: tuple[int, int | float, float, str]
     run_mtime: float
     case_mtime: float
 
@@ -178,15 +177,15 @@ def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
     return sorted(candidates, key=_run_dir_sort_key, reverse=True)
 
 
-def _run_dir_sort_key(run_dir: Path) -> tuple[float, float]:
-    primary = _run_dir_timestamp(run_dir.name)
+def _run_dir_sort_key(run_dir: Path) -> tuple[int, int | float, float, str]:
     run_mtime = run_dir.stat().st_mtime
-    if primary is None:
-        primary = run_mtime
-    return primary, run_mtime
+    ts_key = _run_dir_timestamp_key(run_dir.name)
+    if ts_key is None:
+        return (0, run_mtime, run_mtime, run_dir.name)
+    return (1, ts_key, run_mtime, run_dir.name)
 
 
-def _run_dir_timestamp(name: str) -> float | None:
+def _run_dir_timestamp_key(name: str) -> int | None:
     if not name:
         return None
     prefix = name.split("_", 2)
@@ -194,13 +193,10 @@ def _run_dir_timestamp(name: str) -> float | None:
         return None
     date_part = prefix[0]
     time_part = prefix[1]
-    if len(date_part) != 8 or len(time_part) != 6:
+    combined = f"{date_part}{time_part}"
+    if len(date_part) != 8 or len(time_part) != 6 or not combined.isdigit():
         return None
-    try:
-        parsed = datetime.strptime(f"{date_part}{time_part}", "%Y%m%d%H%M%S")
-    except ValueError:
-        return None
-    return parsed.timestamp()
+    return int(combined)
 
 
 def _case_dirs(run_dir: Path, case_id: str) -> list[Path]:
@@ -263,7 +259,7 @@ def scan_case_runs(
             missing_cases += 1
             continue
         run_mtime = run_dir.stat().st_mtime
-        run_order = _run_dir_sort_key(run_dir)[0]
+        run_order = _run_dir_sort_key(run_dir)
         for case_dir in case_dirs:
             inspected_cases += 1
             events = find_events_file(case_dir)

@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from fetchgraph.utils.path_layout import run_root_from_case_dir
+from fetchgraph.utils.path_layout import LayoutConfig, find_case_dirs, run_root_from_case_dir
 from fetchgraph.tracer.resolve import (
     collect_rejections,
     find_events_file,
@@ -636,16 +636,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _resolve_case_dir_from_run_dir(*, run_dir: Path, case_id: str) -> Path:
-    runs_root = run_dir / "cases"
-    if not runs_root.exists():
-        raise FileNotFoundError(f"Run directory does not exist: {runs_root}")
-    case_dirs = sorted(runs_root.glob(f"{case_id}_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    case_dirs = find_case_dirs(run_dir, case_id, LayoutConfig())
     if not case_dirs:
         raise LookupError(
             "No case directories found under run.\n"
             f"run_dir: {run_dir}\n"
             f"case_id: {case_id}\n"
-            f"runs_root: {runs_root}"
+            f"runs_root: {run_dir}"
         )
     return case_dirs[0]
 
@@ -687,12 +684,12 @@ def _format_case_run_error(stats, *, case_id: str, tag: str | None, pick_run: st
     return "\n".join(lines)
 
 
-def _format_events_error(run_dir: Path, resolution, *, selection_rule: str) -> str:
+def _format_events_error(case_dir: Path, resolution, *, selection_rule: str) -> str:
     return "\n".join(
         [
-            f"Selected case_dir: {run_dir}",
+            f"Selected case_dir: {case_dir}",
             f"selection_rule: {selection_rule}",
-            format_events_search(run_dir, resolution),
+            format_events_search(case_dir, resolution),
             "Tip: rerun the case or pass EVENTS=... explicitly.",
         ]
     )

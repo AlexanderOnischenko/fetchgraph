@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import readline
 import sys
+import datetime
 import uuid
 from pathlib import Path
 from typing import Optional, Sequence
+
+from fetchgraph.utils.path_layout import LayoutConfig, RunLayout, ensure_dirs, make_case_dir
 
 from .provider_factory import build_provider
 from .runner import (
@@ -106,7 +109,7 @@ def start_repl(
             continue
 
         run_id = uuid.uuid4().hex[:8]
-        run_dir = runs_root / f"{run_id}_{uuid.uuid4().hex[:8]}"
+        run_dir_name = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{run_id}"
         event_logger = EventLogger(path=None, run_id=run_id)
 
         artifacts: RunArtifacts | None = None
@@ -118,7 +121,7 @@ def start_repl(
                 runs_root,
                 plan_only=False,
                 event_logger=event_logger,
-                run_dir=run_dir,
+                run_dir_name=run_dir_name,
                 schema_path=None,
             )
             plan_obj = _load_json(Path(result.artifacts_dir) / "plan.json")
@@ -140,7 +143,11 @@ def start_repl(
             print(result.answer or "")
             print(f"Events: {Path(result.artifacts_dir) / 'events.jsonl'}")
         except Exception as exc:  # pragma: no cover - REPL resilience
-            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=run_dir, question=line)
+            run_root = runs_root / run_dir_name
+            run_layout = RunLayout(data_dir=data_dir, run_root=run_root, run_dir_name=run_dir_name, run_id=run_id)
+            case_layout = make_case_dir(run=run_layout, case_id=run_id, suffix=None, cfg=LayoutConfig())
+            ensure_dirs(run_layout, case_layout)
+            error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=case_layout.case_dir, question=line)
             error_artifacts.error = error_artifacts.error or str(exc)
             last_artifacts = error_artifacts
             save_artifacts(error_artifacts)

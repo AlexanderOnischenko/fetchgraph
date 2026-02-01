@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from fetchgraph.replay.export import iter_events
+from fetchgraph.utils.path_layout import LayoutConfig, canonical_events_path, find_case_dirs
 
 
 @dataclass(frozen=True)
@@ -176,10 +177,7 @@ def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
 
 
 def _case_dirs(run_dir: Path, case_id: str) -> list[Path]:
-    cases_root = run_dir / "cases"
-    if not cases_root.exists():
-        return []
-    return sorted(cases_root.glob(f"{case_id}_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return find_case_dirs(run_dir, case_id, LayoutConfig())
 
 
 @dataclass(frozen=True)
@@ -370,25 +368,21 @@ def format_case_run_debug(infos: list[CaseRunInfo], *, limit: int = 10) -> str:
     return "\n".join(rows)
 
 
-_EVENTS_CANDIDATES = ("events.jsonl",)
-
-
-def find_events_file(run_dir: Path) -> EventsResolution:
-    searched = [str(entry) for entry in _EVENTS_CANDIDATES]
+def find_events_file(case_dir: Path, cfg: LayoutConfig | None = None) -> EventsResolution:
+    cfg = cfg or LayoutConfig()
+    searched = [cfg.events_filename]
     found: list[Path] = []
-    for rel in _EVENTS_CANDIDATES:
-        candidate = run_dir / rel
-        if candidate.exists():
-            return EventsResolution(events_path=candidate, searched=searched, found=found)
-
+    candidate = canonical_events_path(case_dir, cfg)
+    if candidate.exists():
+        return EventsResolution(events_path=candidate, searched=searched, found=found)
     return EventsResolution(events_path=None, searched=searched, found=found)
 
 
-def format_events_search(run_dir: Path, resolution: EventsResolution) -> str:
+def format_events_search(case_dir: Path, resolution: EventsResolution) -> str:
     found_list = [str(path) for path in resolution.found]
     return "\n".join(
         [
-            f"events file not found in {run_dir}.",
+            f"events file not found in {case_dir}.",
             f"Looked for: {', '.join(resolution.searched)}",
             f"Found jsonl/ndjson: {found_list}",
             "You can pass --events explicitly.",

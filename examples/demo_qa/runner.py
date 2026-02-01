@@ -418,7 +418,7 @@ def run_one(
     data_dir = runs_root.parent.parent
     run_layout = RunLayout(data_dir=data_dir, run_root=run_root, run_dir_name=run_dir_name, run_id=run_id)
     case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
-    ensure_dirs(run_layout, case_layout)
+    ensure_dirs(run_layout, case_layout, cfg=cfg)
     case_dir = case_layout.case_dir
     events_path = case_layout.events_path
     if event_logger is None:

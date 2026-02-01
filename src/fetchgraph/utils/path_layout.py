@@ -77,10 +77,11 @@ def make_case_dir(
     return CaseLayout(run=run, case_dir=case_dir, case_id=case_id, suffix=suffix, events_path=events_path)
 
 
-def ensure_dirs(run: RunLayout, case: CaseLayout | None = None) -> None:
+def ensure_dirs(run: RunLayout, case: CaseLayout | None = None, cfg: LayoutConfig | None = None) -> None:
+    cfg = cfg or LayoutConfig()
     run.run_root.mkdir(parents=True, exist_ok=True)
     if case is None:
-        cases_dir = run.run_root / LayoutConfig().cases_dirname
+        cases_dir = run.run_root / cfg.cases_dirname
         cases_dir.mkdir(parents=True, exist_ok=True)
         return
     case.case_dir.parent.mkdir(parents=True, exist_ok=True)

@@ -144,9 +144,10 @@ def start_repl(
             print(f"Events: {Path(result.artifacts_dir) / 'events.jsonl'}")
         except Exception as exc:  # pragma: no cover - REPL resilience
             run_root = runs_root / run_dir_name
+            cfg = LayoutConfig()
             run_layout = RunLayout(data_dir=data_dir, run_root=run_root, run_dir_name=run_dir_name, run_id=run_id)
-            case_layout = make_case_dir(run=run_layout, case_id=run_id, suffix=None, cfg=LayoutConfig())
-            ensure_dirs(run_layout, case_layout)
+            case_layout = make_case_dir(run=run_layout, case_id=run_id, suffix=None, cfg=cfg)
+            ensure_dirs(run_layout, case_layout, cfg=cfg)
             error_artifacts = artifacts or RunArtifacts(run_id=run_id, run_dir=case_layout.case_dir, question=line)
             error_artifacts.error = error_artifacts.error or str(exc)
             last_artifacts = error_artifacts

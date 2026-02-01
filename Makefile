@@ -178,16 +178,14 @@ help:
 	@echo "     make history-case CASE=agg_003 [TAG=...] [LIMIT=50]"
 	@echo "  1) Найти кандидатов прогонов по CASE:"
 	@echo "     make tracer-ls CASE=agg_003 [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
-	@echo "     или explicit: make tracer-ls EVENTS=... [RUN_DIR=...]"
 	@echo "  2) Узнать доступные REPLAY_ID:"
 	@echo "     make tracer-replay-ids CASE=agg_003 [DATA=...] [RUN_ID=...] [PROVIDER=...] [SPEC_IDX=...]"
-	@echo "     или explicit: make tracer-replay-ids EVENTS=... [RUN_DIR=...]"
 	@echo "  3) Посмотреть матчи REPLAY_ID (подсказки для фильтрации):"
 	@echo "     make tracer-matches CASE=agg_003 REPLAY_ID=plan_normalize.spec_v1 [SPEC_IDX=...] [PROVIDER=...] [INPUT_HASH=...]"
-	@echo "     или explicit: make tracer-matches REPLAY_ID=plan_normalize.spec_v1 EVENTS=... [RUN_DIR=...]"
+	@echo "     или explicit: make tracer-matches REPLAY_ID=plan_normalize.spec_v1 EVENTS=... [RUN_DIR=...] [CASE_DIR=...]"
 	@echo "  4) Экспортировать:"
 	@echo "     make tracer-export CASE=agg_003 REPLAY_ID=plan_normalize.spec_v1 [BUCKET=known_bad|fixed] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
-	@echo "     или explicit: make tracer-export REPLAY_ID=plan_normalize.spec_v1 EVENTS=... RUN_DIR=... [OVERWRITE=1]"
+	@echo "     или explicit: make tracer-export REPLAY_ID=plan_normalize.spec_v1 EVENTS=... RUN_DIR=... [CASE_DIR=...] [OVERWRITE=1]"
 	@echo "  Advanced: RUN_SELECT_INDEX / REPLAY_SELECT_INDEX / SELECT / REQUIRE_UNIQUE / RUN_ID / CASE_DIR / TAG"
 	@echo ""
 	@echo "Фикстуры (fixture tools):"
@@ -507,6 +505,7 @@ tracer-matches: warn-missing-tracer
 	  output="$$(fetchgraph-tracer export-case-bundle \
 	    --id "$(REPLAY_ID)" \
 	    --events "$(EVENTS)" \
+	    $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	    $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
 	    --pick-run latest_with_replay \
 	    $(if $(strip $(INPUT_HASH)),--input-hash "$(INPUT_HASH)",) \
@@ -547,28 +546,17 @@ tracer-matches: warn-missing-tracer
 	fi
 
 tracer-ls: warn-missing-tracer
-	@if [ -z "$(strip $(EVENTS))" ]; then $(MAKE) --no-print-directory check-data-dir; fi
-	@if [ -z "$(strip $(EVENTS))" ]; then \
-	  test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-ls CASE=agg_003" && exit 2); \
-	fi
-	@set -euo pipefail; \
-	if [ -n "$(strip $(EVENTS))" ]; then \
-	  fetchgraph-tracer export-case-bundle \
-	    --events "$(EVENTS)" \
-	    $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
-	    $(if $(strip $(REPLAY_ID)),--id "$(REPLAY_ID)" --pick-run latest_with_replay,--pick-run latest_non_missed) \
-	    --list-matches; \
-	else \
-	  fetchgraph-tracer export-case-bundle \
-	    --case "$(CASE)" \
-	    --data "$(REPLAY_IDATA)" \
-	    $(if $(strip $(REPLAY_ID)),--id "$(REPLAY_ID)" --pick-run latest_with_replay,--pick-run latest_non_missed) \
-	    $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
-	    $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
-	    $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
-	    $(if $(strip $(TAG)),--tag "$(TAG)",) \
-	    --list-matches; \
-	fi
+	$(if $(strip $(EVENTS)),,$(MAKE) --no-print-directory check-data-dir)
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-ls CASE=agg_003" && exit 2)
+	@fetchgraph-tracer export-case-bundle \
+	  --case "$(CASE)" \
+	  --data "$(REPLAY_IDATA)" \
+	  $(if $(strip $(REPLAY_ID)),--id "$(REPLAY_ID)" --pick-run latest_with_replay,--pick-run latest_non_missed) \
+	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
+	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
+	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
+	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
+	  --list-matches
 
 tracer-replay-ids: warn-missing-tracer
 	@if [ -z "$(strip $(EVENTS))" ]; then $(MAKE) --no-print-directory check-data-dir; fi

@@ -986,10 +986,10 @@ def handle_batch(args) -> int:
         runs_root_path = runs_root(data_dir, cfg)
     else:
         runs_root_path = artifacts_dir / "runs"
-    run_dir_name = f"{timestamp}_{cases_path.stem}"
+    run_dir_name = f"{timestamp}_{cases_path.stem}_{run_id}"
     run_folder = runs_root_path / run_dir_name
     run_layout = RunLayout(data_dir=data_dir, run_root=run_folder, run_dir_name=run_dir_name, run_id=run_id)
-    ensure_dirs(run_layout)
+    ensure_dirs(run_layout, cfg=cfg)
     results_path = Path(args.out) if args.out else (run_folder / "results.jsonl")
     results_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path = results_path.with_name("summary.json")
@@ -1029,13 +1029,14 @@ def handle_batch(args) -> int:
                     plan_only=args.plan_only,
                     event_logger=event_logger,
                     run_dir=run_folder,
+                    run_dir_name=run_dir_name,
                     schema_path=schema_path,
                 )
             except KeyboardInterrupt:
                 interrupted = True
                 interrupted_at_case_id = current_case_id
                 case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
-                ensure_dirs(run_layout, case_layout)
+                ensure_dirs(run_layout, case_layout, cfg=cfg)
                 stub = RunResult(
                     id=case.id,
                     question=case.question,
@@ -1400,7 +1401,7 @@ def handle_case_run(args) -> int:
     run_dir_name = f"{timestamp}_{args.cases.stem}_{run_id}"
     run_folder = runs_root_path / run_dir_name
     run_layout = RunLayout(data_dir=args.data, run_root=run_folder, run_dir_name=run_dir_name, run_id=run_id)
-    ensure_dirs(run_layout)
+    ensure_dirs(run_layout, cfg=cfg)
     results_path = run_folder / "results.jsonl"
 
     log_dir = artifacts_dir / "logs"

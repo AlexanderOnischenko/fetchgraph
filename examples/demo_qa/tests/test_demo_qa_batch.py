@@ -458,7 +458,7 @@ def _stubbed_run_one(
     run_root = run_dir or (runs_root / (run_dir_name or f"{case.id}_stub"))
     run_layout = RunLayout(data_dir=runs_root.parent.parent, run_root=run_root, run_dir_name=run_root.name, run_id="stub")
     case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
-    ensure_dirs(run_layout, case_layout)
+    ensure_dirs(run_layout, case_layout, cfg=cfg)
     run_dir = case_layout.case_dir
     return RunResult(
         id=case.id,

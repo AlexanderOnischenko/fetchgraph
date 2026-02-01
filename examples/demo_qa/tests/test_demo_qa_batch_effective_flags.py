@@ -81,7 +81,7 @@ def _stub_run_one(case: Case, runner, runs_root: Path, *args, **kwargs) -> RunRe
     run_root = run_dir or (runs_root / "stub_run")
     run_layout = RunLayout(data_dir=runs_root.parent.parent, run_root=run_root, run_dir_name=run_root.name, run_id="stub")
     case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
-    ensure_dirs(run_layout, case_layout)
+    ensure_dirs(run_layout, case_layout, cfg=cfg)
     return RunResult(
         id=case.id,
         question=case.question or "",

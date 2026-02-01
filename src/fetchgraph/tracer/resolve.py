@@ -236,17 +236,24 @@ def _normalize_history_run_dir(
     return HistoryRunDir(run_dir=normalized, exists=normalized.exists(), raw=raw)
 
 
+def _has_run_dir_candidates(root: Path) -> bool:
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        if _run_dir_timestamp_key(entry.name) is not None:
+            return True
+    return False
+
+
 def _detect_runs_roots(runs_root_cli: Path) -> tuple[list[Path], Path | None]:
     roots: list[Path] = []
     runs_root_effective = None
     if runs_root_cli.exists():
         roots.append(runs_root_cli)
     nested = runs_root_cli / "runs"
-    if nested.exists():
-        nested_dirs = [p for p in nested.iterdir() if p.is_dir()]
-        if nested_dirs:
-            roots.append(nested)
-            runs_root_effective = nested
+    if nested.exists() and _has_run_dir_candidates(nested):
+        roots.append(nested)
+        runs_root_effective = nested
     return roots, runs_root_effective
 
 
@@ -255,13 +262,20 @@ def _iter_fs_run_dirs(roots: list[Path]) -> list[Path]:
     for root in roots:
         if not root.exists():
             continue
-        candidates.extend([p for p in root.iterdir() if p.is_dir()])
+        for entry in root.iterdir():
+            if not entry.is_dir():
+                continue
+            if entry.name in {"cases", "runs"}:
+                continue
+            if _run_dir_timestamp_key(entry.name) is None:
+                continue
+            candidates.append(entry)
     return sorted(candidates, key=_run_dir_sort_key, reverse=True)
 
 
 def _collect_run_dir_inventory(*, case_id: str, data_dir: Path, runs_subdir: str) -> RunDirInventory:
     runs_root_cli = (data_dir / runs_subdir).resolve()
-    history_path = data_dir / ".runs" / "runs" / "cases" / f"{case_id}.jsonl"
+    history_path = runs_root_cli / "cases" / f"{case_id}.jsonl"
     history_entries = _load_history_entries(history_path)
     history_dirs: list[HistoryRunDir] = []
     if history_entries:

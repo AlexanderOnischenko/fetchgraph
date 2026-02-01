@@ -60,3 +60,25 @@ def test_history_missing_on_disk_is_listed(tmp_path: Path) -> None:
 
     assert listings[0].run_dir == missing_run_dir
     assert listings[0].status == "missing_on_disk"
+
+
+def test_fs_scan_ignores_cases_and_runs_dirs(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    runs_root = data_dir / ".runs" / "runs"
+    (runs_root / "cases").mkdir(parents=True, exist_ok=True)
+    (runs_root / "runs").mkdir(parents=True, exist_ok=True)
+    run_dir = runs_root / "20260127_101751_retail_cases"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    make_case_dir(
+        run_dir,
+        "agg_003",
+        "x",
+        status="ok",
+        events=[{"type": "event", "id": "noise_filter"}],
+    )
+
+    listings, _ = list_case_run_listings(case_id="agg_003", data_dir=data_dir)
+    run_names = {listing.run_dir.name for listing in listings}
+
+    assert "cases" not in run_names
+    assert "runs" not in run_names

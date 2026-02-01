@@ -374,6 +374,15 @@ def main(argv: list[str] | None = None) -> int:
                         replay_id=args.id if pick_run == "latest_with_replay" else None,
                         runs_subdir=args.runs_subdir,
                     )
+                    if not candidates:
+                        raise LookupError(
+                            _format_case_run_error(
+                                stats,
+                                case_id=args.case,
+                                tag=args.tag,
+                                pick_run=pick_run,
+                            )
+                        )
                     selected_candidate = select_case_run(candidates, select_index=args.select_index)
                     run_dir = selected_candidate.run_dir
                     case_dir = selected_candidate.case_dir

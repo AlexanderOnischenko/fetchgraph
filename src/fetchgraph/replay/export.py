@@ -112,7 +112,7 @@ def collect_replay_case_ids(
     provider: str | None = None,
     allow_bad_json: bool = False,
 ) -> dict[str, int]:
-    counts: dict[str, int] = collections.Counter()
+    counts = collections.Counter()
     for _, event in iter_events(events_path, allow_bad_json=allow_bad_json):
         if event.get("type") != "replay_case":
             continue

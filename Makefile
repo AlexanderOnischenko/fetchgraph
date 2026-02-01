@@ -177,7 +177,7 @@ help:
 	@echo "    PROVIDER фильтрует replay_case.meta.provider (обычно spec.provider: sql, relational, ...)"
 	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
 	@echo "    RUN_ID берётся из make stats/history-case"
-	@echo "  make tracer-replay-ids CASE=... [RUN_ID=...] [DATA=...]"
+	@echo "  make tracer-replay-ids CASE=... [RUN_ID=...] [DATA=...] [PROVIDER=...] [SPEC_IDX=...]"
 	@echo "  make known-bad - запустить backlog-suite для known_bad (ожидаемо красный)"
 	@echo "  make known-bad-one NAME=fixture_stem - запустить один known_bad кейс"
 	@echo "  (или напрямую: $(PYTHON) -m fetchgraph.tracer.cli export-case-bundle ...)"
@@ -459,6 +459,8 @@ tracer-replay-ids: warn-missing-tracer
 	  --case "$(CASE)" \
 	  --data "$(REPLAY_IDATA)" \
 	  --pick-run latest_non_missed \
+	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
+	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
 	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
 	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
 	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \

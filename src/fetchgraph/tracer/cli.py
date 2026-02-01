@@ -412,6 +412,11 @@ def main(argv: list[str] | None = None) -> int:
             if events_path is None:
                 raise ValueError("events_path was not resolved.")
             if args.list_replay_ids:
+                if auto_resolve and not args.events:
+                    print(
+                        f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",
+                        file=sys.stderr,
+                    )
                 replay_ids = collect_replay_case_ids(
                     events_path,
                     spec_idx=args.spec_idx,

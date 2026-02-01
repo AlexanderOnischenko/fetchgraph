@@ -1,10 +1,10 @@
 # Fetchgraph Tracer: observed-first replay cases, bundles и реплей
 
 > Этот документ описывает актуальный формат трейса и реплея:
-> - `log.py` — контракт логгера событий и хелпер `log_replay_case`
-> - `runtime.py` — `ReplayContext`, `REPLAY_HANDLERS`, `run_case`, `load_case_bundle`
-> - `handlers/*` — обработчики (регистрация в `REPLAY_HANDLERS`)
-> - `export.py` — экспорт `replay_case` → case bundle (`*.case.json`)
+> - `fetchgraph.replay.log` (+ `fetchgraph.tracer.log` как re-export) — контракт логгера событий и `log_replay_case`
+> - `fetchgraph.replay.runtime` (+ `fetchgraph.tracer.runtime`) — `ReplayContext`, `REPLAY_HANDLERS`, `run_case`, `load_case_bundle`
+> - `fetchgraph.replay.handlers/*` и `fetchgraph.tracer.handlers/*` — обработчики (регистрация в `REPLAY_HANDLERS`)
+> - `fetchgraph.replay.export` (+ `fetchgraph.tracer.export`) — экспорт `replay_case` → case bundle (`*.case.json`)
 
 > Актуально для консольной команды `fetchgraph-tracer` и модулей `fetchgraph.tracer/*` + `fetchgraph.replay/*`.
 > Путь к фикстурам по умолчанию: `tests/fixtures/replay_cases/{fixed,known_bad}`.
@@ -47,9 +47,11 @@
 - **ровно одно** из:
   - `observed` — dict (observed outcome)
   - `observed_error` — dict (observed error), если во время “наблюдения” упало
+    - обязателен `type` / `message` / `trace` (trace будет усечён до лимита)
 - `requires` — опционально: список зависимостей
   - v2-формат: `[{"kind":"extra"|"resource","id":"..."}]`
   - legacy-формат допускается в экспорте: `["id1","id2"]` (будет нормализован при экспорте)
+- Дополнительно могут присутствовать: `note`, `diag`, `timestamp`, `run_id`, `case_id` (их может писать вызывающий код).
 
 Пример:
 
@@ -92,14 +94,16 @@ class EventLoggerLike(Protocol):
 
 ### 2.2 log_replay_case
 
-`log_replay_case(logger=..., id=..., input=..., observed=.../observed_error=..., requires=..., meta=...)`
+`log_replay_case(logger=..., id=..., input=..., observed=.../observed_error=..., requires=..., meta=..., note=..., diag=...)`
 
-Валидация на входе:
+Валидация на входе (см. `fetchgraph.replay.log`):
 
 - `id` — непустая строка
 - `input` — dict
 - XOR: `observed` / `observed_error`
-- `requires` — список `{kind,id}`
+- `requires` — список `{kind,id}` (только `extra|resource`)
+- `observed_error` — требует непустые `type`, `message`, `trace` (trace будет усечён до лимита)
+- `note` — строка (опционально), `diag` — dict (опционально)
 
 **Рекомендация:** логируйте `provider_info_snapshot` (см. `fetchgraph.replay.snapshots`), чтобы реплей не зависел от внешних данных.
 
@@ -125,11 +129,14 @@ class ReplayContext:
     resources: dict[str, dict]
     extras: dict[str, dict]
     base_dir: Path | None
+    fixture_stem: str | None
 
     def resolve_resource_path(self, resource_path: str | Path) -> Path:
-        # относительные пути резолвятся относительно base_dir
+        # абсолютные пути возвращаются как есть
+        # если путь начинается с resources/, то base_dir/resources/...
         # если resource_path совпадает с resources[*].data_ref.file,
         # путь ищется под base_dir/resources/<stem>/<rid>/<resource_path>
+        # иначе base_dir/<resource_path>
 ```
 
 ### 3.3 run_case и load_case_bundle
@@ -184,7 +191,15 @@ tests/fixtures/replay_cases/
 
 Где `<stem>` — имя фикстуры (обычно совпадает с именем `.case.json` без расширения).
 
-При экспорте файлы ресурсов копируются в:
+Имя бандла при экспорте:
+
+```
+<replay_id>__<hash8>.case.json
+```
+
+где `<hash8>` — первые 8 символов sha256 от `replay_id + canonical_json(input)`.
+
+Файлы ресурсов копируются в:
 
 ```
 resources/<stem>/<resource_id>/<data_ref.file>
@@ -204,6 +219,7 @@ path = export_replay_case_bundle(
     events_path=Path("./events.jsonl"),
     out_dir=Path("tests/fixtures/replay_cases/known_bad"),
     replay_id="plan_normalize.spec_v1",
+    input_hash="2f10a3c4", # фильтр по input hash (hash8 или sha256:...)
     spec_idx=0,            # фильтр по meta.spec_idx (опционально)
     provider="sql",        # фильтр по meta.provider (опционально)
     run_dir=Path("./run_dir"),  # обязателен, если есть file-resources
@@ -219,6 +235,7 @@ paths = export_replay_case_bundles(
     events_path=Path("./events.jsonl"),
     out_dir=Path("tests/fixtures/replay_cases/known_bad"),
     replay_id="plan_normalize.spec_v1",
+    input_hash=None,
     allow_bad_json=True,
     overwrite=True,
 )
@@ -281,7 +298,9 @@ fetchgraph-tracer export-case-bundle   --out tests/fixtures/replay_cases/known_b
 
 - `--spec-idx <INT>` — фильтр по `meta.spec_idx`
 - `--provider <NAME>` — фильтр по `meta.provider` (case-insensitive)
+- `--input-hash <HASH>` — фильтр по input hash (hash8 или `sha256:<64-hex>`)
 - `--list-replay-matches` — вывести найденные replay_case entries и выйти
+- `--list-replay-ids` — вывести replay_id (+ counts) и выйти
 - `--require-unique` — упасть, если матчей > 1
 - `--select <POLICY>` — политика выбора:
   - `latest` (по timestamp, fallback по line)
@@ -307,24 +326,27 @@ fetchgraph-tracer fixture-ls --bucket fixed --pattern "plan_normalize.*"
 
 #### 6.2.2 fixture-green
 
-“Позеленить” кейс: перенести из `known_bad` → `fixed` и записать `*.expected.json` из `root.observed`.
+“Позеленить” кейс: перенести из `known_bad` → `fixed` и записать `*.expected.json`
+из **реплея** (по умолчанию) или из `root.observed`.
 
 ```bash
 # выбрать по case_id (если несколько — используется --select/--select-index)
-fetchgraph-tracer fixture-green --case-id agg_003 --validate
+fetchgraph-tracer fixture-green --case-id agg_003
 
 # или явно указать файл
-fetchgraph-tracer fixture-green --case tests/fixtures/replay_cases/known_bad/<stem>.case.json --validate
+fetchgraph-tracer fixture-green --case tests/fixtures/replay_cases/known_bad/<stem>.case.json
 ```
 
 Флаги:
+- `--expected-from replay|observed` — источник expected (default: replay)
 - `--overwrite-expected` — перезаписать `*.expected.json`, если уже есть
-- `--validate` — после перемещения прогнать `run_case()` и сравнить с expected
+- `--no-validate` — отключить проверку после записи (по умолчанию проверяет `run_case()` + `REPLAY_VALIDATORS`)
 - `--git auto|on|off` — перемещения/удаления через git (если доступно)
 - `--dry-run` — только печать действий
 - `--select/--select-index/--require-unique` — выбор среди нескольких кандидатов
 
-> Важно: `fixture-green` требует `root.observed`. Если в кейсе только `observed_error`, сначала нужно переэкспортировать bundle после фикса (чтобы был observed).
+> Важно: `fixture-green --expected-from observed` требует `root.observed`.  
+> Для `--expected-from replay` достаточно чтобы обработчики/валидаторы были зарегистрированы.
 
 #### 6.2.3 fixture-demote
 
@@ -409,7 +431,7 @@ make known-bad-one NAME=<fixture_stem>
 
 ```bash
 # promote known_bad -> fixed
-make fixture-green CASE=agg_003 VALIDATE=1
+make fixture-green CASE=agg_003 EXPECTED_FROM=replay
 
 # list
 make fixture-ls CASE=agg_003 BUCKET=known_bad

@@ -53,6 +53,7 @@ NEW_NAME ?=
 PATTERN ?=
 SPEC_IDX ?=
 PROVIDER ?=
+INPUT_HASH ?=
 BUCKET ?= known_bad
 REPLAY_ID ?=
 EVENTS ?=
@@ -124,7 +125,7 @@ LIMIT_FLAG := $(if $(strip $(LIMIT)),--limit $(LIMIT),)
         batch batch-tag batch-failed batch-failed-from \
         batch-missed batch-missed-from batch-failed-tag batch-missed-tag \
         batch-fail-fast batch-max-fails \
-        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-ls tracer-replay-ids known-bad known-bad-one \
+        stats history-case report-tag report-tag-changes tags tag-rm case-run case-open tracer-export tracer-matches tracer-ls tracer-replay-ids known-bad known-bad-one \
         fixture-green fixture-demote fixture-ls fixture-rm fixture-fix fixture-migrate \
         compare compare-tag
 
@@ -175,6 +176,7 @@ help:
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
 	@echo "  make tracer-export REPLAY_ID=... CASE=... [EVENTS=...] [RUN_ID=...] [CASE_DIR=...] [DATA=...] [PROVIDER=...] [BUCKET=...] [SPEC_IDX=...] [OVERWRITE=1] [ALLOW_BAD_JSON=1]"
 	@echo "    PROVIDER фильтрует replay_case.meta.provider (обычно spec.provider: sql, relational, ...)"
+	@echo "  make tracer-matches CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...] [EVENTS=...]"
 	@echo "  make tracer-ls CASE=... [DATA=...] [TAG=...] [RUN_ID=...] [CASE_DIR=...]"
 	@echo "    RUN_ID берётся из make stats/history-case"
 	@echo "  make tracer-replay-ids CASE=... [RUN_ID=...] [DATA=...] [PROVIDER=...] [SPEC_IDX=...]"
@@ -251,6 +253,7 @@ show-config:
 	@echo "REPLAY_ID = $(REPLAY_ID)"
 	@echo "SPEC_IDX = $(SPEC_IDX)"
 	@echo "PROVIDER = $(PROVIDER)"
+	@echo "INPUT_HASH = $(INPUT_HASH)"
 	@echo "RUN_DIR = $(RUN_DIR)"
 	@echo "TRACER_ROOT = $(TRACER_ROOT)"
 	@echo "TRACER_OUT_DIR = $(TRACER_OUT_DIR)"
@@ -429,6 +432,7 @@ tracer-export: warn-config warn-missing-tracer
 	  --out "$(TRACER_OUT_DIR)" \
 	  --case "$(CASE)" \
 	  --data "$(REPLAY_IDATA)" \
+	  $(if $(strip $(INPUT_HASH)),--input-hash "$(INPUT_HASH)",) \
 	  $(if $(strip $(SPEC_IDX)),--spec-idx "$(SPEC_IDX)",) \
 	  $(if $(strip $(PROVIDER)),--provider "$(PROVIDER)",) \
 	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
@@ -438,6 +442,30 @@ tracer-export: warn-config warn-missing-tracer
 	  $(if $(TAG),--tag "$(TAG)",) \
 	  $(if $(filter 1 true yes on,$(OVERWRITE)),--overwrite,) \
 	  $(if $(filter 1 true yes on,$(ALLOW_BAD_JSON)),--allow-bad-json,)
+
+tracer-matches: warn-missing-tracer
+	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-matches CASE=agg_003" && exit 2)
+	@set -euo pipefail; \
+	output="$$(fetchgraph-tracer export-case-bundle \
+	  --case "$(CASE)" \
+	  --data "$(REPLAY_IDATA)" \
+	  $(if $(RUN_ID),--run-id "$(RUN_ID)",) \
+	  $(if $(CASE_DIR),--case-dir "$(CASE_DIR)",) \
+	  $(if $(RUN_DIR),--run-dir "$(RUN_DIR)",) \
+	  $(if $(EVENTS),--events "$(EVENTS)",) \
+	  $(if $(strip $(TAG)),--tag "$(TAG)",) \
+	  --list-replay-matches)"; \
+	echo "$$output"; \
+	match_lines="$$(printf "%s\n" "$$output" | sed '1d' | sed '/^$$/d')"; \
+	if [ -n "$$match_lines" ]; then \
+	  last_line="$$(printf "%s\n" "$$match_lines" | tail -n1)"; \
+	  idx="$$(printf "%s" "$$last_line" | awk -F '\t' '{print $$1}')"; \
+	  hash8="$$(printf "%s" "$$last_line" | awk -F '\t' '{print $$7}')"; \
+	  echo "Suggested: SELECT_INDEX=$$idx"; \
+	  if [ -n "$$hash8" ]; then \
+	    echo "Suggested: INPUT_HASH=$$hash8"; \
+	  fi; \
+	fi
 
 tracer-ls: warn-missing-tracer
 	@test -n "$(strip $(CASE))" || (echo "CASE обязателен: make tracer-ls CASE=agg_003" && exit 2)

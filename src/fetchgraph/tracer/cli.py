@@ -19,9 +19,11 @@ from fetchgraph.tracer.resolve import (
 )
 from fetchgraph.tracer.export import (
     collect_replay_case_ids,
+    collect_replay_case_matches,
     export_replay_case_bundle,
     export_replay_case_bundles,
     find_replay_case_matches,
+    format_replay_case_match_table,
     format_replay_case_matches,
 )
 from fetchgraph.tracer.fixture_tools import (
@@ -42,6 +44,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     export.add_argument("--events", type=Path, help="Path to events.jsonl")
     export.add_argument("--out", type=Path, help="Output directory for bundle")
     export.add_argument("--id", help="Replay case id to export")
+    export.add_argument("--input-hash", default=None, help="Filter replay_case by input hash (hash8 or sha256:hex)")
     export.add_argument("--spec-idx", type=int, default=None, help="Filter replay_case by meta.spec_idx")
     export.add_argument(
         "--provider",
@@ -412,6 +415,20 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"- {reject.case_dir} ({reject.reason})")
             if events_path is None:
                 raise ValueError("events_path was not resolved.")
+            if args.list_replay_matches:
+                if auto_resolve and not args.events:
+                    print(
+                        f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",
+                        file=sys.stderr,
+                    )
+                matches = collect_replay_case_matches(
+                    events_path,
+                    allow_bad_json=args.allow_bad_json,
+                )
+                if not matches:
+                    raise LookupError(_format_no_replay_cases_error(events_path))
+                print(format_replay_case_match_table(matches))
+                return 0
             if args.list_replay_ids:
                 if auto_resolve and not args.events:
                     print(
@@ -428,58 +445,6 @@ def main(argv: list[str] | None = None) -> int:
                     raise LookupError(_format_no_replay_ids_error(events_path))
                 for line in _format_replay_id_lines(replay_ids, include_counts=True):
                     print(line)
-                return 0
-            if args.list_replay_matches:
-                if not args.id:
-                    raise ValueError("--id is required to list replay_case matches.")
-                replay_ids = collect_replay_case_ids(
-                    events_path,
-                    spec_idx=None,
-                    provider=None,
-                    allow_bad_json=args.allow_bad_json,
-                )
-                if not replay_ids:
-                    raise LookupError(_format_no_replay_ids_error(events_path))
-                if args.id not in replay_ids:
-                    raise LookupError(_format_missing_replay_id_error(args.id, events_path, replay_ids))
-                selections = find_replay_case_matches(
-                    events_path,
-                    replay_id=args.id,
-                    spec_idx=args.spec_idx,
-                    provider=args.provider,
-                    allow_bad_json=args.allow_bad_json,
-                )
-                if not selections:
-                    unfiltered = find_replay_case_matches(
-                        events_path,
-                        replay_id=args.id,
-                        spec_idx=None,
-                        provider=None,
-                        allow_bad_json=args.allow_bad_json,
-                    )
-                    if unfiltered and (args.spec_idx is not None or args.provider is not None):
-                        providers = sorted(
-                            {
-                                str(sel.event.get("meta", {}).get("provider"))
-                                for sel in unfiltered
-                                if sel.event.get("meta")
-                            }
-                        )
-                        spec_idxs = sorted(
-                            {
-                                str(sel.event.get("meta", {}).get("spec_idx"))
-                                for sel in unfiltered
-                                if sel.event.get("meta")
-                            }
-                        )
-                        raise LookupError(
-                            "No replay_case matched filters.\n"
-                            f"Available providers: {providers}\n"
-                            f"Available spec_idx: {spec_idxs}\n"
-                            "Tip: rerun without --provider/--spec-idx or choose matching values."
-                        )
-                    raise LookupError(f"No replay_case id={args.id!r} found in {events_path}")
-                print(format_replay_case_matches(selections, limit=20))
                 return 0
             allow_prompt = (
                 sys.stdin.isatty()
@@ -536,6 +501,7 @@ def main(argv: list[str] | None = None) -> int:
                     events_path=events_path,
                     out_dir=args.out,
                     replay_id=args.id,
+                    input_hash=args.input_hash,
                     spec_idx=args.spec_idx,
                     provider=args.provider,
                     run_dir=run_dir,
@@ -547,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
                     events_path=events_path,
                     out_dir=args.out,
                     replay_id=args.id,
+                    input_hash=args.input_hash,
                     spec_idx=args.spec_idx,
                     provider=args.provider,
                     run_dir=run_dir,
@@ -760,7 +727,18 @@ def _format_no_replay_ids_error(events_path: Path) -> str:
             f"ERROR: No replay_case events found in {events_path}.",
             "Tip: ensure events emission is enabled and the run contains replay points.",
             "Try:",
-            "  fetchgraph-tracer export-case-bundle ... --list-replay-ids",
+            "  fetchgraph-tracer export-case-bundle ... --list-replay-matches",
+        ]
+    )
+
+
+def _format_no_replay_cases_error(events_path: Path) -> str:
+    return "\n".join(
+        [
+            f"ERROR: No replay_case events found in {events_path}.",
+            "Tip: ensure events emission is enabled and the run contains replay points.",
+            "Try:",
+            "  fetchgraph-tracer export-case-bundle ... --list-replay-matches",
         ]
     )
 

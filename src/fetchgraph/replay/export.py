@@ -43,6 +43,14 @@ def canonical_json(payload: object) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def input_fingerprint(input_payload: object) -> str:
+    return hashlib.sha256(canonical_json(input_payload).encode("utf-8")).hexdigest()
+
+
+def input_hash8(input_payload: object) -> str:
+    return input_fingerprint(input_payload)[:8]
+
+
 def case_bundle_name(event_id: str, input_payload: dict) -> str:
     digest = hashlib.sha256((event_id + canonical_json(input_payload)).encode("utf-8")).hexdigest()
     return f"{event_id}__{digest[:8]}.case.json"
@@ -54,27 +62,82 @@ class ExportSelection:
     event: dict
 
 
-def _match_meta(event: dict, *, spec_idx: int | None, provider: str | None) -> bool:
-    if spec_idx is None and provider is None:
-        return True
+@dataclass(frozen=True)
+class ReplayCaseMatch:
+    line: int
+    event: dict
+    replay_id: str
+    timestamp: object
+    provider: object
+    spec_idx: object
+    input_hash8: str
+    status: str
+
+
+def _normalize_input_hash_filter(value: str) -> tuple[str, bool]:
+    cleaned = value.strip()
+    if cleaned.startswith("sha256:"):
+        digest = cleaned.split("sha256:", 1)[1].strip().lower()
+        if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+            raise ValueError("input-hash must be sha256:<64-hex> or an 8-hex prefix")
+        return digest, True
+    lowered = cleaned.lower()
+    if len(lowered) == 8 and all(ch in "0123456789abcdef" for ch in lowered):
+        return lowered, False
+    raise ValueError("input-hash must be sha256:<64-hex> or an 8-hex prefix")
+
+
+def _input_hash_matches(payload: object, *, digest: str, is_full: bool) -> bool:
+    fingerprint = input_fingerprint(payload)
+    if is_full:
+        return fingerprint == digest
+    return fingerprint.startswith(digest)
+
+
+def _match_provider(event: dict, provider: str) -> bool:
     meta = event.get("meta")
     if not isinstance(meta, dict):
         return False
-    if spec_idx is not None and meta.get("spec_idx") != spec_idx:
+    value = meta.get("provider")
+    if not isinstance(value, str):
         return False
+    return value.lower() == provider.lower()
+
+
+def _match_spec_idx(event: dict, spec_idx: int) -> bool:
+    meta = event.get("meta")
+    if not isinstance(meta, dict):
+        return False
+    return meta.get("spec_idx") == spec_idx
+
+
+def _filter_replay_case_selections(
+    selections: list[ExportSelection],
+    *,
+    input_hash: str | None,
+    provider: str | None,
+    spec_idx: int | None,
+) -> list[ExportSelection]:
+    filtered = selections
+    if input_hash:
+        digest, is_full = _normalize_input_hash_filter(input_hash)
+        filtered = [
+            sel
+            for sel in filtered
+            if _input_hash_matches(sel.event.get("input"), digest=digest, is_full=is_full)
+        ]
     if provider is not None:
-        p = meta.get("provider")
-        if not isinstance(p, str):
-            return False
-        if p.lower() != provider.lower():
-            return False
-    return True
+        filtered = [sel for sel in filtered if _match_provider(sel.event, provider)]
+    if spec_idx is not None:
+        filtered = [sel for sel in filtered if _match_spec_idx(sel.event, spec_idx)]
+    return filtered
 
 
 def _select_replay_cases(
     events_path: Path,
     *,
     replay_id: str,
+    input_hash: str | None = None,
     spec_idx: int | None = None,
     provider: str | None = None,
     allow_bad_json: bool = False,
@@ -85,15 +148,20 @@ def _select_replay_cases(
             continue
         if event.get("id") != replay_id:
             continue
-        if _match_meta(event, spec_idx=spec_idx, provider=provider):
-            selected.append(ExportSelection(line=line, event=event))
-    return selected
+        selected.append(ExportSelection(line=line, event=event))
+    return _filter_replay_case_selections(
+        selected,
+        input_hash=input_hash,
+        provider=provider,
+        spec_idx=spec_idx,
+    )
 
 
 def find_replay_case_matches(
     events_path: Path,
     *,
     replay_id: str,
+    input_hash: str | None = None,
     spec_idx: int | None = None,
     provider: str | None = None,
     allow_bad_json: bool = False,
@@ -101,6 +169,7 @@ def find_replay_case_matches(
     return _select_replay_cases(
         events_path,
         replay_id=replay_id,
+        input_hash=input_hash,
         spec_idx=spec_idx,
         provider=provider,
         allow_bad_json=allow_bad_json,
@@ -118,12 +187,64 @@ def collect_replay_case_ids(
     for _, event in iter_events(events_path, allow_bad_json=allow_bad_json):
         if event.get("type") != "replay_case":
             continue
-        if not _match_meta(event, spec_idx=spec_idx, provider=provider):
+        if provider is not None and not _match_provider(event, provider):
+            continue
+        if spec_idx is not None and not _match_spec_idx(event, spec_idx):
             continue
         replay_id = event.get("id")
         if isinstance(replay_id, str) and replay_id:
             counts[replay_id] += 1
     return dict(counts)
+
+
+def collect_replay_case_matches(
+    events_path: Path,
+    *,
+    allow_bad_json: bool = False,
+) -> list[ReplayCaseMatch]:
+    matches: list[ReplayCaseMatch] = []
+    for line, event in iter_events(events_path, allow_bad_json=allow_bad_json):
+        if event.get("type") != "replay_case":
+            continue
+        replay_id = event.get("id")
+        if not isinstance(replay_id, str):
+            continue
+        meta = event.get("meta") if isinstance(event.get("meta"), dict) else {}
+        payload = event.get("input")
+        matches.append(
+            ReplayCaseMatch(
+                line=line,
+                event=event,
+                replay_id=replay_id,
+                timestamp=event.get("timestamp"),
+                provider=meta.get("provider"),
+                spec_idx=meta.get("spec_idx"),
+                input_hash8=input_hash8(payload),
+                status="error" if event.get("observed_error") else "ok",
+            )
+        )
+    return matches
+
+
+def format_replay_case_match_table(matches: list[ReplayCaseMatch]) -> str:
+    headers = ["idx", "line", "timestamp", "replay_id", "provider", "spec_idx", "input_hash8", "status"]
+    rows = ["\t".join(headers)]
+    for idx, match in enumerate(matches, start=1):
+        rows.append(
+            "\t".join(
+                [
+                    str(idx),
+                    str(match.line),
+                    "" if match.timestamp is None else str(match.timestamp),
+                    match.replay_id,
+                    "" if match.provider is None else str(match.provider),
+                    "" if match.spec_idx is None else str(match.spec_idx),
+                    match.input_hash8,
+                    match.status,
+                ]
+            )
+        )
+    return "\n".join(rows)
 
 
 def format_replay_case_matches(selections: list[ExportSelection], *, limit: int | None = 10) -> str:
@@ -134,8 +255,8 @@ def format_replay_case_matches(selections: list[ExportSelection], *, limit: int 
         provider = meta.get("provider")
         spec_idx = meta.get("spec_idx")
         timestamp = event.get("timestamp")
-        input_payload = event.get("input") if isinstance(event.get("input"), dict) else {}
-        fingerprint = hashlib.sha256(canonical_json(input_payload).encode("utf-8")).hexdigest()[:8]
+        input_payload = event.get("input")
+        fingerprint = input_hash8(input_payload)
         preview = canonical_json(input_payload)[:80]
         rows.append(
             "  "
@@ -189,7 +310,7 @@ def _select_replay_case(
     if require_unique and len(selections) > 1:
         details = format_replay_case_matches(selections)
         raise LookupError(
-            "Multiple replay_case entries matched; run with --select/--select-index/--list-matches.\n"
+            "Multiple replay_case entries matched; run with --select/--select-index/--list-replay-matches.\n"
             f"{details}"
         )
     if len(selections) == 1:
@@ -541,6 +662,7 @@ def export_replay_case_bundle(
     events_path: Path,
     out_dir: Path,
     replay_id: str,
+    input_hash: str | None = None,
     spec_idx: int | None = None,
     provider: str | None = None,
     run_dir: Path | None = None,
@@ -552,42 +674,51 @@ def export_replay_case_bundle(
     allow_prompt: bool = False,
     prompt_fn: Callable[[str], str] | None = None,
 ) -> Path:
-    selections = _select_replay_cases(
+    unfiltered = _select_replay_cases(
         events_path,
         replay_id=replay_id,
-        spec_idx=spec_idx,
-        provider=provider,
+        input_hash=None,
+        spec_idx=None,
+        provider=None,
         allow_bad_json=allow_bad_json,
     )
+    selections = _filter_replay_case_selections(
+        unfiltered,
+        input_hash=input_hash,
+        provider=provider,
+        spec_idx=spec_idx,
+    )
     if not selections:
-        details = []
-        if spec_idx is not None:
-            details.append(f"spec_idx={spec_idx}")
-        if provider is not None:
-            details.append(f"provider={provider!r}")
-        detail_str = f" (filters: {', '.join(details)})" if details else ""
-        unfiltered = _select_replay_cases(
-            events_path,
-            replay_id=replay_id,
-            spec_idx=None,
-            provider=None,
-            allow_bad_json=allow_bad_json,
-        )
-        if unfiltered and details:
+        filters_applied = any([input_hash, provider, spec_idx is not None])
+        if unfiltered and filters_applied:
             providers = sorted(
                 {str(sel.event.get("meta", {}).get("provider")) for sel in unfiltered if sel.event.get("meta")}
             )
             spec_idxs = sorted(
                 {str(sel.event.get("meta", {}).get("spec_idx")) for sel in unfiltered if sel.event.get("meta")}
             )
-            hint_lines = [
-                f"No replay_case id={replay_id!r} matched filters in {events_path}{detail_str}.",
-                f"Available providers: {providers}",
-                f"Available spec_idx: {spec_idxs}",
-                "Tip: rerun without --provider/--spec-idx or choose matching values.",
+            input_hashes = sorted({input_hash8(sel.event.get("input")) for sel in unfiltered})
+            detail_lines = [
+                f"No replay_case id={replay_id!r} matched filters in {events_path}.",
             ]
-            raise LookupError("\n".join(hint_lines))
-        raise LookupError(f"No replay_case id={replay_id!r} found in {events_path}{detail_str}")
+            if input_hash:
+                detail_lines.append(f"Requested input-hash: {input_hash}")
+            if provider is not None:
+                detail_lines.append(f"Requested provider: {provider!r}")
+            if spec_idx is not None:
+                detail_lines.append(f"Requested spec_idx: {spec_idx}")
+            detail_lines.extend(
+                [
+                    f"Found providers: {providers}",
+                    f"Found spec_idx: {spec_idxs}",
+                    f"Found input_hash8: {input_hashes}",
+                    "Try: --list-replay-matches",
+                    "Try: --select-index <N> or --input-hash <hash8>",
+                    "Try: rerun without --provider/--spec-idx/--input-hash filters.",
+                ]
+            )
+            raise LookupError("\n".join(detail_lines))
+        raise LookupError(f"No replay_case id={replay_id!r} found in {events_path}")
     selection, selection_mode = _select_replay_case(
         selections,
         events_path=events_path,
@@ -598,18 +729,19 @@ def export_replay_case_bundle(
         prompt_fn=prompt_fn,
     )
     if len(selections) > 1 and selection_mode == "policy":
-        input_hashes = {
-            hashlib.sha256(canonical_json(sel.event.get("input") or {}).encode("utf-8")).hexdigest()
-            for sel in selections
-        }
+        input_hashes = {input_fingerprint(sel.event.get("input")) for sel in selections}
         details = format_replay_case_matches(selections, limit=5)
         suffix = "Candidates differ by input payload." if len(input_hashes) > 1 else "Candidates share input."
+        chosen_hash8 = input_hash8(selection.event.get("input"))
         logger.warning(
-            "Multiple replay_case entries matched; selection policy=%s chose line %s.\n%s\n%s",
+            "Multiple replay_case entries matched; selection policy=%s chose line %s.\n%s\n%s\n"
+            "Suggested: --select-index %s\nSuggested: --input-hash %s",
             selection_policy,
             selection.line,
             details,
             suffix,
+            selections.index(selection) + 1,
+            chosen_hash8,
         )
     root_event = selection.event
     requires = root_event.get("requires") or []
@@ -662,6 +794,7 @@ def export_replay_case_bundles(
     events_path: Path,
     out_dir: Path,
     replay_id: str,
+    input_hash: str | None = None,
     spec_idx: int | None = None,
     provider: str | None = None,
     run_dir: Path | None = None,
@@ -671,12 +804,15 @@ def export_replay_case_bundles(
     selections = _select_replay_cases(
         events_path,
         replay_id=replay_id,
+        input_hash=input_hash,
         spec_idx=spec_idx,
         provider=provider,
         allow_bad_json=allow_bad_json,
     )
     if not selections:
         details = []
+        if input_hash is not None:
+            details.append(f"input_hash={input_hash}")
         if spec_idx is not None:
             details.append(f"spec_idx={spec_idx}")
         if provider is not None:

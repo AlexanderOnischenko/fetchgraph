@@ -707,7 +707,14 @@ def fixture_migrate(
             rel = _safe_resource_path(file_name, stem=stem)
             if rel.parts[:3] == ("resources", stem, resource_id):
                 continue
-            if rel.parts[:1] == ("resources",) and len(rel.parts) >= 2:
+            # If the existing path is already under resources/<stem>/<resource_id>/...,
+            # strip the leading segments without duplicating resource_id on re-prefix.
+            if rel.parts[:1] == ("resources",) and len(rel.parts) >= 3:
+                if rel.parts[2] == resource_id:
+                    rel_tail = Path(*rel.parts[3:])
+                else:
+                    rel_tail = Path(*rel.parts[2:])
+            elif rel.parts[:1] == ("resources",) and len(rel.parts) >= 2:
                 rel_tail = Path(*rel.parts[2:])
             else:
                 rel_tail = rel

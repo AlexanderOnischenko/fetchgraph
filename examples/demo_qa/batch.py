@@ -54,6 +54,7 @@ from .term import color as term_color
 from .term import fmt_num, fmt_pct, should_use_color, truncate
 from .term import render_table as render_text_table
 from .utils import dump_json
+from fetchgraph.utils.path_layout import LayoutConfig, RunLayout, ensure_dirs, find_case_dirs, make_case_dir, runs_root
 
 
 def write_summary(out_path: Path, summary: dict) -> Path:
@@ -416,13 +417,8 @@ def _git_sha() -> Optional[str]:
 
 
 def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
-    cases_dir = run_path / "cases"
-    if not cases_dir.exists():
-        return None
-    matches = sorted(cases_dir.glob(f"{case_id}_*"))
-    if matches:
-        return matches[-1]
-    return None
+    matches = find_case_dirs(run_path, case_id, LayoutConfig())
+    return matches[0] if matches else None
 
 
 def _resolve_run_path(path: Path | None, artifacts_dir: Path) -> Optional[Path]:
@@ -984,9 +980,17 @@ def handle_batch(args) -> int:
     selected_case_ids = [case.id for case in cases]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_folder = artifacts_dir / "runs" / f"{timestamp}_{cases_path.stem}"
+    cfg = LayoutConfig()
+    default_artifacts_dir = data_dir / ".runs"
+    if artifacts_dir == default_artifacts_dir:
+        runs_root_path = runs_root(data_dir, cfg)
+    else:
+        runs_root_path = artifacts_dir / "runs"
+    run_dir_name = f"{timestamp}_{cases_path.stem}_{run_id}"
+    run_folder = runs_root_path / run_dir_name
+    run_layout = RunLayout(data_dir=data_dir, run_root=run_folder, run_dir_name=run_dir_name, run_id=run_id)
+    ensure_dirs(run_layout, cfg=cfg)
     results_path = Path(args.out) if args.out else (run_folder / "results.jsonl")
-    artifacts_root = run_folder / "cases"
     results_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path = results_path.with_name("summary.json")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -1018,12 +1022,21 @@ def handle_batch(args) -> int:
         for case in cases:
             current_case_id = case.id
             try:
-                result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
+                result = run_one(
+                    case,
+                    runner,
+                    runs_root_path,
+                    plan_only=args.plan_only,
+                    event_logger=event_logger,
+                    run_dir=run_folder,
+                    run_dir_name=run_dir_name,
+                    schema_path=schema_path,
+                )
             except KeyboardInterrupt:
                 interrupted = True
                 interrupted_at_case_id = current_case_id
-                run_dir = artifacts_root / f"{case.id}_{uuid.uuid4().hex[:8]}"
-                run_dir.mkdir(parents=True, exist_ok=True)
+                case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
+                ensure_dirs(run_layout, case_layout, cfg=cfg)
                 stub = RunResult(
                     id=case.id,
                     question=case.question,
@@ -1031,7 +1044,7 @@ def handle_batch(args) -> int:
                     checked=case.has_asserts,
                     reason="KeyboardInterrupt",
                     details={"error": "KeyboardInterrupt"},
-                    artifacts_dir=str(run_dir),
+                    artifacts_dir=str(case_layout.case_dir),
                     duration_ms=0,
                     tags=list(case.tags),
                     answer=None,
@@ -1379,8 +1392,16 @@ def handle_case_run(args) -> int:
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = uuid.uuid4().hex[:8]
-    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}_{run_id}"
-    artifacts_root = run_folder / "cases"
+    cfg = LayoutConfig()
+    default_artifacts_dir = args.data / ".runs"
+    if artifacts_dir == default_artifacts_dir:
+        runs_root_path = runs_root(args.data, cfg)
+    else:
+        runs_root_path = artifacts_dir / "runs"
+    run_dir_name = f"{timestamp}_{args.cases.stem}_{run_id}"
+    run_folder = runs_root_path / run_dir_name
+    run_layout = RunLayout(data_dir=args.data, run_root=run_folder, run_dir_name=run_dir_name, run_id=run_id)
+    ensure_dirs(run_layout, cfg=cfg)
     results_path = run_folder / "results.jsonl"
 
     log_dir = artifacts_dir / "logs"
@@ -1390,7 +1411,14 @@ def handle_case_run(args) -> int:
     llm = build_llm(settings)
     runner = build_agent(llm, provider)
 
-    result = run_one(cases[args.case_id], runner, artifacts_root, plan_only=args.plan_only)
+    result = run_one(
+        cases[args.case_id],
+        runner,
+        runs_root_path,
+        plan_only=args.plan_only,
+        run_dir=run_folder,
+        schema_path=args.schema,
+    )
     write_results(results_path, [result])
     counts = summarize([result])
     bad = bad_statuses("bad", False)
@@ -1437,7 +1465,12 @@ def handle_case_open(args) -> int:
     plan = case_dir / "plan.json"
     answer = case_dir / "answer.txt"
     status = case_dir / "status.json"
-    for path in [plan, answer, status]:
+    events = case_dir / "events.jsonl"
+    error = case_dir / "error.txt"
+    # Schema snapshots may use the schema file extension (json/yaml), so match all.
+    schema_snapshots = sorted(case_dir.glob("schema_snapshot.*"))
+    artifacts = [plan, answer, status, events, error, *schema_snapshots]
+    for path in artifacts:
         if path.exists():
             print(f"- {path}")
     return 0

@@ -10,6 +10,8 @@ from typing import cast
 
 import pytest
 
+from fetchgraph.utils.path_layout import LayoutConfig, RunLayout, ensure_dirs, make_case_dir
+
 import examples.demo_qa.batch as batch
 from examples.demo_qa.batch import (
     _consecutive_passes,
@@ -441,9 +443,23 @@ def test_format_healed_explain_includes_key_lines() -> None:
     assert any("run_id=r2" in line and "status=ok" in line for line in lines)
 
 
-def _stubbed_run_one(case, runner, artifacts_root, *, plan_only=False, event_logger=None):
-    run_dir = artifacts_root / f"{case.id}_stub"
-    run_dir.mkdir(parents=True, exist_ok=True)
+def _stubbed_run_one(
+    case,
+    runner,
+    runs_root: Path,
+    *,
+    plan_only=False,
+    event_logger=None,
+    run_dir: Path | None = None,
+    run_dir_name: str | None = None,
+    schema_path=None,
+):
+    cfg = LayoutConfig()
+    run_root = run_dir or (runs_root / (run_dir_name or f"{case.id}_stub"))
+    run_layout = RunLayout(data_dir=runs_root.parent.parent, run_root=run_root, run_dir_name=run_root.name, run_id="stub")
+    case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
+    ensure_dirs(run_layout, case_layout, cfg=cfg)
+    run_dir = case_layout.case_dir
     return RunResult(
         id=case.id,
         question=case.question,

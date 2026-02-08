@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from pydantic import Field, TypeAdapter, ValidationError
@@ -12,6 +13,8 @@ from ...core.protocols import ContextProvider, SupportsDescribe, SupportsFilter
 from ...relational.models import RelationalRequest
 from ...relational.normalize import normalize_relational_selectors
 from ...relational.providers.base import RelationalDataProvider
+from ...replay.log import EventLoggerLike, log_replay_case
+from ...replay.snapshots import snapshot_provider_info
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,7 @@ class PlanNormalizerOptions:
 class SelectorNormalizationRule:
     validator: TypeAdapter[Any]
     normalize_selectors: Callable[[Any], Any]
+    kind: str | None = None
 
 
 class PlanNormalizer:
@@ -44,12 +48,14 @@ class PlanNormalizer:
         schema_registry: Optional[Dict[str, Dict[str, Any]]] = None,
         normalizer_registry: Optional[Dict[str, SelectorNormalizationRule]] = None,
         options: Optional[PlanNormalizerOptions] = None,
+        event_logger: EventLoggerLike | None = None,
     ) -> None:
         self.provider_catalog = dict(provider_catalog)
         self.schema_registry = schema_registry or {}
         self.normalizer_registry = normalizer_registry or {}
         self.options = options or PlanNormalizerOptions()
         self._provider_aliases = self._build_provider_aliases(self.provider_catalog)
+        self.event_logger = event_logger
 
     @classmethod
     def from_providers(
@@ -78,6 +84,7 @@ class PlanNormalizer:
                 schema_registry[key] = info.selectors_schema
             if isinstance(prov, RelationalDataProvider):
                 normalizer_registry[key] = SelectorNormalizationRule(
+                    kind="relational_v1",
                     validator=TypeAdapter(RelationalRequest),
                     normalize_selectors=normalize_relational_selectors,
                 )
@@ -88,7 +95,7 @@ class PlanNormalizer:
             options=options,
         )
 
-    def normalize(self, plan: Plan) -> NormalizedPlan:
+    def normalize(self, plan: Plan, *, event_logger: EventLoggerLike | None = None) -> NormalizedPlan:
         notes: List[str] = []
         required_context = self._normalize_required_context(plan.required_context, notes)
         context_plan = self._normalize_context_plan(plan.context_plan, notes)
@@ -98,7 +105,7 @@ class PlanNormalizer:
         # Baseline/plan merge owns "ensure required providers exist" logic,
         # and must do it in a baseline-safe way (never overriding baseline selectors/mode).
 
-        context_plan = self._normalize_specs(context_plan, notes)
+        context_plan = self._normalize_specs(context_plan, notes, event_logger=event_logger)
 
         adr_queries = self._normalize_text_list(plan.adr_queries, notes, "adr_queries")
         constraints = self._normalize_text_list(
@@ -121,9 +128,10 @@ class PlanNormalizer:
         specs: Iterable[ContextFetchSpec],
         *,
         notes: Optional[List[str]] = None,
+        event_logger: EventLoggerLike | None = None,
     ) -> List[ContextFetchSpec]:
         local_notes: List[str] = []
-        normalized = self._normalize_specs(specs, local_notes)
+        normalized = self._normalize_specs(specs, local_notes, event_logger=event_logger)
         if notes is not None:
             notes.extend(local_notes)
         if local_notes:
@@ -134,39 +142,125 @@ class PlanNormalizer:
         return normalized
 
     def _normalize_specs(
-        self, specs: Iterable[ContextFetchSpec], notes: List[str]
+        self,
+        specs: Iterable[ContextFetchSpec],
+        notes: List[str],
+        *,
+        event_logger: EventLoggerLike | None = None,
     ) -> List[ContextFetchSpec]:
         normalized: List[ContextFetchSpec] = []
-        for spec in specs:
+        replay_logger = event_logger or self.event_logger
+        for spec_idx, spec in enumerate(specs):
             rule = self.normalizer_registry.get(spec.provider)
             if rule is None:
                 normalized.append(spec)
                 continue
-            orig = spec.selectors
-            before_ok = self._validate_selectors(rule.validator, orig)
+            selectors_before = copy.deepcopy(spec.selectors)
+            before_ok = self._validate_selectors(rule.validator, selectors_before)
             decision = "keep_original_valid" if before_ok else "keep_original_still_invalid"
-            use = orig
+            use = selectors_before
             after_ok = before_ok
+            rule_trace = [
+                {
+                    "stage": "select_rule",
+                    "provider": spec.provider,
+                    "rule_kind": rule.kind,
+                }
+            ]
             if not before_ok:
-                candidate = rule.normalize_selectors(orig)
+                candidate = rule.normalize_selectors(copy.deepcopy(selectors_before))
                 after_ok = self._validate_selectors(rule.validator, candidate)
                 if after_ok:
                     decision = "use_normalized_fixed"
                     use = candidate
-                elif candidate != orig:
+                elif candidate != selectors_before:
                     decision = "use_normalized_unvalidated"
                     use = candidate
-            notes.append(
-                self._format_selectors_note(
-                    spec.provider,
-                    before_ok,
-                    after_ok,
-                    decision,
-                    selectors_before=orig,
-                    selectors_after=use,
+                rule_trace.append(
+                    {
+                        "stage": "normalize",
+                        "decision": decision,
+                        "changed": candidate != selectors_before,
+                        "validators": {
+                            "before_ok": before_ok,
+                            "after_ok": after_ok,
+                        },
+                    }
                 )
+            else:
+                rule_trace.append(
+                    {
+                        "stage": "validate",
+                        "decision": decision,
+                        "validators": {
+                            "before_ok": before_ok,
+                            "after_ok": after_ok,
+                        },
+                    }
+                )
+            note = self._format_selectors_note(
+                spec.provider,
+                before_ok,
+                after_ok,
+                decision,
+                selectors_before=selectors_before,
+                selectors_after=use,
             )
-            if use is orig:
+            notes.append(note)
+            rule_kind = rule.kind
+            if replay_logger and rule_kind:
+                provider_info_snapshot = None
+                provider_info = self.provider_catalog.get(spec.provider)
+                if isinstance(provider_info, ProviderInfo):
+                    provider_info_snapshot = snapshot_provider_info(provider_info)
+                elif spec.provider in self.schema_registry:
+                    provider_info_snapshot = snapshot_provider_info(
+                        ProviderInfo(
+                            name=spec.provider,
+                            capabilities=[],
+                            selectors_schema=self.schema_registry[spec.provider],
+                        )
+                    )
+                requires = None
+                if not self._provider_info_snapshot_sufficient(provider_info_snapshot):
+                    requires = [{"kind": "extra", "id": "planner_input_v1"}]
+                input_payload = {
+                    "spec": {
+                        "provider": spec.provider,
+                        "mode": spec.mode,
+                        "selectors": selectors_before,
+                    },
+                    "options": asdict(self.options),
+                    "normalizer_rules": {spec.provider: rule_kind},
+                }
+                if provider_info_snapshot:
+                    input_payload["provider_info_snapshot"] = provider_info_snapshot
+                observed_payload = {
+                    "out_spec": {
+                        "provider": spec.provider,
+                        "mode": spec.mode,
+                        "selectors": use,
+                    },
+                }
+                log_replay_case(
+                    replay_logger,
+                    id="plan_normalize.spec_v1",
+                    meta={
+                        "provider": spec.provider,
+                        "mode": spec.mode,
+                        "spec_idx": spec_idx,
+                    },
+                    input=input_payload,
+                    observed=observed_payload,
+                    diag={
+                        "selectors_valid_before": before_ok,
+                        "selectors_valid_after": after_ok,
+                        "rule_trace": rule_trace,
+                    },
+                    requires=requires,
+                    note=note,
+                )
+            if use == selectors_before:
                 normalized.append(spec)
                 continue
             data = spec.model_dump()
@@ -202,6 +296,15 @@ class PlanNormalizer:
             payload["selectors_before"] = selectors_before
             payload["selectors_after"] = selectors_after
         return json.dumps(payload, ensure_ascii=False, default=str)
+
+    @staticmethod
+    def _provider_info_snapshot_sufficient(snapshot: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(snapshot, dict):
+            return False
+        selectors_schema = snapshot.get("selectors_schema")
+        if isinstance(selectors_schema, dict) and selectors_schema:
+            return True
+        return False
 
     def _normalize_required_context(
         self, values: Iterable[str], notes: List[str]

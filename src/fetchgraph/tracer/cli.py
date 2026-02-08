@@ -1,0 +1,847 @@
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+from fetchgraph.utils.path_layout import LayoutConfig, find_case_dirs, run_root_from_case_dir
+from fetchgraph.tracer.resolve import (
+    collect_rejections,
+    find_events_file,
+    format_case_run_listings,
+    format_case_runs,
+    format_case_run_debug,
+    format_events_search,
+    list_case_run_listings,
+    list_case_runs,
+    RunScanStats,
+    resolve_run_dir_from_run_id,
+    scan_case_runs,
+    select_case_run,
+)
+from fetchgraph.tracer.export import (
+    collect_replay_case_ids,
+    collect_replay_case_matches,
+    export_replay_case_bundle,
+    export_replay_case_bundles,
+    find_replay_case_matches,
+    format_replay_case_match_table,
+    format_replay_case_matches,
+)
+from fetchgraph.tracer.fixture_tools import (
+    fixture_fix,
+    fixture_green,
+    fixture_migrate,
+    fixture_rm,
+)
+
+DEFAULT_ROOT = Path("tests/fixtures/replay_cases")
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Fetchgraph tracer utilities")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    export = sub.add_parser("export-case-bundle", help="Export replay case bundle from events.jsonl")
+    export.add_argument("--events", type=Path, help="Path to events.jsonl")
+    export.add_argument("--out", type=Path, help="Output directory for bundle")
+    export.add_argument("--id", help="Replay case id to export")
+    export.add_argument("--input-hash", default=None, help="Filter replay_case by input hash (hash8 or sha256:hex)")
+    export.add_argument("--spec-idx", type=int, default=None, help="Filter replay_case by meta.spec_idx")
+    export.add_argument(
+        "--provider",
+        default=None,
+        help="Filter replay_case by meta.provider (case-insensitive)",
+    )
+    export.add_argument("--run-dir", type=Path, default=None, help="Run dir path (required for file resources)")
+    export.add_argument(
+        "--run-id",
+        default=None,
+        help="Run id from history/run_meta (requires --data; selects case dir within run)",
+    )
+    export.add_argument("--case-dir", type=Path, default=None, help="Case dir path (explicit)")
+    export.add_argument(
+        "--allow-bad-json",
+        action="store_true",
+        help="Skip invalid JSON lines in events.jsonl",
+    )
+    export.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing bundles and resource copies",
+    )
+    export.add_argument("--all", action="store_true", help="Export all matching replay cases")
+    export.add_argument("--case", help="Case id for auto-resolving events.jsonl")
+    export.add_argument("--data", type=Path, help="Data directory containing .runs")
+    export.add_argument("--tag", default=None, help="Run tag filter for auto-resolve")
+    export.add_argument(
+        "--runs-subdir",
+        default=".runs/runs",
+        help="Runs subdir relative to data dir (default: .runs/runs)",
+    )
+    export.add_argument(
+        "--pick-run",
+        default="latest_with_replay",
+        help="Run selection strategy (default: latest_with_replay)",
+    )
+    export.add_argument(
+        "--print-resolve",
+        action="store_true",
+        help="Print resolved run_dir/events.jsonl",
+    )
+    export.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print debug information about candidate runs",
+    )
+    export.add_argument(
+        "--select",
+        choices=["latest", "first", "last", "by-timestamp", "by-line"],
+        default="latest",
+        help="Selection policy when multiple replay_case entries match",
+    )
+    export.add_argument("--select-index", type=int, default=None, help="Select a case run (1-based)")
+    export.add_argument("--list-matches", action="store_true", help="List case runs and exit")
+    export.add_argument(
+        "--replay-select-index",
+        type=int,
+        default=None,
+        help="Select a specific replay_case match (1-based)",
+    )
+    export.add_argument(
+        "--list-replay-matches",
+        action="store_true",
+        help="List replay_case matches and exit",
+    )
+    export.add_argument(
+        "--list-replay-ids",
+        action="store_true",
+        help="List replay_case ids from events.jsonl and exit",
+    )
+    export.add_argument("--require-unique", action="store_true", help="Error if multiple matches exist")
+
+    green = sub.add_parser("fixture-green", help="Promote known_bad case to fixed")
+    green.add_argument("--case", type=Path, help="Path to known_bad case bundle")
+    green.add_argument("--case-id", help="Case id to select fixture from known_bad")
+    green.add_argument("--name", help="Fixture stem name to select")
+    green.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    green.add_argument("--no-validate", action="store_true", help="Disable validation after write")
+    green.add_argument(
+        "--expected-from",
+        choices=["replay", "observed"],
+        default="replay",
+        help="Source for expected output (default: replay)",
+    )
+    green.add_argument(
+        "--overwrite-expected",
+        action="store_true",
+        help="Overwrite existing expected output",
+    )
+    green.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    green.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving/removing fixtures",
+    )
+    green.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    green.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    green.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
+
+    rm_cmd = sub.add_parser("fixture-rm", help="Remove replay fixtures")
+    rm_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    rm_cmd.add_argument(
+        "--bucket",
+        choices=["fixed", "known_bad", "all"],
+        default="all",
+        help="Fixture bucket",
+    )
+    rm_cmd.add_argument("--name", help="Fixture stem name")
+    rm_cmd.add_argument("--pattern", help="Glob pattern for fixture stems or case bundles")
+    rm_cmd.add_argument("--case", type=Path, help="Path to case bundle")
+    rm_cmd.add_argument("--case-id", help="Case id to select fixtures")
+    rm_cmd.add_argument(
+        "--scope",
+        choices=["cases", "resources", "both"],
+        default="both",
+        help="What to remove",
+    )
+    rm_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    rm_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when removing fixtures",
+    )
+    rm_cmd.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    rm_cmd.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    rm_cmd.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
+    rm_cmd.add_argument("--all", action="store_true", help="Apply to all matching fixtures")
+
+    fix_cmd = sub.add_parser("fixture-fix", help="Rename fixture stem")
+    fix_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    fix_cmd.add_argument("--bucket", choices=["fixed", "known_bad"], default="fixed")
+    fix_cmd.add_argument("--name", required=True, help="Old fixture stem")
+    fix_cmd.add_argument("--new-name", required=True, help="New fixture stem")
+    fix_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    fix_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving fixtures",
+    )
+
+    migrate_cmd = sub.add_parser("fixture-migrate", help="Normalize resource layout")
+    migrate_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    migrate_cmd.add_argument(
+        "--bucket",
+        choices=["fixed", "known_bad", "all"],
+        default="all",
+        help="Fixture bucket",
+    )
+    migrate_cmd.add_argument("--case", type=Path, help="Path to case bundle")
+    migrate_cmd.add_argument("--case-id", help="Case id to select fixtures")
+    migrate_cmd.add_argument("--name", help="Fixture stem name")
+    migrate_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    migrate_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving fixtures",
+    )
+    migrate_cmd.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    migrate_cmd.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    migrate_cmd.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
+    migrate_cmd.add_argument("--all", action="store_true", help="Apply to all matching fixtures")
+
+    ls_cmd = sub.add_parser("fixture-ls", help="List fixture candidates")
+    ls_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    ls_cmd.add_argument(
+        "--bucket",
+        choices=["fixed", "known_bad", "all"],
+        default="known_bad",
+        help="Fixture bucket",
+    )
+    ls_cmd.add_argument("--case-id", help="Case id to filter")
+    ls_cmd.add_argument("--pattern", help="Glob pattern for fixtures")
+
+    demote_cmd = sub.add_parser("fixture-demote", help="Move fixed fixture back to known_bad")
+    demote_cmd.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Fixture root")
+    demote_cmd.add_argument("--from-bucket", default="fixed", help="Source bucket (default: fixed)")
+    demote_cmd.add_argument("--to-bucket", default="known_bad", help="Destination bucket (default: known_bad)")
+    demote_cmd.add_argument("--case", type=Path, help="Path to case bundle")
+    demote_cmd.add_argument("--case-id", help="Case id to select fixtures")
+    demote_cmd.add_argument("--name", help="Fixture stem name")
+    demote_cmd.add_argument("--dry-run", action="store_true", help="Print actions without changing files")
+    demote_cmd.add_argument("--overwrite", action="store_true", help="Overwrite existing target fixtures")
+    demote_cmd.add_argument(
+        "--git",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Use git operations when moving fixtures",
+    )
+    demote_cmd.add_argument(
+        "--select",
+        choices=["latest", "first", "last"],
+        default="latest",
+        help="Selection policy when multiple fixtures match",
+    )
+    demote_cmd.add_argument("--select-index", type=int, default=None, help="Select fixture index (1-based)")
+    demote_cmd.add_argument("--require-unique", action="store_true", help="Error if multiple fixtures match")
+    demote_cmd.add_argument("--all", action="store_true", help="Apply to all matching fixtures")
+
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    try:
+        if args.command == "export-case-bundle":
+            debug_enabled = args.debug or bool(os.getenv("DEBUG"))
+            events_path: Path | None = None
+            run_dir: Path | None = None
+            case_dir: Path | None = None
+            selection_rule = "unknown"
+            run_dir_source = "unresolved"
+            auto_resolve = False
+            selected_candidate = None
+            stats: RunScanStats | None = None
+            pick_run = args.pick_run
+            list_only = args.list_matches or args.list_replay_matches or args.list_replay_ids
+            replay_id_for_pick: str | None = None
+            if not args.out and not list_only and not args.print_resolve:
+                raise ValueError("--out is required unless using list-only or print-resolve modes.")
+            if args.events:
+                if args.case or args.data or args.tag or args.run_id:
+                    raise ValueError("Do not combine --events with --case/--data/--tag/--run-id.")
+                if args.case_dir and args.run_dir:
+                    raise ValueError("Do not combine --case-dir with --run-dir when --events is provided.")
+                events_path = args.events
+                case_dir = args.case_dir
+                run_dir = args.run_dir
+                run_dir_source = "explicit RUN_DIR" if run_dir else "unset"
+                if case_dir and run_dir is None:
+                    run_dir = _run_dir_from_case_dir(case_dir)
+                    run_dir_source = "derived from case_dir"
+                selection_rule = "explicit EVENTS"
+            else:
+                if args.run_id and (args.case_dir or args.run_dir):
+                    raise ValueError("Do not combine --run-id with --run-dir/--case-dir.")
+                if args.run_id and not args.data:
+                    raise ValueError("--data is required when --run-id is provided.")
+                if args.case_dir or args.run_dir:
+                    if args.run_dir and not args.case and not args.case_dir:
+                        raise ValueError("--case is required when --run-dir is provided.")
+                    case_dir = args.case_dir
+                    if case_dir:
+                        run_dir = _run_dir_from_case_dir(case_dir)
+                        selection_rule = "explicit CASE_DIR"
+                        run_dir_source = "derived from case_dir"
+                    else:
+                        run_dir = args.run_dir
+                        if run_dir is None:
+                            raise ValueError("run_dir was not resolved.")
+                        case_dir = _resolve_case_dir_from_run_dir(run_dir=run_dir, case_id=args.case)
+                        selection_rule = "explicit RUN_DIR"
+                        run_dir_source = "explicit RUN_DIR"
+                elif args.run_id:
+                    if not args.case:
+                        raise ValueError("--case is required when --run-id is provided.")
+                    run_dir = resolve_run_dir_from_run_id(
+                        data_dir=args.data,
+                        runs_subdir=args.runs_subdir,
+                        run_id=args.run_id,
+                    )
+                    case_dir = _resolve_case_dir_from_run_dir(run_dir=run_dir, case_id=args.case)
+                    selection_rule = f"explicit RUN_ID={args.run_id}"
+                    run_dir_source = "resolved from run_id"
+                else:
+                    if not args.case or not args.data:
+                        raise ValueError("--case and --data are required when --events is not provided.")
+                    if list_only and (args.list_replay_ids or args.list_replay_matches):
+                        pick_run = "latest_with_replay"
+                        replay_id_for_pick = args.id if args.id else None
+                    elif args.pick_run == "latest_with_replay":
+                        if list_only:
+                            replay_id_for_pick = None
+                        elif not args.id:
+                            raise ValueError(
+                                "--id is required when pick_run=latest_with_replay "
+                                "(except list-replay-ids/matches)."
+                            )
+                        else:
+                            replay_id_for_pick = args.id
+                    if debug_enabled:
+                        infos, stats = scan_case_runs(
+                            case_id=args.case,
+                            data_dir=args.data,
+                            runs_subdir=args.runs_subdir,
+                        )
+                        print("Debug: case run candidates (most recent first):")
+                        print(format_case_run_debug(infos, limit=10))
+                    if args.list_matches:
+                        listings, stats = list_case_run_listings(
+                            case_id=args.case,
+                            data_dir=args.data,
+                            tag=args.tag,
+                            runs_subdir=args.runs_subdir,
+                        )
+                        if not listings:
+                            raise LookupError(
+                                _format_case_run_error(
+                                    stats,
+                                    case_id=args.case,
+                                    tag=args.tag,
+                                    pick_run=pick_run,
+                                )
+                            )
+                        print(format_case_run_listings(listings, limit=20))
+                        return 0
+                    candidates, stats = list_case_runs(
+                        case_id=args.case,
+                        data_dir=args.data,
+                        tag=args.tag,
+                        pick_run=pick_run,
+                        replay_id=replay_id_for_pick,
+                        runs_subdir=args.runs_subdir,
+                    )
+                    if not candidates:
+                        raise LookupError(
+                            _format_case_run_error(
+                                stats,
+                                case_id=args.case,
+                                tag=args.tag,
+                                pick_run=pick_run,
+                            )
+                        )
+                    selected_candidate = select_case_run(candidates, select_index=args.select_index)
+                    run_dir = selected_candidate.run_dir
+                    case_dir = selected_candidate.case_dir
+                    selection_rule = _format_selection_rule(tag=args.tag, pick_run=pick_run)
+                    events_path = selected_candidate.events_path
+                    auto_resolve = True
+                    run_dir_source = "auto-resolve"
+                if events_path is None:
+                    search_root = case_dir or run_dir
+                    if search_root is None:
+                        raise ValueError("run_dir was not resolved.")
+                    events_resolution = find_events_file(search_root)
+                    if not events_resolution.events_path:
+                        raise FileNotFoundError(
+                            _format_events_error(
+                                search_root,
+                                events_resolution,
+                                selection_rule=selection_rule,
+                            )
+                        )
+                    events_path = events_resolution.events_path
+            if args.print_resolve:
+                rejections = []
+                print("Input flags:")
+                print(f"  run_id: {args.run_id}")
+                print(f"  run_dir: {args.run_dir}")
+                print(f"  case_dir: {args.case_dir}")
+                print(f"selection_method: {selection_rule}")
+                print(f"Resolved run_dir: {run_dir}")
+                print(f"run_dir_source: {run_dir_source}")
+                print(f"Resolved case_dir: {case_dir}")
+                print(f"Resolved events.jsonl: {events_path}")
+                if args.data and args.case:
+                    resolve_stats = stats
+                    if resolve_stats is None:
+                        _, resolve_stats = list_case_runs(
+                            case_id=args.case,
+                            data_dir=args.data,
+                            tag=args.tag,
+                            pick_run=pick_run,
+                            replay_id=replay_id_for_pick,
+                            runs_subdir=args.runs_subdir,
+                        )
+                    print(f"runs_root_cli: {resolve_stats.runs_root_cli}")
+                    if resolve_stats.runs_root_effective:
+                        print(f"runs_root_effective: {resolve_stats.runs_root_effective}")
+                    print(
+                        f"history_path: {resolve_stats.history_path} "
+                        f"(entries={resolve_stats.history_entries})"
+                    )
+                    print(
+                        "run_dir_sources: "
+                        f"history={resolve_stats.history_candidates} "
+                        f"fs={resolve_stats.fs_candidates}"
+                    )
+                    if resolve_stats.history_missing:
+                        print(
+                            "WARN: history entries missing on disk: "
+                            + ", ".join(str(path) for path in resolve_stats.history_missing[:5])
+                        )
+                if selected_candidate:
+                    print(f"Selected: {selected_candidate.case_dir}")
+                if args.events and run_dir is None:
+                    print("Note: run_dir not provided; file resources cannot be exported.")
+                if auto_resolve and args.case and args.data:
+                    infos, _ = scan_case_runs(
+                        case_id=args.case,
+                        data_dir=args.data,
+                        runs_subdir=args.runs_subdir,
+                    )
+                    rejections = collect_rejections(
+                        infos,
+                        tag=args.tag,
+                        pick_run=pick_run,
+                        replay_id=replay_id_for_pick,
+                        selected_case_dir=case_dir,
+                    )
+                if rejections:
+                    print("Rejected candidates:")
+                    for reject in rejections:
+                        print(f"- {reject.case_dir} ({reject.reason})")
+            if events_path is None:
+                raise ValueError("events_path was not resolved.")
+            if args.list_replay_matches:
+                if auto_resolve and not args.events:
+                    print(
+                        f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",
+                        file=sys.stderr,
+                    )
+                matches = collect_replay_case_matches(
+                    events_path,
+                    allow_bad_json=args.allow_bad_json,
+                )
+                if not matches:
+                    raise LookupError(_format_no_replay_cases_error(events_path))
+                print(format_replay_case_match_table(matches))
+                return 0
+            if args.list_replay_ids:
+                if auto_resolve and not args.events:
+                    print(
+                        f"INFO: events={events_path} selection_rule={selection_rule} run_dir={run_dir}",
+                        file=sys.stderr,
+                    )
+                replay_ids = collect_replay_case_ids(
+                    events_path,
+                    spec_idx=args.spec_idx,
+                    provider=args.provider,
+                    allow_bad_json=args.allow_bad_json,
+                )
+                if not replay_ids:
+                    raise LookupError(_format_no_replay_ids_error(events_path))
+                for line in _format_replay_id_lines(replay_ids, include_counts=True):
+                    print(line)
+                return 0
+            allow_prompt = (
+                sys.stdin.isatty()
+                and args.replay_select_index is None
+                and not args.require_unique
+                and not args.list_replay_matches
+            )
+            replay_ids = collect_replay_case_ids(
+                events_path,
+                spec_idx=None,
+                provider=None,
+                allow_bad_json=args.allow_bad_json,
+            )
+            if not replay_ids:
+                raise LookupError(_format_no_replay_ids_error(events_path))
+            if args.id and args.id not in replay_ids:
+                raise LookupError(_format_missing_replay_id_error(args.id, events_path, replay_ids))
+            if not args.id:
+                sorted_ids = _sorted_replay_ids(replay_ids)
+                if len(sorted_ids) == 1:
+                    args.id = sorted_ids[0]
+                    print(
+                        f"WARNING: --id not provided; using the only replay id found: {args.id}.",
+                        file=sys.stderr,
+                    )
+                else:
+                    raise LookupError(
+                        _format_missing_replay_id_selection_error(events_path, replay_ids)
+                    )
+            if args.pick_run == "latest_with_replay" and auto_resolve and args.case and args.data:
+                rerun_candidates, rerun_stats = list_case_runs(
+                    case_id=args.case,
+                    data_dir=args.data,
+                    tag=args.tag,
+                    pick_run="latest_with_replay",
+                    replay_id=args.id,
+                    runs_subdir=args.runs_subdir,
+                )
+                if rerun_candidates:
+                    selected = select_case_run(rerun_candidates, select_index=args.select_index)
+                    run_dir = selected.run_dir
+                    case_dir = selected.case_dir
+                    events_path = selected.events_path
+                    selection_rule = _format_selection_rule(tag=args.tag, pick_run="latest_with_replay")
+                    run_dir_source = "auto-resolve (replay-id)"
+                else:
+                    print(
+                        "WARNING: pick_run=latest_with_replay did not find a run for the "
+                        f"resolved replay id {args.id!r}; using previously resolved run.",
+                        file=sys.stderr,
+                    )
+            if args.all:
+                export_replay_case_bundles(
+                    events_path=events_path,
+                    out_dir=args.out,
+                    replay_id=args.id,
+                    input_hash=args.input_hash,
+                    spec_idx=args.spec_idx,
+                    provider=args.provider,
+                    run_dir=run_dir,
+                    allow_bad_json=args.allow_bad_json,
+                    overwrite=args.overwrite,
+                )
+            else:
+                export_replay_case_bundle(
+                    events_path=events_path,
+                    out_dir=args.out,
+                    replay_id=args.id,
+                    input_hash=args.input_hash,
+                    spec_idx=args.spec_idx,
+                    provider=args.provider,
+                    run_dir=run_dir,
+                    allow_bad_json=args.allow_bad_json,
+                    overwrite=args.overwrite,
+                    selection_policy=args.select,
+                    select_index=args.replay_select_index,
+                    require_unique=args.require_unique,
+                    allow_prompt=allow_prompt,
+                    prompt_fn=input,
+                )
+            return 0
+        if args.command == "fixture-green":
+            fixture_green(
+                case_path=args.case,
+                case_id=args.case_id,
+                name=args.name,
+                out_root=args.root,
+                validate=not args.no_validate,
+                expected_from=args.expected_from,
+                overwrite_expected=args.overwrite_expected,
+                dry_run=args.dry_run,
+                git_mode=args.git,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
+            )
+            return 0
+        if args.command == "fixture-rm":
+            removed = fixture_rm(
+                root=args.root,
+                bucket=args.bucket,
+                name=args.name,
+                pattern=args.pattern,
+                scope=args.scope,
+                dry_run=args.dry_run,
+                git_mode=args.git,
+                case_path=args.case,
+                case_id=args.case_id,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
+                all_matches=args.all,
+            )
+            print(f"Removed {removed} paths")
+            return 0
+        if args.command == "fixture-fix":
+            fixture_fix(
+                root=args.root,
+                bucket=args.bucket,
+                name=args.name,
+                new_name=args.new_name,
+                dry_run=args.dry_run,
+                git_mode=args.git,
+            )
+            return 0
+        if args.command == "fixture-migrate":
+            bundles_updated, files_moved = fixture_migrate(
+                root=args.root,
+                bucket=args.bucket,
+                dry_run=args.dry_run,
+                git_mode=args.git,
+                case_path=args.case,
+                case_id=args.case_id,
+                name=args.name,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
+                all_matches=args.all,
+            )
+            print(f"Updated {bundles_updated} bundles; moved {files_moved} files")
+            return 0
+        if args.command == "fixture-ls":
+            from fetchgraph.tracer.fixture_tools import fixture_ls
+
+            fixtures = fixture_ls(
+                root=args.root,
+                bucket=args.bucket,
+                case_id=args.case_id,
+                pattern=args.pattern,
+            )
+            if not fixtures:
+                print("No fixtures matched.")
+                return 0
+            for idx, candidate in enumerate(fixtures, start=1):
+                source = candidate.source or {}
+                print(
+                    f"{idx}. stem={candidate.stem} "
+                    f"path={candidate.path} "
+                    f"run_id={source.get('run_id')} "
+                    f"timestamp={source.get('timestamp')}"
+                )
+            return 0
+        if args.command == "fixture-demote":
+            from fetchgraph.tracer.fixture_tools import fixture_demote
+
+            fixture_demote(
+                root=args.root,
+                from_bucket=args.from_bucket,
+                to_bucket=args.to_bucket,
+                case_path=args.case,
+                case_id=args.case_id,
+                name=args.name,
+                dry_run=args.dry_run,
+                git_mode=args.git,
+                overwrite=args.overwrite,
+                select=args.select,
+                select_index=args.select_index,
+                require_unique=args.require_unique,
+                all_matches=args.all,
+            )
+            return 0
+    except (ValueError, FileNotFoundError, LookupError, KeyError, FileExistsError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except Exception as exc:  # pragma: no cover - unexpected
+        print(f"Unexpected error: {exc}", file=sys.stderr)
+        return 1
+    raise SystemExit(f"Unknown command: {args.command}")
+
+
+def _resolve_case_dir_from_run_dir(*, run_dir: Path, case_id: str) -> Path:
+    case_dirs = find_case_dirs(run_dir, case_id, LayoutConfig())
+    if not case_dirs:
+        raise LookupError(
+            "No case directories found under run.\n"
+            f"run_dir: {run_dir}\n"
+            f"case_id: {case_id}\n"
+            f"runs_root: {run_dir}"
+        )
+    return case_dirs[0]
+
+
+def _run_dir_from_case_dir(case_dir: Path) -> Path:
+    run_dir = run_root_from_case_dir(case_dir)
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
+    return run_dir
+
+
+def _format_case_run_error(stats, *, case_id: str, tag: str | None, pick_run: str = "latest_non_missed") -> str:
+    lines = [
+        "No suitable case run found.",
+        f"selection_rule: {_format_selection_rule(tag=tag, pick_run=pick_run)}",
+        f"runs_root: {stats.runs_root_cli}",
+        f"case_id: {case_id}",
+        f"inspected_runs: {stats.inspected_runs}",
+        f"inspected_cases: {stats.inspected_cases}",
+        f"missing_cases: {stats.missing_cases}",
+        f"missing_events: {stats.missing_events}",
+        f"missed_cases: {stats.missed_cases}",
+    ]
+    if tag:
+        lines.append(f"tag: {tag}")
+        lines.append(f"tag_mismatches: {stats.tag_mismatches}")
+        if stats.recent:
+            lines.append("recent_cases:")
+            for info in stats.recent[:5]:
+                lines.append(
+                    "  "
+                    f"case_dir={info.case_dir} "
+                    f"tag={info.tag!r} "
+                    f"events={bool(info.events.events_path)}"
+                )
+        lines.append("Tip: verify TAG or pass RUN_ID/CASE_DIR/EVENTS.")
+    else:
+        lines.append("Tip: pass TAG/RUN_ID/CASE_DIR/EVENTS for a narrower selection.")
+    return "\n".join(lines)
+
+
+def _format_events_error(case_dir: Path, resolution, *, selection_rule: str) -> str:
+    return "\n".join(
+        [
+            f"Selected case_dir: {case_dir}",
+            f"selection_rule: {selection_rule}",
+            format_events_search(case_dir, resolution),
+            "Tip: rerun the case or pass EVENTS=... explicitly.",
+        ]
+    )
+
+
+def _format_selection_rule(*, tag: str | None, pick_run: str) -> str:
+    base = "latest with events"
+    if pick_run == "latest_with_replay":
+        base = "latest with replay_case"
+    if tag:
+        return f"{base} filtered by TAG={tag!r}"
+    return base
+
+
+def _sorted_replay_ids(replay_ids: dict[str, int]) -> list[str]:
+    return sorted(replay_ids.keys())
+
+
+def _format_replay_id_lines(replay_ids: dict[str, int], *, include_counts: bool) -> list[str]:
+    lines: list[str] = []
+    for replay_id in _sorted_replay_ids(replay_ids):
+        if include_counts:
+            lines.append(f"{replay_id}\t{replay_ids[replay_id]}")
+        else:
+            lines.append(replay_id)
+    return lines
+
+
+def _format_no_replay_ids_error(events_path: Path) -> str:
+    return "\n".join(
+        [
+            f"ERROR: No replay_case events found in {events_path}.",
+            "Tip: ensure events emission is enabled and the run contains replay points.",
+            "Try:",
+            "  fetchgraph-tracer export-case-bundle ... --list-replay-matches",
+        ]
+    )
+
+
+def _format_no_replay_ids_all_candidates_error(candidates) -> str:
+    lines = [
+        "ERROR: No replay_case events found in any candidate run.",
+        f"inspected_candidates: {len(candidates)}",
+    ]
+    if candidates:
+        lines.append("candidate_events:")
+        for candidate in candidates[:5]:
+            lines.append(f"  - {candidate.events_path}")
+    lines.append("Tip: ensure events emission is enabled and the run contains replay points.")
+    lines.append("Try:")
+    lines.append("  fetchgraph-tracer export-case-bundle ... --list-replay-matches")
+    return "\n".join(lines)
+
+
+def _format_no_replay_cases_error(events_path: Path) -> str:
+    return "\n".join(
+        [
+            f"ERROR: No replay_case events found in {events_path}.",
+            "Tip: ensure events emission is enabled and the run contains replay points.",
+            "Try:",
+            "  fetchgraph-tracer export-case-bundle ... --list-replay-matches",
+        ]
+    )
+
+
+def _format_missing_replay_id_error(
+    replay_id: str, events_path: Path, replay_ids: dict[str, int]
+) -> str:
+    sorted_ids = _sorted_replay_ids(replay_ids)
+    lines = [
+        f"ERROR: replay id {replay_id!r} not found in {events_path}.",
+        "Found replay ids:",
+    ]
+    lines.extend([f"  - {candidate}" for candidate in sorted_ids])
+    if sorted_ids:
+        lines.append(f'Tip (CLI): use --id "{sorted_ids[0]}"')
+        lines.append(f"Tip (Make): use REPLAY_ID={sorted_ids[0]}")
+    return "\n".join(lines)
+
+
+def _format_missing_replay_id_selection_error(events_path: Path, replay_ids: dict[str, int]) -> str:
+    sorted_ids = _sorted_replay_ids(replay_ids)
+    lines = [
+        f"ERROR: --id is required when multiple replay ids are present in {events_path}.",
+        "Found replay ids:",
+    ]
+    lines.extend([f"  - {candidate}" for candidate in sorted_ids])
+    if sorted_ids:
+        lines.append(f'Tip (CLI): use --id "{sorted_ids[0]}"')
+        lines.append(f"Tip (Make): use REPLAY_ID={sorted_ids[0]}")
+    lines.append("Try:")
+    lines.append("  fetchgraph-tracer export-case-bundle ... --list-replay-ids")
+    return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

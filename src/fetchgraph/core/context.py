@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..parsing.plan_parser import PlanParser
 from ..planning.normalize import PlanNormalizer
+from ..replay.log import EventLoggerLike
 from .models import (
     BaselineSpec,
     ContextFetchSpec,
@@ -334,6 +335,7 @@ class BaseGraphAgent:
         task_profile: Optional[TaskProfile] = None,
         llm_refetch: Optional[Callable[[str, Dict[str, str], Plan], str]] = None,
         max_refetch_iters: int = 1,
+        event_logger: EventLoggerLike | None = None,
     ):
         self.llm_plan = llm_plan
         self.llm_synth = llm_synth
@@ -349,6 +351,9 @@ class BaseGraphAgent:
         self.plan_normalizer = plan_normalizer or PlanNormalizer.from_providers(
             providers
         )
+        self.event_logger = event_logger
+        if self.plan_normalizer is not None:
+            self.plan_normalizer.event_logger = event_logger
         self.baseline = baseline or []
         if self.plan_normalizer is not None and self.baseline:
             normalized_specs = self.plan_normalizer.normalize_specs(
@@ -437,6 +442,11 @@ class BaseGraphAgent:
         return parsed
 
     # ---- steps ----
+    def set_event_logger(self, event_logger: EventLoggerLike | None) -> None:
+        self.event_logger = event_logger
+        if self.plan_normalizer is not None:
+            self.plan_normalizer.event_logger = event_logger
+
     def _plan(self, feature_name: str) -> Plan:
         t0 = time.perf_counter()
         lite_ctx = self._lite_context(feature_name)
@@ -456,7 +466,7 @@ class BaseGraphAgent:
         else:
             plan = Plan.model_validate_json(plan_raw.text)
         if self.plan_normalizer is not None:
-            plan = self.plan_normalizer.normalize(plan)
+            plan = self.plan_normalizer.normalize(plan, event_logger=self.event_logger)
         elapsed = time.perf_counter() - t0
         logger.info(
             "Planning finished for feature_name=%r in %.3fs "

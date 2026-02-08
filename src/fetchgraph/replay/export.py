@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable
 
-from fetchgraph.utils.path_layout import validate_run_relative_posix
+from fetchgraph.utils.path_layout import safe_join_under_validated, validate_run_relative_posix
 
 logger = logging.getLogger(__name__)
 
@@ -625,14 +625,15 @@ def copy_resource_files(
         if not isinstance(file_name, str) or not file_name:
             continue
         rel_path = validate_run_relative_posix(file_name)
-        src_path = run_dir / rel_path
+        src_path = safe_join_under_validated(run_dir, rel_path)
         if not src_path.exists():
             raise FileNotFoundError(
                 f"Missing resource file for rid={resource_id!r}: "
                 f"src={src_path} (run_dir={run_dir}, fixture={fixture_stem})"
             )
         dest_rel = Path("resources") / fixture_stem / resource_id / rel_path
-        dest_path = out_dir / dest_rel
+        dest_rel = validate_run_relative_posix(dest_rel.as_posix())
+        dest_path = safe_join_under_validated(out_dir, dest_rel)
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         prev = planned.get(dest_path)
         if prev is not None:

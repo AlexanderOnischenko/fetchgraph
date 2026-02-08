@@ -157,6 +157,27 @@ def validate_run_relative_posix(path_str: str) -> Path:
     return Path(*rel.parts)
 
 
+def safe_join_under(root: Path, rel_posix: str) -> Path:
+    if not isinstance(root, Path):
+        raise ValueError("root must be a Path")
+    rel_path = validate_run_relative_posix(rel_posix)
+    return safe_join_under_validated(root, rel_path)
+
+
+def safe_join_under_validated(root: Path, rel_path: Path) -> Path:
+    if not isinstance(root, Path):
+        raise ValueError("root must be a Path")
+    if not isinstance(rel_path, Path):
+        raise ValueError("rel_path must be a Path")
+    if rel_path.is_absolute():
+        raise ValueError(f"path must be relative: {rel_path}")
+    root_resolved = root.resolve(strict=False)
+    candidate = (root / rel_path).resolve(strict=False)
+    if not candidate.is_relative_to(root_resolved):
+        raise ValueError(f"path escapes root: {rel_path} (root={root})")
+    return candidate
+
+
 def _find_cases_dir(run_root: Path, cfg: LayoutConfig) -> Path:
     direct = run_root / cfg.cases_dirname
     if direct.exists():
@@ -182,5 +203,7 @@ __all__ = [
     "run_relative_posix_path",
     "run_root_from_case_dir",
     "runs_root",
+    "safe_join_under",
+    "safe_join_under_validated",
     "validate_run_relative_posix",
 ]

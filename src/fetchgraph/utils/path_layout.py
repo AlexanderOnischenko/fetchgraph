@@ -157,6 +157,18 @@ def validate_run_relative_posix(path_str: str) -> Path:
     return Path(*rel.parts)
 
 
+def validate_safe_path_segment(name: str, *, what: str) -> str:
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"{what} must be a non-empty string")
+    if "/" in name or "\\" in name:
+        raise ValueError(f"{what} must be a single path segment: {name!r}")
+    if name in {".", ".."}:
+        raise ValueError(f"{what} must not be '.' or '..': {name!r}")
+    if ":" in name:
+        raise ValueError(f"{what} must not contain ':': {name!r}")
+    return name
+
+
 def safe_join_under(root: Path, rel_posix: str) -> Path:
     if not isinstance(root, Path):
         raise ValueError("root must be a Path")
@@ -205,5 +217,6 @@ __all__ = [
     "runs_root",
     "safe_join_under",
     "safe_join_under_validated",
+    "validate_safe_path_segment",
     "validate_run_relative_posix",
 ]

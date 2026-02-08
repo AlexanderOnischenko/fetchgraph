@@ -88,3 +88,11 @@ def test_resolve_resource_path_rejects_symlink_escape(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="escapes root"):
         ctx.resolve_resource_path(resource_path)
+
+
+def test_resolve_resource_path_rejects_other_fixture_resources(tmp_path: Path) -> None:
+    base_dir = tmp_path / "fixtures"
+    base_dir.mkdir()
+    ctx = ReplayContext(base_dir=base_dir, fixture_stem="case_1__abcd1234")
+    with pytest.raises(ValueError, match="resources/case_1__abcd1234/"):
+        ctx.resolve_resource_path("resources/other_fixture/data.json")

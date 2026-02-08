@@ -13,7 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable
 
-from fetchgraph.utils.path_layout import validate_run_relative_posix
+from fetchgraph.utils.path_layout import (
+    safe_join_under_validated,
+    validate_run_relative_posix,
+    validate_safe_path_segment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -613,11 +617,9 @@ def copy_resource_files(
     fixture_stem: str,
 ) -> None:
     planned: dict[Path, tuple[str, Path]] = {}
+    fixture_stem = validate_safe_path_segment(fixture_stem, what="fixture_stem")
     for resource_id, resource in resources.items():
-        if not isinstance(resource_id, str) or not resource_id:
-            raise ValueError("resource_id must be a non-empty string")
-        if "/" in resource_id or "\\" in resource_id or ".." in Path(resource_id).parts:
-            raise ValueError(f"resource_id must be a safe path segment: {resource_id!r}")
+        resource_id = validate_safe_path_segment(resource_id, what="resource_id")
         data_ref = resource.get("data_ref")
         if not isinstance(data_ref, dict):
             continue
@@ -625,14 +627,15 @@ def copy_resource_files(
         if not isinstance(file_name, str) or not file_name:
             continue
         rel_path = validate_run_relative_posix(file_name)
-        src_path = run_dir / rel_path
+        src_path = safe_join_under_validated(run_dir, rel_path)
         if not src_path.exists():
             raise FileNotFoundError(
                 f"Missing resource file for rid={resource_id!r}: "
                 f"src={src_path} (run_dir={run_dir}, fixture={fixture_stem})"
             )
         dest_rel = Path("resources") / fixture_stem / resource_id / rel_path
-        dest_path = out_dir / dest_rel
+        dest_rel = validate_run_relative_posix(dest_rel.as_posix())
+        dest_path = safe_join_under_validated(out_dir, dest_rel)
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         prev = planned.get(dest_path)
         if prev is not None:

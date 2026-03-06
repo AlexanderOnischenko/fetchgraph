@@ -123,6 +123,7 @@ class RelationalQuery(BaseModel):
     semantic_clauses: List[SemanticClause] = Field(default_factory=list)
     group_by: List[GroupBySpec] = Field(default_factory=list)
     aggregations: List[AggregationSpec] = Field(default_factory=list)
+    having: Optional[FilterClause] = None  # Filter on aggregation results
     limit: Optional[int] = 1000
     offset: Optional[int] = 0
     case_sensitivity: bool = False
@@ -133,6 +134,45 @@ class RelationalQuery(BaseModel):
     - tolerant to minor differences (see provider docs)
     If True, providers should use strict, case-sensitive comparisons.
     """
+    
+    @classmethod
+    def model_validate(cls, v: Any) -> "RelationalQuery":
+        """Validate and normalize the model.
+        
+        Normalizes filters from list format to LogicalFilter with 'and' operator.
+        """
+        if isinstance(v, dict):
+            v = dict(v)  # Make a copy to avoid mutating input
+            
+            # Normalize filters from list to LogicalFilter
+            filters = v.get("filters")
+            if isinstance(filters, list):
+                if len(filters) == 0:
+                    v["filters"] = None
+                elif len(filters) == 1:
+                    v["filters"] = filters[0]
+                else:
+                    v["filters"] = {
+                        "type": "logical",
+                        "op": "and",
+                        "clauses": filters,
+                    }
+            
+            # Normalize having from list to LogicalFilter
+            having = v.get("having")
+            if isinstance(having, list):
+                if len(having) == 0:
+                    v["having"] = None
+                elif len(having) == 1:
+                    v["having"] = having[0]
+                else:
+                    v["having"] = {
+                        "type": "logical",
+                        "op": "and",
+                        "clauses": having,
+                    }
+        
+        return super().model_validate(v)
 
 
 class SchemaRequest(BaseModel):

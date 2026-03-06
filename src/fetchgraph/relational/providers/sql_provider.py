@@ -556,6 +556,22 @@ class SqlRelationalDataProvider(RelationalDataProvider):
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         group_clause = f"GROUP BY {', '.join(group_cols)}" if group_cols else ""
+        
+        # Build HAVING clause (filter on aggregation results)
+        having_clause = ""
+        if req.having:
+            having_conditions: List[str] = []
+            having_params: List[Any] = []
+            having_sql = self._build_filters(
+                req.having, req.root_entity, index, having_params, case_sensitive=req.case_sensitivity
+            )
+            if having_sql:
+                having_conditions.append(having_sql)
+            if having_conditions:
+                having_clause = f"HAVING {' AND '.join(having_conditions)}"
+            if having_params:
+                params.extend(having_params)
+        
         limit_clause = f"LIMIT {req.limit}" if req.limit is not None else ""
         offset_clause = f"OFFSET {req.offset}" if req.offset else ""
 
@@ -572,6 +588,8 @@ class SqlRelationalDataProvider(RelationalDataProvider):
             sql_parts.append(where_clause)
         if group_clause:
             sql_parts.append(group_clause)
+        if having_clause:
+            sql_parts.append(having_clause)
         if order_clause:
             sql_parts.append(order_clause)
         if limit_clause:

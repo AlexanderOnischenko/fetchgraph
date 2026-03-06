@@ -1,0 +1,33 @@
+{
+  "bound_query": {
+    "bound_select": 0,
+    "resolved_relations": [],
+    "root_entity": "customers"
+  },
+  "diag": {
+    "aggregations_extracted": 0,
+    "compile_success": true,
+    "has_bound_query": true,
+    "has_transformed_selectors": true
+  },
+  "transformed_selectors": {
+    "case_sensitivity": false,
+    "filters": [
+      {
+        "field": "customer_id",
+        "op": "=",
+        "type": "comparison",
+        "value": "536"
+      }
+    ],
+    "limit": 1,
+    "op": "query",
+    "root_entity": "customers",
+    "select": [
+      {
+        "alias": "city",
+        "expr": "customers.city"
+      }
+    ]
+  }
+}

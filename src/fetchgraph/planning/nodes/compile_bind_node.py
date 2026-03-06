@@ -198,8 +198,13 @@ class CompileBindNode:
         if resolved_relations != relations:
             notes.append(f"CompileBindNode: resolved relations {relations} -> {resolved_relations}")
         
-        # Step 4: Bind fields (validation only - don't transform)
-        self._validate_fields(selectors, root_entity, notes, errors)
+        # Step 4: Move filters on aggregation aliases to HAVING clause
+        transformed_selectors = self._move_agg_filters_to_having(
+            transformed_selectors, notes
+        )
+        
+        # Step 5: Bind fields (validation only - don't transform)
+        self._validate_fields(transformed_selectors, root_entity, notes, errors)
         
         # Build bound query (for tracing/debugging)
         bound_query = BoundRelationalQuery(
@@ -362,6 +367,133 @@ class CompileBindNode:
                     # Function call in group_by (e.g., DATE_TRUNC)
                     notes.append(f"CompileBindNode: function in group_by: {field_expr} (will be handled at execution)")
     
+    def _move_agg_filters_to_having(
+        self,
+        selectors: Dict[str, Any],
+        notes: List[str],
+    ) -> Dict[str, Any]:
+        """Move filters on aggregation aliases to HAVING clause.
+        
+        Args:
+            selectors: Selectors dict
+            notes: Notes list to append to
+            
+        Returns:
+            Transformed selectors with having clause
+        """
+        transformed = dict(selectors)
+        
+        # Get aggregation aliases
+        agg_aliases = set()
+        for agg in selectors.get("aggregations", []):
+            if isinstance(agg, dict):
+                alias = agg.get("alias")
+                if alias:
+                    agg_aliases.add(alias)
+                # Also add the default alias format
+                field = agg.get("field", "")
+                agg_func = agg.get("agg", "")
+                if field and agg_func:
+                    agg_aliases.add(f"{agg_func}_{field.replace('.', '_')}")
+        
+        # Check if filters reference aggregation aliases
+        filters = selectors.get("filters")
+        if filters:
+            moved_filters = self._extract_agg_filters(filters, agg_aliases)
+            
+            if moved_filters:
+                # Remove moved filters from WHERE clause
+                remaining_filters = self._remove_agg_filters(filters, agg_aliases)
+                
+                if remaining_filters:
+                    transformed["filters"] = remaining_filters
+                else:
+                    transformed.pop("filters", None)
+                
+                # Add to HAVING clause
+                existing_having = selectors.get("having")
+                if existing_having:
+                    # Combine with existing having
+                    transformed["having"] = {
+                        "type": "logical",
+                        "op": "and",
+                        "clauses": [existing_having, moved_filters] if isinstance(moved_filters, dict) else [existing_having] + moved_filters,
+                    }
+                else:
+                    transformed["having"] = moved_filters
+                
+                notes.append(f"CompileBindNode: moved {len(moved_filters.get('clauses', [moved_filters]))} filter(s) on aggregation aliases to HAVING clause")
+        
+        return transformed
+    
+    def _extract_agg_filters(
+        self,
+        filters: Any,
+        agg_aliases: Set[str],
+    ) -> Optional[Any]:
+        """Extract filters that reference aggregation aliases.
+        
+        Returns filters that should be moved to HAVING clause.
+        """
+        if isinstance(filters, dict):
+            if filters.get("type") == "comparison":
+                field = filters.get("field", "")
+                if field in agg_aliases:
+                    return filters
+                return None
+            elif filters.get("type") == "logical":
+                moved_clauses = []
+                for clause in filters.get("clauses", []):
+                    moved = self._extract_agg_filters(clause, agg_aliases)
+                    if moved:
+                        moved_clauses.append(moved)
+                
+                if len(moved_clauses) == 0:
+                    return None
+                elif len(moved_clauses) == 1:
+                    return moved_clauses[0]
+                else:
+                    return {
+                        "type": "logical",
+                        "op": filters.get("op", "and"),
+                        "clauses": moved_clauses,
+                    }
+        return None
+    
+    def _remove_agg_filters(
+        self,
+        filters: Any,
+        agg_aliases: Set[str],
+    ) -> Optional[Any]:
+        """Remove filters that reference aggregation aliases.
+        
+        Returns remaining filters for WHERE clause.
+        """
+        if isinstance(filters, dict):
+            if filters.get("type") == "comparison":
+                field = filters.get("field", "")
+                if field in agg_aliases:
+                    return None
+                return filters
+            elif filters.get("type") == "logical":
+                remaining_clauses = []
+                for clause in filters.get("clauses", []):
+                    remaining = self._remove_agg_filters(clause, agg_aliases)
+                    if remaining:
+                        remaining_clauses.append(remaining)
+                
+                if len(remaining_clauses) == 0:
+                    return None
+                elif len(remaining_clauses) == 1:
+                    return remaining_clauses[0]
+                else:
+                    return {
+                        "type": "logical",
+                        "op": filters.get("op", "and"),
+                        "clauses": remaining_clauses,
+                    }
+        return None
+
     def _check_root_entity(self, root_entity: str) -> Optional[str]:
         """Check that root_entity exists in schema.
 

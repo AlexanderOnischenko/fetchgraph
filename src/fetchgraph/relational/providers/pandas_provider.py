@@ -508,6 +508,11 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             else:
                 size_series = cast(pd.Series, grouped.size())
                 agg_df = size_series.reset_index(name="count")
+            
+            # Apply HAVING clause (filter on aggregation results)
+            if req.having:
+                agg_df = self._apply_filters(agg_df, req.root_entity, req.having, case_sensitive=req.case_sensitivity)
+            
             if req.offset:
                 agg_df = agg_df.iloc[req.offset :]
             if req.limit is not None:

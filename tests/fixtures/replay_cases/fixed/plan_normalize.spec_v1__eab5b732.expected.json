@@ -1,0 +1,40 @@
+{
+  "notes_last": "{\"provider\": \"demo_qa\", \"selectors_validate_before\": \"ok\", \"selectors_validate_after\": \"ok\", \"selectors_normalization_decision\": \"keep_original_valid\"}",
+  "out_spec": {
+    "mode": "slice",
+    "provider": "demo_qa",
+    "selectors": {
+      "case_sensitivity": false,
+      "filters": {
+        "clauses": [
+          {
+            "entity": "customers",
+            "field": "city",
+            "op": "=",
+            "type": "comparison",
+            "value": "San Antonio"
+          },
+          {
+            "field": "order_date",
+            "op": "starts_with",
+            "type": "comparison",
+            "value": "2022-03"
+          }
+        ],
+        "op": "and",
+        "type": "logical"
+      },
+      "op": "query",
+      "relations": [
+        "orders_to_customers"
+      ],
+      "root_entity": "orders",
+      "select": [
+        {
+          "alias": "order_count",
+          "expr": "count(order_id)"
+        }
+      ]
+    }
+  }
+}

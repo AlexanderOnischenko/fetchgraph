@@ -1,0 +1,21 @@
+{
+  "notes_last": "{\"provider\": \"demo_qa\", \"selectors_validate_before\": \"error\", \"selectors_validate_after\": \"ok\", \"selectors_normalization_decision\": \"use_normalized_fixed\", \"selectors_before\": {\"aggregations\": [{\"agg\": \"count\", \"alias\": \"total_products\", \"field\": \"product_id\"}], \"entity\": \"products\", \"op\": \"aggregate\"}, \"selectors_after\": {\"aggregations\": [{\"agg\": \"count\", \"alias\": \"total_products\", \"field\": \"product_id\"}], \"op\": \"query\", \"root_entity\": \"products\", \"select\": [], \"group_by\": [], \"filters\": null}}",
+  "out_spec": {
+    "mode": "slice",
+    "provider": "demo_qa",
+    "selectors": {
+      "aggregations": [
+        {
+          "agg": "count",
+          "alias": "total_products",
+          "field": "product_id"
+        }
+      ],
+      "filters": null,
+      "group_by": [],
+      "op": "query",
+      "root_entity": "products",
+      "select": []
+    }
+  }
+}

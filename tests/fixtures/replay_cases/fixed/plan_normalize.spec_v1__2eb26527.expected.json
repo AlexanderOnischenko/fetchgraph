@@ -1,0 +1,35 @@
+{
+  "notes_last": "{\"provider\": \"demo_qa\", \"selectors_validate_before\": \"error\", \"selectors_validate_after\": \"ok\", \"selectors_normalization_decision\": \"use_normalized_fixed\", \"selectors_before\": {\"aggregations\": [{\"agg\": \"count_distinct\", \"alias\": \"unique_customers\", \"field\": \"customer_id\"}], \"filters\": {\"entity\": \"orders\", \"field\": \"order_id\", \"op\": \"is_not_null\", \"type\": \"comparison\"}, \"op\": \"query\", \"relations\": [\"orders_to_customers\"], \"root_entity\": \"customers\", \"select\": [{\"alias\": \"customer_id\", \"expr\": \"customers.customer_id\"}]}, \"selectors_after\": {\"aggregations\": [{\"agg\": \"count_distinct\", \"alias\": \"unique_customers\", \"field\": \"customer_id\"}], \"filters\": {\"entity\": \"orders\", \"field\": \"order_id\", \"op\": \"is_not_null\", \"type\": \"comparison\", \"value\": null}, \"op\": \"query\", \"relations\": [\"orders_to_customers\"], \"root_entity\": \"customers\", \"select\": [{\"alias\": \"customer_id\", \"expr\": \"customers.customer_id\"}], \"group_by\": []}}",
+  "out_spec": {
+    "mode": "slice",
+    "provider": "demo_qa",
+    "selectors": {
+      "aggregations": [
+        {
+          "agg": "count_distinct",
+          "alias": "unique_customers",
+          "field": "customer_id"
+        }
+      ],
+      "filters": {
+        "entity": "orders",
+        "field": "order_id",
+        "op": "is_not_null",
+        "type": "comparison",
+        "value": null
+      },
+      "group_by": [],
+      "op": "query",
+      "relations": [
+        "orders_to_customers"
+      ],
+      "root_entity": "customers",
+      "select": [
+        {
+          "alias": "customer_id",
+          "expr": "customers.customer_id"
+        }
+      ]
+    }
+  }
+}

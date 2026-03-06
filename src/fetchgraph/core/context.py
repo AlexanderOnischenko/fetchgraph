@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any, Dict, List, Optional
 
 from ..parsing.plan_parser import PlanParser
 from ..replay.log import EventLoggerLike
@@ -50,15 +51,15 @@ def normalize_llm_output(raw: Any) -> RawLLMOutput:
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
-def _apply_provider_filter(provider: ContextProvider, obj: Any, selectors: Optional[Dict[str, Any]]):
+def _apply_provider_filter(provider: ContextProvider, obj: Any, selectors: dict[str, Any] | None):
     if isinstance(provider, SupportsFilter):
         return provider.filter(obj, selectors)
     return obj
 
-def provider_catalog_text(providers: Dict[str, ContextProvider]) -> str:
-    lines: List[str] = []
+def provider_catalog_text(providers: dict[str, ContextProvider]) -> str:
+    lines: list[str] = []
     for key, prov in providers.items():
-        info: Optional[ProviderInfo] = None
+        info: ProviderInfo | None = None
         if isinstance(prov, SupportsDescribe):
             try:
                 info = prov.describe()
@@ -109,12 +110,12 @@ class ContextPacker:
     def _estimate_tokens(text: str) -> int:
         return max(1, len(text) // 4)
 
-    def pack(self, items: List[ContextItem]) -> List[ContextItem]:
+    def pack(self, items: list[ContextItem]) -> list[ContextItem]:
         if not items:
             logger.info("ContextPacker: no items to pack (max_tokens=%d)", self.max_tokens)
 
         items = sorted(items, key=lambda x: x.tokens)
-        out: List[ContextItem] = []
+        out: list[ContextItem] = []
         budget = 0
         total_tokens_before = sum(i.tokens for i in items)
 
@@ -181,12 +182,12 @@ class ContextPacker:
 def make_llm_plan_generic(
     llm_invoke: LLMInvoke,
     task_profile: TaskProfile,
-    providers: Dict[str, ContextProvider],
-) -> Callable[[str, Dict[str, str]], str]:
+    providers: dict[str, ContextProvider],
+) -> Callable[[str, dict[str, str]], str]:
     tpl = load_pkg_text("prompts/plan_generic.md")
     catalog = provider_catalog_text(providers)
 
-    def llm_plan(feature_name: str, lite_ctx: Dict[str, str]) -> str:
+    def llm_plan(feature_name: str, lite_ctx: dict[str, str]) -> str:
         user_query = feature_name
 
         prompt = render_prompt(
@@ -221,17 +222,17 @@ def make_llm_plan_generic(
 def make_llm_synth_generic(
     llm_invoke: LLMInvoke,
     task_profile: TaskProfile,
-) -> Callable[[str, Dict[str, str], Plan], str]:
+) -> Callable[[str, dict[str, str], Plan], str]:
     tpl = load_pkg_text("prompts/synth_generic.md")
 
-    def _bundle_ctx(ctx_text: Dict[str, str]) -> str:
+    def _bundle_ctx(ctx_text: dict[str, str]) -> str:
         parts = []
         for k, v in (ctx_text or {}).items():
             if v and v.strip():
                 parts.append(f"<<<{k.upper()}>>>\n{v}\n<</{k.upper()}>>>")
         return "\n".join(parts) if parts else "(контекст недоступен)"
 
-    def llm_synth(feature_name: str, ctx_text: Dict[str, str], plan: Plan) -> str:
+    def llm_synth(feature_name: str, ctx_text: dict[str, str], plan: Plan) -> str:
         user_query = feature_name
 
         prompt = render_prompt(
@@ -269,18 +270,19 @@ def make_llm_synth_generic(
 def create_generic_agent(
     *,
     llm_invoke: LLMInvoke,
-    providers: Dict[str, ContextProvider],
+    providers: dict[str, ContextProvider],
     saver: Saver | Callable[[str, Any], None],
     task_profile: TaskProfile,
-    verifiers: Optional[List[Verifier]] = None,
-    baseline: Optional[List[BaselineSpec]] = None,
-    plan_parser: Optional[Callable[[RawLLMOutput], Plan]] = None,
-    domain_parser: Optional[Callable[[RawLLMOutput], Any]] = None,
-    llm_refetch: Optional[Callable[[str, Dict[str, str], Plan], str]] = None,
+    verifiers: list[Verifier] | None = None,
+    baseline: list[BaselineSpec] | None = None,
+    plan_parser: Callable[[RawLLMOutput], Plan] | None = None,
+    domain_parser: Callable[[RawLLMOutput], Any] | None = None,
+    llm_refetch: Callable[[str, dict[str, str], Plan], str] | None = None,
     max_refetch_iters: int = 1,
     max_tokens: int = 4000,
-    summarizer_llm: Optional[Callable[[str], str]] = None,
+    summarizer_llm: Callable[[str], str] | None = None,
     use_pipeline_normalizer: bool = True,  # NEW: use node-based pipeline
+    enable_replay_logging: bool = False,  # Disabled by default for production
 ) -> BaseGraphAgent:
     """Convenience wrapper building a generic :class:`BaseGraphAgent`.
 
@@ -307,27 +309,39 @@ def create_generic_agent(
     plan_normalizer = None
     if use_pipeline_normalizer:
         try:
-            from fetchgraph.planning.adapter import create_pipeline_normalizer
             from fetchgraph.core.models import Plan
-            
+            from fetchgraph.planning.adapter import (
+                REPLAY_HANDLERS_REGISTERED,
+                create_pipeline_normalizer,
+            )
+
             # Build schema from providers if available
             schema = None
             for prov in providers.values():
                 if hasattr(prov, 'describe'):
                     try:
-                        info = prov.describe()
+                        info = prov.describe()  # type: ignore
                         if hasattr(info, 'selectors_schema') and info.selectors_schema:
                             schema = info.selectors_schema
                             break
                     except Exception:
                         pass
-            
+
             plan_normalizer = create_pipeline_normalizer(
                 providers=providers,
                 plan_model=Plan,
                 schema=schema,
-                llm_fn=llm_invoke,  # For refetch
+                llm_fn=llm_invoke,  # type: ignore
+                enable_replay_logging=enable_replay_logging,
             )
+            
+            # Log replay handlers status
+            import logging
+            logger = logging.getLogger(__name__)
+            if REPLAY_HANDLERS_REGISTERED:
+                logger.info("Pipeline normalizer created with replay handlers registered ✓")
+            else:
+                logger.warning("Pipeline normalizer created but replay handlers NOT registered ✗")
         except ImportError as e:
             # Fallback to legacy normalizer if pipeline not available
             import logging
@@ -360,19 +374,19 @@ def create_generic_agent(
 class BaseGraphAgent:
     def __init__(
         self,
-        llm_plan: Optional[Callable[[str, Dict[str, str]], str]],
-        llm_synth: Callable[[str, Dict[str, str], Plan], str],
+        llm_plan: Callable[[str, dict[str, str]], str] | None,
+        llm_synth: Callable[[str, dict[str, str], Plan], str],
         domain_parser: Callable[[RawLLMOutput], Any],
         saver: Saver | Callable[[str, Any], None],
-        providers: Dict[str, ContextProvider],
-        verifiers: List[Verifier],
+        providers: dict[str, ContextProvider],
+        verifiers: list[Verifier],
         packer: ContextPacker,
-        plan_parser: Optional[Callable[[RawLLMOutput], Plan]] = None,
-        plan_normalizer: Optional[Any] = None,  # PipelineNormalizerAdapter or legacy
-        baseline: Optional[List[BaselineSpec]] = None,
+        plan_parser: Callable[[RawLLMOutput], Plan] | None = None,
+        plan_normalizer: Any | None = None,  # PipelineNormalizerAdapter or legacy
+        baseline: list[BaselineSpec] | None = None,
         max_retries: int = 2,
-        task_profile: Optional[TaskProfile] = None,
-        llm_refetch: Optional[Callable[[str, Dict[str, str], Plan], str]] = None,
+        task_profile: TaskProfile | None = None,
+        llm_refetch: Callable[[str, dict[str, str], Plan], str] | None = None,
         max_refetch_iters: int = 1,
         event_logger: EventLoggerLike | None = None,
     ):
@@ -401,8 +415,13 @@ class BaseGraphAgent:
                 )
             except ImportError:
                 # Legacy fallback (will be removed in future)
-                from ..planning.normalize.legacy import PlanNormalizer
-                self.plan_normalizer = PlanNormalizer.from_providers(providers)
+                try:
+                    from ..planning.normalize.legacy import (  # type: ignore[import-not-found]
+                        PlanNormalizer,
+                    )
+                    self.plan_normalizer = PlanNormalizer.from_providers(providers)
+                except ImportError:
+                    self.plan_normalizer = None
         
         self.event_logger = event_logger
         if self.plan_normalizer is not None:
@@ -543,8 +562,8 @@ class BaseGraphAgent:
         )
         return plan
 
-    def _merge_baseline_with_plan(self, plan: Plan) -> List[ContextFetchSpec]:
-        by_provider: Dict[str, ContextFetchSpec] = {}
+    def _merge_baseline_with_plan(self, plan: Plan) -> list[ContextFetchSpec]:
+        by_provider: dict[str, ContextFetchSpec] = {}
         for b in self.baseline:
             by_provider.setdefault(b.spec.provider, b.spec)
         for s in plan.context_plan or []:
@@ -561,7 +580,7 @@ class BaseGraphAgent:
         )
         return specs
 
-    def _fetch(self, feature_name: str, plan: Plan) -> Dict[str, ContextItem]:
+    def _fetch(self, feature_name: str, plan: Plan) -> dict[str, ContextItem]:
         t0 = time.perf_counter()
         specs = self._merge_baseline_with_plan(plan)
         logger.info(
@@ -570,7 +589,7 @@ class BaseGraphAgent:
             len(specs),
         )
 
-        gathered: List[ContextItem] = []
+        gathered: list[ContextItem] = []
 
         for spec in specs:
             prov = self.providers.get(spec.provider)
@@ -640,7 +659,7 @@ class BaseGraphAgent:
     def _assess_refetch_loop(
         self,
         feature_name: str,
-        ctx: Dict[str, ContextItem],
+        ctx: dict[str, ContextItem],
         plan: Plan,
     ):
         logger.info(
@@ -720,8 +739,8 @@ class BaseGraphAgent:
         return ctx, plan
 
     def _ensure_required_baseline(
-        self, feature_name: str, ctx: Dict[str, ContextItem]
-    ) -> Dict[str, ContextItem]:
+        self, feature_name: str, ctx: dict[str, ContextItem]
+    ) -> dict[str, ContextItem]:
         out = dict(ctx)
         added = 0
         for b in self.baseline:
@@ -765,7 +784,7 @@ class BaseGraphAgent:
         return out
 
     def _synthesize(
-        self, feature_name: str, ctx: Dict[str, ContextItem], plan: Plan
+        self, feature_name: str, ctx: dict[str, ContextItem], plan: Plan
     ) -> RawLLMOutput:
         ctx_text = {k: v.text for k, v in (ctx or {}).items()}
         tokens = sum(v.tokens for v in (ctx or {}).values())
@@ -791,7 +810,7 @@ class BaseGraphAgent:
     def _verify_and_refine(
         self,
         feature_name: str,
-        ctx: Dict[str, ContextItem],
+        ctx: dict[str, ContextItem],
         plan: Plan,
         draft: RawLLMOutput,
     ) -> tuple[RawLLMOutput, bool]:
@@ -803,7 +822,7 @@ class BaseGraphAgent:
             )
 
         while True:
-            errors: List[str] = []
+            errors: list[str] = []
             for v in self.verifiers:
                 try:
                     v_name = getattr(v, "name", v.__class__.__name__)
@@ -861,8 +880,8 @@ class BaseGraphAgent:
             retries += 1
 
     # ---- lite context (optional) ----
-    def _lite_context(self, feature_name: str) -> Dict[str, str]:
-        out: Dict[str, str] = {}
+    def _lite_context(self, feature_name: str) -> dict[str, str]:
+        out: dict[str, str] = {}
         keys = self.task_profile.lite_context_keys or []
         if keys:
             logger.info(

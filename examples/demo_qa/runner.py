@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 import datetime
-import traceback
 import hashlib
 import json
 import re
 import shutil
 import statistics
 import time
+import traceback
 import uuid
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Protocol, TypedDict
-
-from typing_extensions import NotRequired
+from typing import Dict, List, NotRequired, Protocol, TypedDict
 
 from fetchgraph.core import create_generic_agent
 from fetchgraph.core.context import BaseGraphAgent
 from fetchgraph.core.models import TaskProfile
 from fetchgraph.replay.snapshots import snapshot_provider_catalog
+from fetchgraph.utils import set_run_id
 from fetchgraph.utils.path_layout import (
     LayoutConfig,
     RunLayout,
@@ -27,10 +27,10 @@ from fetchgraph.utils.path_layout import (
     run_relative_posix_path,
     run_root_from_case_dir,
 )
-from fetchgraph.utils import set_run_id
+
 
 class CaseEventLoggerFactory(Protocol):
-    def for_case(self, case_id: str, events_path: Path) -> "EventLogger": ...
+    def for_case(self, case_id: str, events_path: Path) -> EventLogger: ...
 
 
 class _DefaultEventLoggerSentinel:
@@ -61,8 +61,8 @@ class RunArtifacts:
     run_id: str
     run_dir: Path
     question: str
-    plan: Dict[str, object] | None = None
-    context: Dict[str, object] | None = None
+    plan: dict[str, object] | None = None
+    context: dict[str, object] | None = None
     answer: str | None = None
     raw_synth: str | None = None
     error: str | None = None
@@ -77,7 +77,7 @@ class RunResult:
     status: str
     checked: bool
     reason: str | None
-    details: Dict[str, object] | None
+    details: dict[str, object] | None
     artifacts_dir: str
     duration_ms: int
     tags: list[str]
@@ -87,8 +87,8 @@ class RunResult:
     timings: RunTimings | None = None
     expected_check: ExpectedCheck | None = None
 
-    def to_json(self) -> Dict[str, object]:
-        payload: Dict[str, object] = {
+    def to_json(self) -> dict[str, object]:
+        payload: dict[str, object] = {
             "id": self.id,
             "question": self.question,
             "status": self.status,
@@ -115,7 +115,7 @@ class Case:
     expected: str | None = None
     expected_regex: str | None = None
     expected_contains: str | None = None
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     skip: bool = False
 
     @property
@@ -144,6 +144,7 @@ class AgentRunner:
             providers={provider.name: provider},
             saver=saver,
             task_profile=task_profile,
+            enable_replay_logging=True,  # Enable tracing for demo_qa tests
         )
 
     def run_question(
@@ -229,7 +230,7 @@ def _hash_file(path: Path) -> str:
     return f"sha256:{hasher.hexdigest()}"
 
 
-def _provider_catalog_snapshot(agent: object) -> Dict[str, object]:
+def _provider_catalog_snapshot(agent: object) -> dict[str, object]:
     plan_normalizer = getattr(agent, "plan_normalizer", None)
     provider_catalog = getattr(plan_normalizer, "provider_catalog", {}) if plan_normalizer else {}
     return snapshot_provider_catalog(provider_catalog)
@@ -266,7 +267,7 @@ def _emit_planner_input(
     schema_ref: str | None,
     plan_only: bool,
 ) -> None:
-    input_payload: Dict[str, object] = {
+    input_payload: dict[str, object] = {
         "feature_name": case.id,
         "user_query": case.question,
         "options": {"plan_only": plan_only},
@@ -359,7 +360,7 @@ def _build_result(
 ) -> RunResult:
     status = "unchecked"
     reason: str | None = None
-    details: Dict[str, object] | None = None
+    details: dict[str, object] | None = None
 
     if artifacts.error:
         status = "error"
@@ -543,14 +544,14 @@ def run_one(
             )
 
 
-def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
+def summarize(results: Iterable[RunResult]) -> dict[str, object]:
     totals = {"ok": 0, "mismatch": 0, "failed": 0, "error": 0, "skipped": 0, "unchecked": 0, "plan_only": 0}
-    total_times: List[float] = []
+    total_times: list[float] = []
     checked_total = 0
     checked_ok = 0
     unchecked_no_assert = 0
     plan_only = 0
-    per_tag: Dict[str, Dict[str, object]] = {}
+    per_tag: dict[str, dict[str, object]] = {}
     for res in results:
         totals[res.status] = totals.get(res.status, 0) + 1
         if res.duration_ms is not None:
@@ -570,7 +571,7 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
             bucket[res.status] = bucket.get(res.status, 0) + 1
             bucket["total"] = bucket.get("total", 0) + 1
 
-    summary: Dict[str, object] = {
+    summary: dict[str, object] = {
         "total": sum(totals.values()),
         "checked_total": checked_total,
         "checked_ok": checked_ok,
@@ -600,10 +601,10 @@ def summarize(results: Iterable[RunResult]) -> Dict[str, object]:
     return summary
 
 
-def load_cases(path: Path) -> List[Case]:
+def load_cases(path: Path) -> list[Case]:
     if not path.exists():
         raise FileNotFoundError(f"Cases file not found: {path}")
-    cases: List[Case] = []
+    cases: list[Case] = []
     seen_ids: set[str] = set()
     text = path.read_text(encoding="utf-8")
     stripped = text.lstrip()
@@ -734,8 +735,8 @@ def _run_result_from_payload(payload: Mapping[str, object]) -> RunResult:
     )
 
 
-def load_results(path: Path) -> Dict[str, RunResult]:
-    results: Dict[str, RunResult] = {}
+def load_results(path: Path) -> dict[str, RunResult]:
+    results: dict[str, RunResult] = {}
     if not path.exists():
         raise FileNotFoundError(f"Results file not found: {path}")
     with path.open("r", encoding="utf-8") as f:
@@ -979,17 +980,17 @@ class EventLogger:
         if path:
             path.parent.mkdir(parents=True, exist_ok=True)
 
-    def emit(self, event: Dict[str, object]) -> None:
+    def emit(self, event: dict[str, object]) -> None:
         if not self.path:
             return
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         payload = {"timestamp": now.isoformat().replace("+00:00", "Z"), "run_id": self.run_id, **event}
         if self.case_id and "case_id" not in payload:
             payload["case_id"] = self.case_id
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
-    def for_case(self, case_id: str, path: Path) -> "EventLogger":
+    def for_case(self, case_id: str, path: Path) -> EventLogger:
         return EventLogger(path, self.run_id, case_id)
 
 
@@ -1026,9 +1027,9 @@ class DiffReport(TypedDict):
     new_total_cases: int
     base_only_count: int
     new_only_count: int
-    base_counts: Dict[str, object]
-    new_counts: Dict[str, object]
-    counts_delta: Dict[str, int | float | None]
+    base_counts: dict[str, object]
+    new_counts: dict[str, object]
+    counts_delta: dict[str, int | float | None]
     base_median: float | None
     new_median: float | None
     base_avg: float | None

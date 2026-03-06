@@ -12,6 +12,7 @@ This is the boundary between "what" (normalized query) and "how" (execution).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
@@ -34,7 +35,7 @@ class LoweredQuery:
     method: Literal["sql", "pandas", "api", "custom"]
     
     # Metadata for execution
-    execution_hints: Dict[str, Any] = field(default_factory=dict)
+    execution_hints: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -42,13 +43,13 @@ class LoweringResult:
     """Result from lowering."""
     
     # Lowered query
-    lowered_query: Optional[LoweredQuery]
+    lowered_query: LoweredQuery | None
     
     # Lowering errors
-    errors: List[str]
+    errors: list[str]
     
     # Notes
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 class LoweringNode:
@@ -66,7 +67,7 @@ class LoweringNode:
     def __init__(
         self,
         provider: str,
-        lowering_fn: Optional[callable] = None,
+        lowering_fn: Callable | None = None,
     ) -> None:
         self.provider = provider
         self.lowering_fn = lowering_fn
@@ -74,7 +75,7 @@ class LoweringNode:
     def execute(
         self,
         ctx: NodeContext,
-        selectors: Dict[str, Any],
+        selectors: dict[str, Any],
     ) -> NodeResult[LoweringResult]:
         """Execute lowering.
         
@@ -107,9 +108,9 @@ class LoweringNode:
     
     def lower_to_sql(
         self,
-        selectors: Dict[str, Any],
-        schema: Dict[str, Any],
-    ) -> tuple[Optional[str], List[str]]:
+        selectors: dict[str, Any],
+        schema: dict[str, Any],
+    ) -> tuple[str | None, list[str]]:
         """Lower relational selectors to SQL.
         
         Returns:
@@ -120,9 +121,9 @@ class LoweringNode:
     
     def lower_to_pandas(
         self,
-        selectors: Dict[str, Any],
-        frames: Dict[str, Any],
-    ) -> tuple[Optional[Any], List[str]]:
+        selectors: dict[str, Any],
+        frames: dict[str, Any],
+    ) -> tuple[Any | None, list[str]]:
         """Lower relational selectors to pandas operations.
         
         Returns:

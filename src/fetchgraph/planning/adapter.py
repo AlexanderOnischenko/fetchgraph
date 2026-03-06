@@ -22,7 +22,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -31,13 +32,21 @@ from fetchgraph.core.protocols import ContextProvider
 from fetchgraph.replay.log import EventLoggerLike
 
 from .nodes import (
-    PlanningPipeline,
     PipelineConfig,
     PipelineResult,
+    PlanningPipeline,
     ProviderNormalizationRule,
-    ValidationRule,
     RepairRule,
+    ValidationRule,
 )
+
+# Import replay handlers to register them (side-effect import)
+# This enables tracer fixture creation for pipeline stages
+try:
+    from . import replay_handlers  # noqa: F401
+    REPLAY_HANDLERS_REGISTERED = True
+except ImportError:
+    REPLAY_HANDLERS_REGISTERED = False
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +65,10 @@ class PipelineNormalizerAdapter:
     ) -> None:
         self.pipeline = pipeline
         self.plan_model = plan_model
-        self.event_logger: Optional[EventLoggerLike] = None
-        self.provider_catalog: Dict[str, Any] = {}
+        self.event_logger: EventLoggerLike | None = None
+        self.provider_catalog: dict[str, Any] = {}
     
-    def normalize(self, plan: Plan, *, event_logger: Optional[EventLoggerLike] = None) -> Plan:
+    def normalize(self, plan: Plan, *, event_logger: EventLoggerLike | None = None) -> Plan:
         """Normalize a Plan using the node-based pipeline.
         
         This is the main entry point called by BaseGraphAgent.
@@ -72,11 +81,14 @@ class PipelineNormalizerAdapter:
             Normalized Plan (or original if pipeline fails)
         """
         self.event_logger = event_logger or self.event_logger
-        
+
+        # Pass event_logger to pipeline state
+        self.pipeline.state.event_logger = self.event_logger
+
         # Convert Plan to raw text representation
         # (In real usage, this would come from LLM, but here we reconstruct from Plan)
         raw_plan_text = self._plan_to_raw_text(plan)
-        
+
         # Execute pipeline
         result = self.pipeline.execute(raw_plan_text)
         
@@ -94,11 +106,11 @@ class PipelineNormalizerAdapter:
     
     def normalize_specs(
         self,
-        specs: List[Any],
+        specs: list[Any],
         *,
-        notes: Optional[List[str]] = None,
-        event_logger: Optional[EventLoggerLike] = None,
-    ) -> List[Any]:
+        notes: list[str] | None = None,
+        event_logger: EventLoggerLike | None = None,
+    ) -> list[Any]:
         """Normalize context fetch specs (legacy interface).
         
         For now, this is a stub that passes through unchanged.
@@ -141,7 +153,7 @@ class PipelineNormalizerAdapter:
         # For now, return a minimal Plan with normalized selectors
         # In real usage, this would reconstruct the full Plan structure
         
-        from fetchgraph.core.models import Plan, ContextFetchSpec
+        from fetchgraph.core.models import ContextFetchSpec, Plan
         
         # Extract normalized selectors from pipeline output
         # (This depends on what the pipeline actually produces)
@@ -163,14 +175,15 @@ class PipelineNormalizerAdapter:
 
 
 def create_pipeline_normalizer(
-    providers: Dict[str, ContextProvider],
-    plan_model: Optional[type[BaseModel]] = None,
-    schema: Optional[Dict[str, Any]] = None,
-    llm_fn: Optional[Callable[[str], str]] = None,
-    config: Optional[PipelineConfig] = None,
-    provider_rules: Optional[List[ProviderNormalizationRule]] = None,
-    validation_rules: Optional[List[ValidationRule]] = None,
-    repair_rules: Optional[List[RepairRule]] = None,
+    providers: dict[str, ContextProvider],
+    plan_model: type[BaseModel] | None = None,
+    schema: dict[str, Any] | None = None,
+    llm_fn: Callable[[str], str] | None = None,
+    config: PipelineConfig | None = None,
+    provider_rules: list[ProviderNormalizationRule] | None = None,
+    validation_rules: list[ValidationRule] | None = None,
+    repair_rules: list[RepairRule] | None = None,
+    enable_replay_logging: bool = False,  # Disabled by default for production
 ) -> PipelineNormalizerAdapter:
     """Create a PipelineNormalizerAdapter from providers.
     
@@ -205,7 +218,14 @@ def create_pipeline_normalizer(
     # Build repair rules if not provided
     if repair_rules is None:
         repair_rules = _build_repair_rules()
-    
+
+    # Create pipeline config with replay logging setting
+    if config is None:
+        config = PipelineConfig(enable_replay_logging=enable_replay_logging)
+    else:
+        # Override enable_replay_logging if explicitly provided
+        config.enable_replay_logging = enable_replay_logging
+
     # Create pipeline
     pipeline = PlanningPipeline(
         config=config,
@@ -219,12 +239,12 @@ def create_pipeline_normalizer(
     
     # Create adapter
     adapter = PipelineNormalizerAdapter(pipeline, plan_model)
-    
+
     # Extract provider catalog for compatibility
     for name, provider in providers.items():
         try:
             if hasattr(provider, 'describe'):
-                info = provider.describe()
+                info = provider.describe()  # type: ignore
                 adapter.provider_catalog[name] = {
                     'name': info.name if hasattr(info, 'name') else name,
                     'capabilities': info.capabilities if hasattr(info, 'capabilities') else [],
@@ -232,16 +252,16 @@ def create_pipeline_normalizer(
         except Exception as e:
             logger.warning(f"Failed to describe provider {name}: {e}")
             adapter.provider_catalog[name] = {'name': name, 'capabilities': []}
-    
+
     return adapter
 
 
 def _build_provider_rules_from_providers(
-    providers: Dict[str, ContextProvider]
-) -> List[ProviderNormalizationRule]:
+    providers: dict[str, ContextProvider]
+) -> list[ProviderNormalizationRule]:
     """Build provider normalization rules from provider instances."""
     rules = []
-    
+
     for name, provider in providers.items():
         # Check if provider has a normalizer (e.g., relational providers)
         if hasattr(provider, 'normalize_selectors'):
@@ -249,41 +269,41 @@ def _build_provider_rules_from_providers(
             rules.append(ProviderNormalizationRule(
                 provider=name,
                 kind=f"{name}_v1",
-                validator=None,  # Would need TypeAdapter
+                validator=None,  # type: ignore  # Would need TypeAdapter
                 normalize_selectors=normalize_fn,
             ))
-    
+
     return rules
 
 
 def _build_validation_rules(
-    providers: Dict[str, ContextProvider]
-) -> List[ValidationRule]:
+    providers: dict[str, ContextProvider]
+) -> list[ValidationRule]:
     """Build validation rules from providers."""
     rules = []
-    
+
     for name, provider in providers.items():
         # Check if provider has a validator
         if hasattr(provider, 'validate_selectors'):
             validate_fn = getattr(provider, 'validate_selectors')
             rules.append(ValidationRule(
                 provider=name,
-                validator=None,  # Would need TypeAdapter
+                validator=None,  # type: ignore  # Would need TypeAdapter
                 kind=f"{name}_v1",
             ))
-    
+
     return rules
 
 
-def _build_repair_rules() -> List[RepairRule]:
+def _build_repair_rules() -> list[RepairRule]:
     """Build default repair rules."""
     # Import built-in repair rules from self_heal_node
     from .nodes import (
-        make_missing_value_repair_rule,
-        make_ambiguous_field_repair_rule,
-        make_unknown_field_repair_rule,
-        make_missing_relation_repair_rule,
         make_aggregation_normalize_repair_rule,
+        make_ambiguous_field_repair_rule,
+        make_missing_relation_repair_rule,
+        make_missing_value_repair_rule,
+        make_unknown_field_repair_rule,
     )
     
     return [

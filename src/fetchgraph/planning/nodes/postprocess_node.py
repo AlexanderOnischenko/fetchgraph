@@ -32,11 +32,11 @@ class PostprocessResult:
     format: Literal["json", "csv", "dict", "custom"]
     
     # Metadata
-    row_count: Optional[int] = None
-    column_count: Optional[int] = None
+    row_count: int | None = None
+    column_count: int | None = None
     
     # Notes
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 class PostprocessNode:
@@ -84,7 +84,7 @@ class PostprocessNode:
         
         result = PostprocessResult(
             output=execution_result.raw_data,  # Pass through unchanged
-            format=self.output_format,
+            format=self.output_format,  # type: ignore
             row_count=execution_result.rows_returned,
             column_count=None,
             notes=notes,

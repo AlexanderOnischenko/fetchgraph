@@ -73,6 +73,7 @@ class Plan(BaseModel):
     constraints: Optional[List[str]] = None
     entities: List[Dict[str, Any]] = Field(default_factory=list)
     dtos: List[Dict[str, Any]] = Field(default_factory=list)
+    normalization_notes: List[str] = Field(default_factory=list)  # For pipeline normalizer
 
 
 class RefetchDecision(BaseModel):

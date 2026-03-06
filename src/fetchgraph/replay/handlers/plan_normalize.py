@@ -23,6 +23,27 @@ def replay_plan_normalize_spec_v1(inp: dict, ctx: ReplayContext) -> dict:
     options = PlanNormalizerOptions(**inp["options"])
     rules = inp.get("normalizer_rules") or inp.get("normalizer_registry") or {}
     provider = spec_dict["provider"]
+    
+    # Extract unwrapped selectors from the input structure
+    # Input selectors may be wrapped under a provider key (e.g., "demo_qa", "relational")
+    # We need to unwrap them to match the expected structure
+    raw_selectors = spec_dict.get("selectors", {})
+    unwrapped_selectors = raw_selectors
+    
+    # Only unwrap if:
+    # 1. There's exactly one key in the selectors dict
+    # 2. The value is a dict (not a primitive)
+    # 3. The inner dict looks like a selector (has keys like 'op', 'root_entity', etc.)
+    if len(raw_selectors) == 1:
+        first_key = next(iter(raw_selectors.keys()))
+        first_value = raw_selectors.get(first_key)
+        if isinstance(first_value, dict) and ('op' in first_value or 'root_entity' in first_value or 'relations' in first_value):
+            # This looks like a wrapped selector - unwrap it
+            unwrapped_selectors = first_value
+    
+    # Update spec_dict with unwrapped selectors
+    spec_dict["selectors"] = unwrapped_selectors
+    
     provider_catalog: Dict[str, ProviderInfo] = {}
     provider_info_source = "minimal_fallback"
     provider_snapshot = inp.get("provider_info_snapshot")
@@ -64,7 +85,6 @@ def replay_plan_normalize_spec_v1(inp: dict, ctx: ReplayContext) -> dict:
 
     out_spec = {
         "provider": out.provider,
-        "mode": out.mode,
         "selectors": out.selectors,
     }
     logger.info(

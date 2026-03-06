@@ -1,0 +1,27 @@
+{
+  "diag": {
+    "missing_planner_input": true,
+    "provider_info_source": "minimal_fallback",
+    "provider_snapshot_present": false
+  },
+  "notes_last": null,
+  "out_spec": {
+    "provider": "relational",
+    "selectors": {
+      "filters": {
+        "field": "customer_id",
+        "op": "=",
+        "type": "comparison",
+        "value": 323
+      },
+      "limit": 1,
+      "op": "query",
+      "root_entity": "orders",
+      "select": [
+        {
+          "expr": "MAX(orders.order_date)"
+        }
+      ]
+    }
+  }
+}

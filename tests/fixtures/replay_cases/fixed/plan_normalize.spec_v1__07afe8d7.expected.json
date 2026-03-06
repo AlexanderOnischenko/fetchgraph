@@ -1,0 +1,21 @@
+{
+  "diag": {
+    "missing_planner_input": true,
+    "provider_info_source": "minimal_fallback",
+    "provider_snapshot_present": false
+  },
+  "notes_last": null,
+  "out_spec": {
+    "provider": "relational",
+    "selectors": {
+      "aggregations": [
+        {
+          "agg": "sum",
+          "field": "quantity"
+        }
+      ],
+      "op": "query",
+      "root_entity": "order_items"
+    }
+  }
+}

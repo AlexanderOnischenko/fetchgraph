@@ -1,0 +1,21 @@
+{
+  "diag": {
+    "missing_planner_input": true,
+    "provider_info_source": "minimal_fallback",
+    "provider_snapshot_present": false
+  },
+  "notes_last": null,
+  "out_spec": {
+    "provider": "relational",
+    "selectors": {
+      "aggregations": [
+        {
+          "agg": "count",
+          "field": "order_id"
+        }
+      ],
+      "op": "query",
+      "root_entity": "orders"
+    }
+  }
+}

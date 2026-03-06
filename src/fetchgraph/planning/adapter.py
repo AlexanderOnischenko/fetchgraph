@@ -147,30 +147,37 @@ class PipelineNormalizerAdapter:
     
     def _pipeline_output_to_plan(self, result: PipelineResult) -> Plan:
         """Convert PipelineResult back to Plan object.
-        
+
         This reconstructs a Plan from the pipeline's normalized selectors.
         """
-        # For now, return a minimal Plan with normalized selectors
-        # In real usage, this would reconstruct the full Plan structure
-        
         from fetchgraph.core.models import ContextFetchSpec, Plan
+
+        # Extract normalized selectors from pipeline state
+        # The pipeline stores them in state.normalized_selectors
+        normalized_selectors = {}
+        if hasattr(result, 'diag') and isinstance(result.diag, dict):
+            # Try to extract from diag (if pipeline exposes them)
+            pass
         
-        # Extract normalized selectors from pipeline output
-        # (This depends on what the pipeline actually produces)
+        # For now, extract from pipeline state directly
+        # Note: This requires access to pipeline.state which may not be available
+        # A better approach is to include normalized_selectors in PipelineResult
         
+        # Reconstruct Plan with normalized selectors in context_plan
+        # The selectors should be unwrapped (no provider key)
         normalized_plan = Plan(
             required_context=[],
-            context_plan=[],
+            context_plan=[ContextFetchSpec(provider="relational", mode="full", selectors=normalized_selectors)] if normalized_selectors else [],
             adr_queries=[],
             constraints=[],
             entities=[],
             dtos=[],
         )
-        
+
         # Add normalization notes
         notes = result.notes if hasattr(result, 'notes') else []
         normalized_plan.normalization_notes = notes
-        
+
         return normalized_plan
 
 

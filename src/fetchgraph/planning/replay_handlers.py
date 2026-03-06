@@ -69,32 +69,66 @@ def replay_plan_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[
     )
 
     try:
-        normalizer = create_pipeline_normalizer(
-            providers=providers,
-            plan_model=Plan,
+        from fetchgraph.planning.nodes import PlanningPipeline
+        
+        # Create pipeline directly (bypass adapter) to access state
+        pipeline = PlanningPipeline(
             config=config,
+            plan_model=Plan,
+            provider_rules=[],
+            validation_rules=[],
+            repair_rules=[],
+            schema=None,
+            llm_fn=None,
         )
-
+        
         # Create a minimal Plan from selectors
+        # The input selectors may be wrapped under a provider key (e.g., "demo_qa")
+        # We need to unwrap them to match the pipeline's expected structure
+        from fetchgraph.core.models import ContextFetchSpec
+        
+        # Extract unwrapped selectors from the input structure
+        # Input: {"demo_qa": {...}} or {"relational": {...}}
+        # We want the inner selectors dict
+        unwrapped_selectors = selectors
+        if len(selectors) == 1:
+            # Single provider case - unwrap the selectors
+            first_key = next(iter(selectors.keys()))
+            unwrapped_selectors = selectors.get(first_key, selectors)
+        
         plan = Plan(
             required_context=[],
-            context_plan=[],
+            context_plan=[ContextFetchSpec(provider=provider, mode="full", selectors=unwrapped_selectors)],
+            adr_queries=[],
+            constraints=[],
+            entities=[],
+            dtos=[],
         )
-        # Set selectors_by_provider dynamically (not in constructor)
-        setattr(plan, 'selectors_by_provider', {provider: selectors})
 
-        # Normalize
-        normalized_plan = normalizer.normalize(plan)
-
-        # Extract normalized selectors
-        normalized_selectors = {}
-        if hasattr(normalized_plan, 'selectors_by_provider'):
-            normalized_selectors = getattr(normalized_plan, 'selectors_by_provider', {}).get(provider, selectors)
-        elif hasattr(normalized_plan, 'context_plan'):
-            for spec_item in getattr(normalized_plan, 'context_plan', []):
-                if getattr(spec_item, 'provider', None) == provider:
-                    normalized_selectors = getattr(spec_item, 'selectors', {})
-                    break
+        # Convert plan to raw text for pipeline
+        import json
+        plan_dict = {
+            "required_context": [],
+            "context_plan": [
+                {
+                    "provider": provider,
+                    "mode": "full",
+                    "selectors": unwrapped_selectors,
+                }
+            ],
+            "adr_queries": [],
+            "constraints": [],
+            "entities": [],
+            "dtos": [],
+        }
+        raw_text = json.dumps(plan_dict)
+        
+        # Execute pipeline
+        result = pipeline.execute(raw_text)
+        
+        # Extract normalized selectors directly from pipeline state
+        # This is what the pipeline produces after normalization
+        normalized_selectors = pipeline.state.normalized_selectors
 
         return {
             "out_spec": {

@@ -505,8 +505,22 @@ class PlanningPipeline:
         return {}
     
     def _run_binding_segment(self) -> dict[str, Any]:
-        """Run Segment 1: CompileBind → SemanticValidate."""
+        """Run Segment 1: AggregationNormalize → CompileBind → SemanticValidate."""
         notes = self.state.all_notes
+
+        # Stage 5.5: Aggregation normalize BEFORE compile/bind
+        # This ensures op='aggregate' → 'query' normalization happens before compile
+        agg_norm_result = self.aggregation_normalize_node.execute(
+            self.ctx,
+            self.state.normalized_selectors,
+        )
+        self.state.agg_normalize_result = agg_norm_result.value
+        notes.extend(agg_norm_result.notes)
+        
+        # IMPORTANT: Use normalized_selectors from result if available
+        # This ensures op='aggregate' → 'query' normalization is applied before compile_bind
+        if agg_norm_result.value and agg_norm_result.value.normalized_selectors:
+            self.state.normalized_selectors = agg_norm_result.value.normalized_selectors
 
         # Stage 6: Compile/Bind (CRITICAL FIX #3: single-provider selectors)
         compile_result = self.compile_bind_node.execute(
@@ -572,53 +586,15 @@ class PlanningPipeline:
         return {}
     
     def _run_aggregation_segment(self) -> dict[str, Any]:
-        """Run Segment 2: AggregationNormalize → ValidateAggregation."""
+        """Run Segment 2: ValidateAggregation (AggregationNormalize already ran in binding segment)."""
         notes = self.state.all_notes
 
-        # Stage 8: Aggregation normalize (CRITICAL FIX #3: single-provider selectors)
-        agg_norm_result = self.aggregation_normalize_node.execute(
-            self.ctx,
-            self.state.normalized_selectors,
-        )
-        self.state.agg_normalize_result = agg_norm_result.value
-        notes.extend(agg_norm_result.notes)
-
-        # TRACER: Log aggregation normalize replay event
-        if self.config.enable_replay_logging and self.state.event_logger is not None and agg_norm_result.value:
-            agg_value = agg_norm_result.value
-            _log_replay_event(
-                event_logger=self.state.event_logger,
-                replay_id="aggregation_normalize.spec_v1",
-                input_payload={
-                    "selectors": self.state.normalized_selectors,
-                },
-                observed_payload={
-                    "normalized_aggregations": [
-                        {
-                            "agg": agg.agg,
-                            "field": agg.field,
-                            "alias": agg.alias,
-                            "is_distinct": agg.is_distinct,
-                        }
-                        for agg in agg_value.normalized_aggregations
-                    ],
-                    "normalized_group_by": agg_value.normalized_group_by,
-                },
-                diag={
-                    "aggregations_count": len(agg_value.normalized_aggregations),
-                    "group_by_count": len(agg_value.normalized_group_by),
-                },
-                note=json.dumps({
-                    "aggregations_count": len(agg_value.normalized_aggregations),
-                    "group_by_count": len(agg_value.normalized_group_by),
-                }),
-            )
-
         # Stage 9: Validate aggregation
-        if agg_norm_result.value:
+        # (AggregationNormalize already ran in _run_binding_segment)
+        if self.state.agg_normalize_result:
             agg_validate_result = self.validate_aggregation_node.execute(
                 self.ctx,
-                agg_norm_result.value.normalized_aggregations,
+                self.state.agg_normalize_result.normalized_aggregations,
                 self.state.normalized_selectors,
             )
             self.state.agg_validate_result = agg_validate_result.value

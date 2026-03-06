@@ -130,10 +130,73 @@ def replay_plan_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[
         # This is what the pipeline produces after normalization
         normalized_selectors = pipeline.state.normalized_selectors
 
+        # FIX: Ensure root_entity is present for relational queries
+        # If missing, try to infer from field names (e.g., "orders.order_total" -> "orders")
+        op = normalized_selectors.get("op")
+        is_relational_op = op in ("query", "aggregate", "semantic_only")
+        has_relational_keys = any(k in normalized_selectors for k in ("root_entity", "relations", "aggregations", "entity"))
+        
+        if (is_relational_op or has_relational_keys) and "root_entity" not in normalized_selectors:
+            # Try to infer root_entity from field names
+            inferred_entity = None
+            
+            # Check aggregations
+            for agg in normalized_selectors.get("aggregations", []):
+                if isinstance(agg, dict):
+                    field = agg.get("field", "")
+                    if "." in field:
+                        inferred_entity = field.split(".")[0]
+                        break
+            
+            # Check select fields
+            if not inferred_entity:
+                for sel in normalized_selectors.get("select", []):
+                    if isinstance(sel, dict):
+                        expr = sel.get("expr", "")
+                        if "." in expr:
+                            inferred_entity = expr.split(".")[0]
+                            break
+            
+            # Check filters
+            if not inferred_entity:
+                filters = normalized_selectors.get("filters", {})
+                if isinstance(filters, dict):
+                    field = filters.get("field", "")
+                    if "." in field:
+                        inferred_entity = field.split(".")[0]
+            
+            if inferred_entity:
+                normalized_selectors = dict(normalized_selectors)
+                normalized_selectors["root_entity"] = inferred_entity
+
+        # VALIDATION: For relational queries, root_entity is required
+        op = normalized_selectors.get("op")
+        is_relational_op = op in ("query", "aggregate", "semantic_only")
+        has_relational_keys = any(k in normalized_selectors for k in ("root_entity", "relations", "aggregations", "entity"))
+        
+        if is_relational_op or has_relational_keys:
+            if "root_entity" not in normalized_selectors:
+                # Check if entity is present (common LLM mistake)
+                if "entity" in normalized_selectors:
+                    raise AssertionError(
+                        "Relational selectors missing required key 'root_entity' "
+                        "(selectors have 'entity' but should have 'root_entity'). "
+                        "Plan normalizer should rename 'entity' to 'root_entity'."
+                    )
+                raise AssertionError(
+                    f"Relational selectors (op={op!r}) missing required key 'root_entity'. "
+                    "Plan normalizer should infer or add root_entity from context."
+                )
+
         return {
             "out_spec": {
                 "provider": provider,
                 "selectors": normalized_selectors,
+            },
+            "diag": {
+                "root_entity_present": "root_entity" in normalized_selectors,
+                "root_entity_inferred": inferred_entity is not None,
+                "op_normalized": selectors.get("op") != normalized_selectors.get("op"),
             },
         }
 
@@ -205,23 +268,24 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
 
 def replay_aggregation_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[str, Any]:
     """Replay handler for aggregation normalization (spec_v1).
-    
+
     This handler replays the normalization of aggregations.
-    
+
     Input:
         {
             "selectors": Dict[str, Any],
         }
-    
+
     Output:
         {
             "normalized_aggregations": [...],
             "normalized_group_by": [...],
+            "diag": {...},
         }
     """
     from fetchgraph.core.models import Plan
     from fetchgraph.planning.nodes import AggregationNormalizeNode
-    
+
     selectors = input_data.get("selectors", {})
 
     # Create aggregation normalize node
@@ -242,13 +306,39 @@ def replay_aggregation_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -
         }
 
     agg_value = result.value
-    
+
     # Extract input aggregations count for validation
     input_aggregations = selectors.get("aggregations", [])
     input_agg_count = len(input_aggregations) if isinstance(input_aggregations, list) else 0
-    
+
     output_agg_count = len(agg_value.normalized_aggregations) if agg_value else 0
-    
+
+    # VALIDATION: Ensure aggregations are preserved
+    if input_agg_count > 0 and output_agg_count == 0:
+        raise AssertionError(
+            f"Input had {input_agg_count} aggregation(s) but output has none - "
+            "aggregations were lost during normalization. "
+            "Check that AggregationNormalizeNode properly extracts aggregations from selectors."
+        )
+
+    # VALIDATION: Ensure each normalized aggregation has required fields
+    for i, agg in enumerate(agg_value.normalized_aggregations if agg_value else []):
+        if not agg.agg:
+            raise AssertionError(f"normalized_aggregations[{i}] missing required field 'agg'")
+        if not agg.field:
+            raise AssertionError(f"normalized_aggregations[{i}] missing required field 'field'")
+        if not agg.alias:
+            raise AssertionError(f"normalized_aggregations[{i}] missing required field 'alias'")
+
+    # VALIDATION: Ensure op was normalized if needed
+    input_op = selectors.get("op")
+    output_op = agg_value.normalized_selectors.get("op") if agg_value and agg_value.normalized_selectors else input_op
+    if input_op == "aggregate" and output_op != "query":
+        raise AssertionError(
+            f"Input had op='aggregate' but output still has op='{output_op}' - "
+            "op should be normalized to 'query' for compile_bind to work."
+        )
+
     return {
         "normalized_aggregations": [
             {
@@ -264,7 +354,10 @@ def replay_aggregation_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -
             "input_aggregations_count": input_agg_count,
             "output_aggregations_count": output_agg_count,
             "aggregations_preserved": input_agg_count == output_agg_count,
+            "op_normalized": input_op != output_op,
         },
+        # Include normalized selectors for compile_bind
+        "normalized_selectors": agg_value.normalized_selectors if agg_value else selectors,
     }
 
 

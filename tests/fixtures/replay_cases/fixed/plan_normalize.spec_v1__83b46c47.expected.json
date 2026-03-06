@@ -3,24 +3,25 @@
     "missing_planner_input": true,
     "provider_info_source": "minimal_fallback",
     "provider_snapshot_present": false,
-    "root_entity_inferred": false
+    "root_entity_inferred": true
   },
   "notes_last": null,
   "out_spec": {
-    "provider": "relational",
+    "provider": "demo_qa",
     "selectors": {
-      "filters": {
-        "field": "customer_id",
-        "op": "=",
-        "type": "comparison",
-        "value": 323
-      },
-      "limit": 1,
+      "aggregations": [
+        {
+          "agg": "max",
+          "alias": "max_order_total",
+          "field": "orders.order_total"
+        }
+      ],
       "op": "query",
       "root_entity": "orders",
       "select": [
         {
-          "expr": "MAX(orders.order_date)"
+          "alias": "max_order_total",
+          "expr": "max_order_total"
         }
       ]
     }

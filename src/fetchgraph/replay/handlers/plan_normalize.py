@@ -87,6 +87,53 @@ def replay_plan_normalize_spec_v1(inp: dict, ctx: ReplayContext) -> dict:
         "provider": out.provider,
         "selectors": out.selectors,
     }
+    
+    # FIX: Ensure root_entity is present for relational queries
+    # If missing, try to infer from field names (e.g., "orders.order_total" -> "orders")
+    selectors = out_spec.get("selectors", {})
+    op = selectors.get("op")
+    is_relational_op = op in ("query", "aggregate", "semantic_only")
+    has_relational_keys = any(k in selectors for k in ("root_entity", "relations", "aggregations", "entity"))
+    
+    inferred_entity = None
+    if (is_relational_op or has_relational_keys) and "root_entity" not in selectors:
+        # Try to infer root_entity from field names
+        # Check aggregations
+        for agg in selectors.get("aggregations", []):
+            if isinstance(agg, dict):
+                field = agg.get("field", "")
+                if "." in field:
+                    inferred_entity = field.split(".")[0]
+                    break
+        
+        # Check select fields
+        if not inferred_entity:
+            for sel in selectors.get("select", []):
+                if isinstance(sel, dict):
+                    expr = sel.get("expr", "")
+                    if "." in expr:
+                        inferred_entity = expr.split(".")[0]
+                        break
+        
+        # Check filters
+        if not inferred_entity:
+            filters = selectors.get("filters", {})
+            if isinstance(filters, dict):
+                field = filters.get("field", "")
+                if "." in field:
+                    inferred_entity = field.split(".")[0]
+        
+        if inferred_entity:
+            out_spec["selectors"] = dict(selectors)
+            out_spec["selectors"]["root_entity"] = inferred_entity
+            selectors = out_spec["selectors"]
+    
+    # FIX: Normalize op='aggregate' to op='query' (schema only accepts 'query', 'schema', 'semantic_only')
+    if selectors.get("op") == "aggregate":
+        if "selectors" not in out_spec or out_spec["selectors"] is selectors:
+            out_spec["selectors"] = dict(selectors)
+        out_spec["selectors"]["op"] = "query"
+    
     logger.info(
         "replay_plan_normalize_spec_v1: replay_id=%s provider=%s provider_info_source=%s",
         "plan_normalize.spec_v1",
@@ -109,6 +156,7 @@ def replay_plan_normalize_spec_v1(inp: dict, ctx: ReplayContext) -> dict:
             "provider_info_source": provider_info_source,
             "missing_planner_input": "planner_input_v1" not in ctx.extras,
             "provider_snapshot_present": provider_snapshot_present,
+            "root_entity_inferred": inferred_entity is not None,
         }
     return out_payload
 

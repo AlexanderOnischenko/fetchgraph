@@ -42,18 +42,21 @@ class NormalizedAggregation:
 @dataclass(frozen=True)
 class AggregationNormalizeResult:
     """Result from aggregation normalization."""
-    
+
     # Normalized aggregations
     normalized_aggregations: List[NormalizedAggregation]
-    
+
     # Normalized group_by fields
     normalized_group_by: List[str]
-    
+
     # Notes about transformations
     notes: List[str]
-    
+
     # Changes made
     changes: Dict[str, Any] = field(default_factory=dict)
+    
+    # Normalized selectors (with op normalized, etc.)
+    normalized_selectors: Dict[str, Any] = field(default_factory=dict)
 
 
 class AggregationNormalizeNode:
@@ -114,16 +117,63 @@ class AggregationNormalizeNode:
             selectors: Provider-normalized selectors
 
         Returns:
-            NodeResult with normalized aggregations
+            NodeResult with normalized aggregations and selectors
         """
         logger.debug("AggregationNormalizeNode: executing")
 
         notes = []
         normalized_aggregations = []
         normalized_group_by = []
+        
+        # Make a copy to avoid mutating input
+        normalized_selectors = dict(selectors)
+
+        # Normalize op: "aggregate" → "query" (LLM sometimes produces "aggregate" but schema only has "query")
+        if normalized_selectors.get("op") == "aggregate":
+            normalized_selectors["op"] = "query"
+            notes.append("AggregationNormalizeNode: normalized op='aggregate' to op='query'")
+        
+        # FIX: Ensure root_entity is present for relational queries
+        # If missing, try to infer from field names (e.g., "orders.order_total" -> "orders")
+        op = normalized_selectors.get("op")
+        is_relational_op = op in ("query", "aggregate", "semantic_only")
+        has_relational_keys = any(k in normalized_selectors for k in ("root_entity", "relations", "aggregations", "entity"))
+        
+        if (is_relational_op or has_relational_keys) and "root_entity" not in normalized_selectors:
+            # Try to infer root_entity from field names
+            inferred_entity = None
+            
+            # Check aggregations
+            for agg in normalized_selectors.get("aggregations", []):
+                if isinstance(agg, dict):
+                    field = agg.get("field", "")
+                    if "." in field:
+                        inferred_entity = field.split(".")[0]
+                        break
+            
+            # Check select fields
+            if not inferred_entity:
+                for sel in normalized_selectors.get("select", []):
+                    if isinstance(sel, dict):
+                        expr = sel.get("expr", "")
+                        if "." in expr:
+                            inferred_entity = expr.split(".")[0]
+                            break
+            
+            # Check filters
+            if not inferred_entity:
+                filters = normalized_selectors.get("filters", {})
+                if isinstance(filters, dict):
+                    field = filters.get("field", "")
+                    if "." in field:
+                        inferred_entity = field.split(".")[0]
+            
+            if inferred_entity:
+                normalized_selectors["root_entity"] = inferred_entity
+                notes.append(f"AggregationNormalizeNode: inferred root_entity='{inferred_entity}' from field names")
 
         # Extract aggregations from selectors
-        aggregations = selectors.get("aggregations", [])
+        aggregations = normalized_selectors.get("aggregations", [])
         if isinstance(aggregations, list):
             for agg in aggregations:
                 if isinstance(agg, dict):
@@ -131,16 +181,16 @@ class AggregationNormalizeNode:
                     field_name = agg.get("field", "")
                     alias = agg.get("alias", None)
                     is_distinct = agg.get("is_distinct", False)
-                    
+
                     # Normalize aggregation function name
                     canonical_agg = self.normalize_agg_name(agg_func)
                     if is_distinct and canonical_agg == "count":
                         canonical_agg = "count_distinct"
-                    
+
                     # Generate alias if not provided
                     if not alias:
                         alias = f"{canonical_agg}_{field_name.replace('.', '_')}"
-                    
+
                     normalized_aggregations.append(
                         NormalizedAggregation(
                             agg=canonical_agg,
@@ -150,14 +200,14 @@ class AggregationNormalizeNode:
                         )
                     )
                     notes.append(f"Normalized aggregation: {agg_func}({field_name}) -> {canonical_agg}({field_name}) as {alias}")
-        
+
         # Extract group_by from selectors
-        group_by = selectors.get("group_by", [])
+        group_by = normalized_selectors.get("group_by", [])
         if isinstance(group_by, list):
             normalized_group_by = list(group_by)
-        
+
         # Compute group_by closure (ensure all non-agg select fields are in group_by)
-        select_fields = selectors.get("select", [])
+        select_fields = normalized_selectors.get("select", [])
         if isinstance(select_fields, list) and select_fields:
             # TODO: implement full group_by closure logic
             pass
@@ -174,7 +224,10 @@ class AggregationNormalizeNode:
             changes={
                 "input_agg_count": len(aggregations) if isinstance(aggregations, list) else 0,
                 "output_agg_count": len(normalized_aggregations),
+                "op_normalized": selectors.get("op") != normalized_selectors.get("op"),
+                "root_entity_inferred": "root_entity" not in selectors and "root_entity" in normalized_selectors,
             },
+            normalized_selectors=normalized_selectors,
         )
 
         return NodeResult(

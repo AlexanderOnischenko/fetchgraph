@@ -2,7 +2,8 @@
   "diag": {
     "missing_planner_input": true,
     "provider_info_source": "minimal_fallback",
-    "provider_snapshot_present": false
+    "provider_snapshot_present": false,
+    "root_entity_inferred": false
   },
   "notes_last": null,
   "out_spec": {

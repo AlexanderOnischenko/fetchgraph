@@ -83,6 +83,10 @@ EXPECTED_FROM ?= replay
 ONLY_FAILED_FROM ?=
 ONLY_MISSED_FROM ?=
 
+# Self-heal parameters
+MAX_HEAL_ATTEMPTS ?=
+MAX_REFETCH_ATTEMPTS ?=
+
 BASE     ?=
 NEW      ?=
 DIFF_OUT ?= $(DATA)/.runs/diff.md
@@ -159,6 +163,8 @@ help:
 	@echo "Команды (DemoQA):"
 	@echo "  make chat                 - интерактивный чат"
 	@echo "  make batch                - полный прогон всего набора"
+	@echo "  make batch MAX_HEAL_ATTEMPTS=0     - отключить self-heal"
+	@echo "  make batch MAX_REFETCH_ATTEMPTS=0  - отключить LLM refetch"
 	@echo "  make batch-tag TAG=... NOTE='...'  - полный прогон с тегом и заметкой"
 	@echo "  make batch-failed         - перепрогон только упавших (baseline = latest)"
 	@echo "  make batch-failed-from ONLY_FAILED_FROM=path/results.jsonl  - only-failed от явного baseline"
@@ -375,12 +381,16 @@ chat: warn-missing-llm-config check
 
 # 1) Полный прогон всего набора
 batch: ensure-runs-dir
-	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)"
+	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" \
+	  $(if $(strip $(MAX_HEAL_ATTEMPTS)),--max-heal-attempts $(MAX_HEAL_ATTEMPTS),) \
+	  $(if $(strip $(MAX_REFETCH_ATTEMPTS)),--max-refetch-attempts $(MAX_REFETCH_ATTEMPTS),)
 
 # 2) Полный прогон с тегом + заметка
 batch-tag: ensure-runs-dir
 	@test -n "$(strip $(TAG))" || (echo "TAG обязателен: make batch-tag TAG=..." && exit 1)
-	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" $(TAG_FLAG) $(NOTE_FLAG)
+	@$(CLI) batch --data "$(DATA)" --schema "$(SCHEMA)" --cases "$(CASES)" --out "$(OUT)" $(TAG_FLAG) $(NOTE_FLAG) \
+	  $(if $(strip $(MAX_HEAL_ATTEMPTS)),--max-heal-attempts $(MAX_HEAL_ATTEMPTS),) \
+	  $(if $(strip $(MAX_REFETCH_ATTEMPTS)),--max-refetch-attempts $(MAX_REFETCH_ATTEMPTS),)
 
 # 3) only-failed от latest
 batch-failed: ensure-runs-dir

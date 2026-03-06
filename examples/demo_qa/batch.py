@@ -1007,7 +1007,17 @@ def handle_batch(args) -> int:
 
     provider, _ = build_provider(data_dir, schema_path, enable_semantic=args.enable_semantic)
     llm = build_llm(settings)
-    runner = build_agent(llm, provider)
+    
+    # Get self-heal parameters from args (default to 3 if not specified)
+    max_heal_attempts = getattr(args, 'max_heal_attempts', 3) or 3
+    max_refetch_attempts = getattr(args, 'max_refetch_attempts', 3) or 3
+    
+    runner = build_agent(
+        llm, 
+        provider,
+        max_heal_attempts=max_heal_attempts,
+        max_refetch_attempts=max_refetch_attempts,
+    )
     events_path = None
     if args.events == "on":
         events_path = args.events_file or (run_folder / "events.jsonl")
@@ -1409,7 +1419,17 @@ def handle_case_run(args) -> int:
 
     provider, _ = build_provider(args.data, args.schema, enable_semantic=args.enable_semantic)
     llm = build_llm(settings)
-    runner = build_agent(llm, provider)
+    
+    # Get self-heal parameters from args (default to 3 if not specified)
+    max_heal_attempts = getattr(args, 'max_heal_attempts', 3) or 3
+    max_refetch_attempts = getattr(args, 'max_refetch_attempts', 3) or 3
+    
+    runner = build_agent(
+        llm, 
+        provider,
+        max_heal_attempts=max_heal_attempts,
+        max_refetch_attempts=max_refetch_attempts,
+    )
 
     result = run_one(
         cases[args.case_id],

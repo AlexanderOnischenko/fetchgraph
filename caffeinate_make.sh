@@ -2,8 +2,8 @@
 set -u
 
 ### ================== НАСТРОЙКИ (менять тут) ==================
-DELAY=3600       # 65 минут до первого запуска
-INTERVAL=5400    # 90 минут между запусками
+DELAY=0       # 65 минут до первого запуска
+INTERVAL=3600    # 90 минут между запусками
 TICK=300         # печатать обратный отсчёт раз в 5 минут
 
 # (опционально) папка проекта, где надо выполнять make
@@ -12,10 +12,10 @@ WORKDIR=/Users/alexanderonishchenko/Documents/_Projects/fetchgraph
 LOG="$HOME/batch_tag.log"
 
 # Команда для ПЕРВОГО запуска
-FIRST_CMD='make batch-tag TAG=new_pipeline_fixes NOTE="пайплайн, который построил qwen"'
+FIRST_CMD='make batch-tag TAG=new_pipeline_fixes NOTE="пайплайн, который построил qwen" MAX_HEAL_ATTEMPTS=0'
 
 # Команда для ПОВТОРНЫХ запусков
-REPEAT_CMD='make batch-tag TAG=new_pipeline_fixes NOTE="пайплайн, который построил qwen"'
+REPEAT_CMD='make batch-tag TAG=new_pipeline_fixes NOTE="пайплайн, который построил qwen" MAX_HEAL_ATTEMPTS=0'
 ### ============================================================
 
 LOCKDIR="/tmp/batch_tag_runner.lock"

@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from fetchgraph.core.models import Plan
-from fetchgraph.core.protocols import ContextProvider
+from fetchgraph.core.protocols import ContextProvider, SupportsDescribe
 from fetchgraph.replay.log import EventLoggerLike
 
 from .nodes import (
@@ -70,13 +70,13 @@ class PipelineNormalizerAdapter:
     
     def normalize(self, plan: Plan, *, event_logger: EventLoggerLike | None = None) -> Plan:
         """Normalize a Plan using the node-based pipeline.
-        
+
         This is the main entry point called by BaseGraphAgent.
-        
+
         Args:
             plan: The Plan to normalize
             event_logger: Optional event logger for replay
-        
+
         Returns:
             Normalized Plan (or original if pipeline fails)
         """
@@ -89,9 +89,16 @@ class PipelineNormalizerAdapter:
         # (In real usage, this would come from LLM, but here we reconstruct from Plan)
         raw_plan_text = self._plan_to_raw_text(plan)
 
-        # Execute pipeline
-        result = self.pipeline.execute(raw_plan_text)
-        
+        # Build schema info for self-heal feedback
+        schema_info = self.pipeline.config.schema
+
+        # Execute pipeline with schema info for self-heal feedback
+        result = self.pipeline.execute(
+            raw_plan_text,
+            original_query="",  # Will be set by caller if available
+            schema_info=schema_info,
+        )
+
         if result.is_success:
             # Convert pipeline output back to Plan
             normalized_plan = self._pipeline_output_to_plan(result)
@@ -186,11 +193,13 @@ def create_pipeline_normalizer(
     validation_rules: list[ValidationRule] | None = None,
     repair_rules: list[RepairRule] | None = None,
     enable_replay_logging: bool = False,  # Disabled by default for production
+    max_heal_attempts: int = 3,  # NEW: self-heal attempts
+    max_refetch_attempts: int = 3,  # NEW: LLM refetch attempts
 ) -> PipelineNormalizerAdapter:
     """Create a PipelineNormalizerAdapter from providers.
-    
+
     This is the main factory function for creating the pipeline normalizer.
-    
+
     Args:
         providers: Dictionary of provider name → provider instance
         plan_model: Pydantic model for Plan (e.g., from PlanParser)
@@ -200,7 +209,9 @@ def create_pipeline_normalizer(
         provider_rules: Provider-specific normalization rules
         validation_rules: Validation rules
         repair_rules: Self-heal repair rules
-    
+        max_heal_attempts: Maximum self-heal attempts (default: 3, 0 to disable)
+        max_refetch_attempts: Maximum LLM refetch attempts (default: 3, 0 to disable)
+
     Returns:
         PipelineNormalizerAdapter ready to use with BaseGraphAgent
     """
@@ -229,9 +240,32 @@ def create_pipeline_normalizer(
         # This is acceptable for test scenarios that don't invoke normalization
         if providers:
             active_provider_name = next(iter(providers.keys()))
+            
+            # Build schema info from providers for self-heal feedback
+            schema_info = {}
+            provider_catalog = {}
+            for name, prov in providers.items():
+                if isinstance(prov, SupportsDescribe):
+                    try:
+                        info = prov.describe()
+                        provider_catalog[name] = info
+                        
+                        # Extract entities from describe() result
+                        # ProviderInfo doesn have entities directly, but some providers
+                        # return additional info via describe() that we can use
+                        if hasattr(info, 'selectors_schema') and info.selectors_schema:
+                            # Extract entity info from selectors_schema if available
+                            schema_info[name] = {"schema": info.selectors_schema}
+                    except Exception:
+                        pass
+            
             config = PipelineConfig(
                 active_provider=active_provider_name,
                 enable_replay_logging=enable_replay_logging,
+                schema=schema_info,
+                provider_catalog=provider_catalog,
+                max_heal_attempts=max_heal_attempts,
+                max_refetch_attempts=max_refetch_attempts,
             )
         else:
             # Empty providers - create config without active_provider
@@ -239,6 +273,8 @@ def create_pipeline_normalizer(
             config = PipelineConfig(
                 active_provider=None,
                 enable_replay_logging=enable_replay_logging,
+                max_heal_attempts=max_heal_attempts,
+                max_refetch_attempts=max_refetch_attempts,
             )
     else:
         # Override enable_replay_logging if explicitly provided

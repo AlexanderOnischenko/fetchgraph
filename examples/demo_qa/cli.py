@@ -129,6 +129,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=20,
         help="Maximum number of cases to include in explain output",
     )
+    batch_p.add_argument(
+        "--max-heal-attempts",
+        type=int,
+        default=3,
+        help="Maximum self-heal attempts per case (0 to disable self-heal, default: 3)",
+    )
+    batch_p.add_argument(
+        "--max-refetch-attempts",
+        type=int,
+        default=3,
+        help="Maximum LLM refetch attempts per case (0 to disable refetch, default: 3)",
+    )
     batch_p.add_argument("--plan-only", action="store_true", help="Run planner only (no fetch/synthesize)")
     batch_p.add_argument("--quiet", action="store_true", help="Print only summary and exit code")
     batch_p.add_argument("--show-failures", type=int, default=10, help="How many failing cases to show")

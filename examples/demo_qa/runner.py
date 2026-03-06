@@ -124,7 +124,13 @@ class Case:
 
 
 class AgentRunner:
-    def __init__(self, llm, provider) -> None:
+    def __init__(
+        self, 
+        llm, 
+        provider,
+        max_heal_attempts: int = 3,
+        max_refetch_attempts: int = 3,
+    ) -> None:
         def saver(feature_name: str, parsed: object) -> None:
             # Placeholder to satisfy BaseGraphAgent.saver; artifacts captured elsewhere.
             return None
@@ -145,6 +151,8 @@ class AgentRunner:
             saver=saver,
             task_profile=task_profile,
             enable_replay_logging=True,  # Enable tracing for demo_qa tests
+            max_heal_attempts=max_heal_attempts,
+            max_refetch_attempts=max_refetch_attempts,
         )
 
     def run_question(
@@ -210,8 +218,18 @@ class AgentRunner:
         return artifacts
 
 
-def build_agent(llm, provider) -> AgentRunner:
-    return AgentRunner(llm, provider)
+def build_agent(
+    llm, 
+    provider,
+    max_heal_attempts: int = 3,
+    max_refetch_attempts: int = 3,
+) -> AgentRunner:
+    return AgentRunner(
+        llm, 
+        provider,
+        max_heal_attempts=max_heal_attempts,
+        max_refetch_attempts=max_refetch_attempts,
+    )
 
 
 def _save_text(path: Path, content: str) -> None:

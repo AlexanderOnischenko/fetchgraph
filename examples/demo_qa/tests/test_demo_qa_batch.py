@@ -504,7 +504,11 @@ def _run_batch_and_meta(
         lambda data_dir, schema_path, enable_semantic=False, embedding_model=None: (SimpleNamespace(name="dummy"), None),
     )
     monkeypatch.setattr(batch, "build_llm", lambda settings: SimpleNamespace())
-    monkeypatch.setattr(batch, "build_agent", lambda llm, provider: SimpleNamespace())
+    monkeypatch.setattr(
+        batch, 
+        "build_agent", 
+        lambda llm, provider, max_heal_attempts=3, max_refetch_attempts=3: SimpleNamespace(),
+    )
     monkeypatch.setattr(batch, "run_one", _stubbed_run_one)
     monkeypatch.setattr(batch, "configure_logging", lambda **kwargs: None)
 

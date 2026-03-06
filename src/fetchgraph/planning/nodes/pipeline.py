@@ -120,6 +120,12 @@ class PipelineConfig:
 
     # Tracer replay logging
     enable_replay_logging: bool = False  # Disabled by default for production
+    
+    # Schema information (for self-heal feedback)
+    schema: dict[str, Any] = field(default_factory=dict)
+    
+    # Provider catalog (for self-heal feedback)
+    provider_catalog: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -128,6 +134,15 @@ class PipelineState:
 
     # Current raw plan text (for refetch)
     current_raw_text: str = ""
+
+    # Original user query (for self-heal feedback)
+    original_query: str = ""
+
+    # Schema information (for self-heal feedback)
+    schema_info: dict[str, Any] = field(default_factory=dict)
+
+    # Current plan (for self-heal feedback)
+    current_plan: dict[str, Any] = field(default_factory=dict)
 
     # Selectors for active provider (after extraction)
     selectors: dict[str, Any] = field(default_factory=dict)
@@ -263,15 +278,33 @@ class PlanningPipeline:
         self.state = PipelineState()
         self.ctx = NodeContext()
     
-    def execute(self, raw_plan_text: str) -> PipelineResult:
-        """Execute the full planning pipeline."""
+    def execute(
+        self, 
+        raw_plan_text: str,
+        original_query: str = "",
+        schema_info: dict[str, Any] | None = None,
+    ) -> PipelineResult:
+        """Execute the full planning pipeline.
+        
+        Args:
+            raw_plan_text: Raw plan JSON text from LLM
+            original_query: Original user query (for self-heal feedback)
+            schema_info: Schema information with entities/columns (for self-heal feedback)
+        
+        Returns:
+            PipelineResult with normalized selectors or error
+        """
         logger.info("PlanningPipeline: starting execution")
 
         # Preserve event_logger before resetting state
         preserved_event_logger = self.state.event_logger if self.state else None
 
         # Reset state
-        self.state = PipelineState(current_raw_text=raw_plan_text)
+        self.state = PipelineState(
+            current_raw_text=raw_plan_text,
+            original_query=original_query,
+            schema_info=schema_info or self.config.schema,
+        )
         self.state.event_logger = preserved_event_logger
         self.ctx = NodeContext()
         self.self_heal_node.reset()
@@ -315,7 +348,10 @@ class PlanningPipeline:
 
             # Try refetch
             if error_info["needs_refetch"] or self.state.self_heal_count >= self.config.max_heal_attempts:
-                refetch_result = self._do_refetch(result.error or "")
+                refetch_result = self._do_refetch(
+                    result.error or "",
+                    error_info.get("error_types", []),
+                )
                 if refetch_result and refetch_result.is_success and refetch_result.raw_text:
                     self.state.current_raw_text = refetch_result.raw_text
                     self.state.refetch_count += 1
@@ -421,6 +457,8 @@ class PlanningPipeline:
                 if plan_norm_result.value and plan_norm_result.value.normalized_plan:
                     selectors = self._extract_selectors_from_plan(plan_norm_result.value.normalized_plan)
                     self.state.selectors = selectors
+                    # Store current plan for self-heal feedback
+                    self.state.current_plan = plan_norm_result.value.normalized_plan.model_dump() if hasattr(plan_norm_result.value.normalized_plan, 'model_dump') else {}
 
         # Stage 4: Provider-specific normalize (CRITICAL FIX #3: single provider)
         provider_norm_result = self.provider_normalize_node.execute(
@@ -755,9 +793,9 @@ class PlanningPipeline:
         """Classify error to determine repair/refetch strategy."""
         if not error:
             return {"needs_refetch": False, "repairable": False, "error_types": [], "stage": "unknown"}
-        
+
         error_lower = error.lower()
-        
+
         # Parse failures → refetch (not repairable)
         if "parse" in error_lower or "json" in error_lower:
             return {
@@ -766,7 +804,20 @@ class PlanningPipeline:
                 "error_types": ["parse_failed"],
                 "stage": "parse",
             }
-        
+
+        # Planning errors (wrong column/entity names) → repairable via LLM feedback
+        if ("column not found" in error_lower or 
+            "field not found" in error_lower or 
+            "unknown field" in error_lower or
+            "entity not found" in error_lower or
+            "invalid expression" in error_lower):
+            return {
+                "needs_refetch": True,
+                "repairable": True,  # Can be fixed via LLM feedback
+                "error_types": ["column_not_found", "planning_error"],
+                "stage": "compile_bind",
+            }
+
         # Validation errors → repairable
         if "validation" in error_lower or "required" in error_lower:
             return {
@@ -775,7 +826,7 @@ class PlanningPipeline:
                 "error_types": ["validation_error"],
                 "stage": "validate_selectors",
             }
-        
+
         # Binding errors → repairable
         if "bind" in error_lower or "unknown_field" in error_lower or "ambiguous" in error_lower:
             return {
@@ -784,7 +835,7 @@ class PlanningPipeline:
                 "error_types": ["compile_bind_error"],
                 "stage": "compile_bind",
             }
-        
+
         # Aggregation errors → repairable
         if "aggregat" in error_lower:
             return {
@@ -793,7 +844,7 @@ class PlanningPipeline:
                 "error_types": ["aggregation_validate_error"],
                 "stage": "validate_aggregation",
             }
-        
+
         # Default: try refetch
         return {
             "needs_refetch": True,
@@ -822,11 +873,38 @@ class PlanningPipeline:
         )
         return result.value
 
-    def _do_refetch(self, error: str) -> RefetchResult | None:
-        """Execute refetch."""
+    def _do_refetch(self, error: str, error_types: list[str] | None = None) -> RefetchResult | None:
+        """Execute refetch.
+        
+        For planning errors (wrong column/entity names), builds detailed feedback
+        including schema information to help LLM generate correct plan.
+        """
+        from .self_heal_node import build_planning_error_feedback
+        
+        # Check if this is a planning error that needs detailed feedback
+        is_planning_error = error_types and any(
+            t in ["column_not_found", "planning_error", "field_not_found", "unknown_field"]
+            for t in error_types
+        )
+        
+        if is_planning_error:
+            # Build detailed feedback with schema reference
+            error_feedback = build_planning_error_feedback(
+                original_query=self.state.original_query,
+                incorrect_plan=self.state.current_plan,
+                error_details=[{
+                    "type": error_types[0] if error_types else "unknown",
+                    "message": error,
+                    "context": {},  # Can be enriched with field/entity info from error parsing
+                }],
+                schema_info=self.state.schema_info,
+            )
+        else:
+            error_feedback = error
+        
         request = RefetchRequest(
             original_prompt=self.state.current_raw_text,
-            error_feedback=error,
+            error_feedback=error_feedback,
             previous_attempts=[],
         )
         result = self.refetch_node.execute(self.ctx, request)

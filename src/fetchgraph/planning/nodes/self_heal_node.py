@@ -3,6 +3,7 @@
 This node attempts deterministic repair of errors from ANY stage:
 - Pre-binding: JSON/schema errors, selector format issues, select * expand
 - Post-binding: unknown_field, ambiguous_field, wrong entity, missing relations
+- Planning errors: wrong column names, wrong entity names (via LLM feedback)
 
 The pipeline decides which segment to re-run after repair.
 """
@@ -10,6 +11,7 @@ The pipeline decides which segment to re-run after repair.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional
@@ -327,14 +329,14 @@ def make_missing_relation_repair_rule() -> RepairRule:
 
 def make_aggregation_normalize_repair_rule() -> RepairRule:
     """Repair rule: normalize aggregation function names."""
-    
+
     def repair_fn(selectors: Any, error_ctx: Dict[str, Any]) -> Any:
         if not isinstance(selectors, dict):
             return selectors
-        
+
         repaired = dict(selectors)
         aggregations = repaired.get("aggregations", [])
-        
+
         if isinstance(aggregations, list):
             normalized = []
             for agg in aggregations:
@@ -355,9 +357,9 @@ def make_aggregation_normalize_repair_rule() -> RepairRule:
                         agg["agg"] = "count_distinct"
                     normalized.append(agg)
             repaired["aggregations"] = normalized
-        
+
         return repaired
-    
+
     return RepairRule(
         rule_id="normalize_aggregation",
         error_patterns=["invalid_aggregation", "unknown_aggregation"],
@@ -366,3 +368,137 @@ def make_aggregation_normalize_repair_rule() -> RepairRule:
         description="Normalize aggregation function names to canonical form",
         is_safe=True,
     )
+
+
+def make_planning_error_repair_rule() -> RepairRule:
+    """Repair rule: fix planning errors via LLM feedback loop.
+    
+    This rule handles errors like:
+    - wrong column names (e.g., 'customer_segment' instead of 'segment')
+    - wrong entity names
+    - invalid expressions in select
+    
+    It invokes the LLM planner with detailed feedback including:
+    - Original user query
+    - The incorrect plan that was generated
+    - Specific error details (what field/entity was wrong)
+    - Schema information with correct column/entity names
+    """
+
+    def repair_fn(selectors: Any, error_ctx: Dict[str, Any]) -> Any:
+        # This repair function is a placeholder - actual LLM invocation
+        # happens in the pipeline orchestrator which has access to:
+        # - Original user query
+        # - LLM function
+        # - Full schema
+        # 
+        # The error_ctx should contain:
+        # - error_details: List of specific errors
+        # - schema_info: Available entities and columns
+        # - original_query: The user's original question
+        
+        # For now, return selectors unchanged - the pipeline will
+        # detect this and trigger a full refetch with feedback
+        logger.info(f"SelfHealNode: planning error detected, will trigger refetch with feedback")
+        return selectors
+
+    return RepairRule(
+        rule_id="planning_error_feedback",
+        error_patterns=[
+            "column_not_found",
+            "field_not_found", 
+            "unknown_field",
+            "entity_not_found",
+            "invalid_expression",
+        ],
+        stages=["compile_bind", "execute", "*"],
+        repair_fn=repair_fn,
+        description="Fix planning errors via LLM feedback loop with schema reference",
+        is_safe=False,  # Requires LLM regeneration
+    )
+
+
+def build_planning_error_feedback(
+    original_query: str,
+    incorrect_plan: Dict[str, Any],
+    error_details: List[Dict[str, Any]],
+    schema_info: Dict[str, Any],
+) -> str:
+    """Build detailed feedback message for LLM planner.
+    
+    Args:
+        original_query: The user's original question
+        incorrect_plan: The plan that was generated (with errors)
+        error_details: List of error details from compile_bind/execute
+        schema_info: Schema information with correct names. Can be:
+            - {"entities": {"name": {"columns": [...]}}} (full format)
+            - {"name": {"schema": {...}}} (simplified format)
+            - {} (empty - will show generic message)
+        
+    Returns:
+        Formatted feedback message for LLM
+    """
+    feedback_parts = [
+        "❌ PLANNING ERROR DETECTED",
+        "=" * 50,
+        "",
+        "Original user query:",
+        f'  "{original_query}"',
+        "",
+        "Your previous plan had errors:",
+        json.dumps(incorrect_plan, indent=2),
+        "",
+        "Specific errors:",
+    ]
+    
+    for err in error_details:
+        error_type = err.get("type", "unknown")
+        error_msg = err.get("message", "Unknown error")
+        context = err.get("context", {})
+        
+        feedback_parts.append(f"  • {error_type}: {error_msg}")
+        
+        if context.get("field"):
+            feedback_parts.append(f"    Invalid field: '{context['field']}'")
+        if context.get("entity"):
+            feedback_parts.append(f"    In entity: '{context['entity']}'")
+        
+        # Add suggestions if available
+        if context.get("suggestions"):
+            feedback_parts.append(f"    Did you mean: {', '.join(context['suggestions'])}")
+    
+    # Add schema reference - support multiple formats
+    feedback_parts.extend([
+        "",
+        "Available schema (use these exact names):",
+    ])
+    
+    # Check for full format with entities
+    entities = schema_info.get("entities", schema_info)
+    
+    if entities:
+        for entity_name, entity_info in entities.items():
+            feedback_parts.append(f"  Entity '{entity_name}':")
+            
+            # Check for columns list (full format)
+            columns = entity_info.get("columns", []) if isinstance(entity_info, dict) else []
+            if columns:
+                for col in columns:
+                    if isinstance(col, dict):
+                        pk_marker = " (PK)" if col.get("pk") else ""
+                        feedback_parts.append(f"    - {col['name']}{pk_marker}")
+            else:
+                # Simplified format - just show entity name
+                feedback_parts.append(f"    (schema available - refer to documentation)")
+    else:
+        feedback_parts.append("  (Schema not available - use standard field names)")
+    
+    feedback_parts.extend([
+        "",
+        "Please regenerate the plan with CORRECT field and entity names.",
+        "Pay attention to the exact column names in the schema above.",
+        "",
+        "Generate ONLY the corrected JSON plan, no explanations.",
+    ])
+    
+    return "\n".join(feedback_parts)

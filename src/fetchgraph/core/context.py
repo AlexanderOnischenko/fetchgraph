@@ -279,6 +279,8 @@ def create_generic_agent(
     domain_parser: Callable[[RawLLMOutput], Any] | None = None,
     llm_refetch: Callable[[str, dict[str, str], Plan], str] | None = None,
     max_refetch_iters: int = 1,
+    max_heal_attempts: int = 3,  # NEW: self-heal attempts
+    max_refetch_attempts: int = 3,  # NEW: LLM refetch attempts
     max_tokens: int = 4000,
     summarizer_llm: Callable[[str], str] | None = None,
     use_pipeline_normalizer: bool = True,  # NEW: use node-based pipeline
@@ -287,8 +289,10 @@ def create_generic_agent(
     """Convenience wrapper building a generic :class:`BaseGraphAgent`.
 
     The factory wires built-in generic prompts for planning and synthesis.
-    
+
     Args:
+        max_heal_attempts: Maximum deterministic self-heal attempts per plan (default: 3, 0 to disable)
+        max_refetch_attempts: Maximum LLM refetch attempts per plan (default: 3, 0 to disable)
         use_pipeline_normalizer: If True (default), use the new node-based
             PlanningPipeline via create_pipeline_normalizer(). If False, use
             the legacy PlanNormalizer.from_providers().
@@ -333,6 +337,8 @@ def create_generic_agent(
                 schema=schema,
                 llm_fn=llm_invoke,  # type: ignore
                 enable_replay_logging=enable_replay_logging,
+                max_heal_attempts=max_heal_attempts,
+                max_refetch_attempts=max_refetch_attempts,
             )
             
             # Log replay handlers status

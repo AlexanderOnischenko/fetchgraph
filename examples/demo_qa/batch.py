@@ -12,6 +12,7 @@ from typing import Iterable, Mapping, Optional, cast
 from .llm.factory import build_llm
 from .logging_config import configure_logging
 from .provider_factory import build_provider
+from .compare_resolver import resolve_compare_input, resolved_lines
 from .runner import (
     Case,
     DiffCaseChange,
@@ -489,6 +490,27 @@ def _id_sort_key(row: Mapping[str, object]) -> str:
 
 def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
     lines: list[str] = []
+    provenance = compare.get("provenance")
+    if isinstance(provenance, Mapping):
+        base_info = provenance.get("base")
+        new_info = provenance.get("new")
+        lines.append("# Batch comparison report")
+        lines.append("")
+        lines.append("## Resolved inputs")
+        if isinstance(base_info, Mapping):
+            lines.append(f"- BASE input: {base_info.get('input')}")
+            lines.append(f"- BASE kind: {base_info.get('kind')}")
+            lines.append(f"- BASE resolved run_id: {base_info.get('run_id') or 'n/a'}")
+            lines.append(f"- BASE resolved run_dir: {base_info.get('run_dir') or 'n/a'}")
+            lines.append(f"- BASE source: {base_info.get('source')}")
+        if isinstance(new_info, Mapping):
+            lines.append(f"- NEW input: {new_info.get('input')}")
+            lines.append(f"- NEW kind: {new_info.get('kind')}")
+            lines.append(f"- NEW resolved run_id: {new_info.get('run_id') or 'n/a'}")
+            lines.append(f"- NEW resolved run_dir: {new_info.get('run_dir') or 'n/a'}")
+            lines.append(f"- NEW source: {new_info.get('source')}")
+        lines.append("")
+
     base_counts = compare["base_counts"]
     new_counts = compare["new_counts"]
     fail_on = compare.get("fail_on", "bad")
@@ -503,7 +525,8 @@ def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
 
     base_bad = _bad_total(base_counts, fallback=compare.get("base_bad_total", 0))
     new_bad = _bad_total(new_counts, fallback=compare.get("new_bad_total", 0))
-    lines.append("# Batch comparison report")
+    if not lines:
+        lines.append("# Batch comparison report")
     lines.append("")
     lines.append("## Summary")
     lines.append(f"- Base OK: {base_counts.get('ok',0)}, Bad: {base_bad}")
@@ -1679,50 +1702,52 @@ def _render_missing_effective_error(tag: str, attempted: list[Path]) -> str:
 
 
 def handle_compare(args) -> int:
-    if args.base and args.base_tag:
-        print("Use either --base or --base-tag (not both).", file=sys.stderr)
+    if not args.base:
+        print("Provide --base <ref>.", file=sys.stderr)
         return 2
-    if args.new and args.new_tag:
-        print("Use either --new or --new-tag (not both).", file=sys.stderr)
-        return 2
-
-    base_path: Path | None = Path(args.base) if args.base else None
-    new_path: Path | None = Path(args.new) if args.new else None
-
-    if args.base_tag:
-        if not args.data:
-            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
-            return 2
-        artifacts_dir = Path(args.data) / ".runs"
-        base_path, artifacts_dir, attempted = _resolve_effective_results_for_tag(
-            args.base_tag, candidates=[artifacts_dir]
-        )
-        if base_path is None:
-            print(_render_missing_effective_error(args.base_tag, attempted), file=sys.stderr)
-            return 2
-    if args.new_tag:
-        if not args.data:
-            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
-            return 2
-        artifacts_dir = Path(args.data) / ".runs"
-        new_path, _, attempted = _resolve_effective_results_for_tag(
-            args.new_tag, candidates=[artifacts_dir]
-        )
-        if new_path is None:
-            print(_render_missing_effective_error(args.new_tag, attempted), file=sys.stderr)
-            return 2
-
-    if base_path is None and not args.base_tag:
-        print("Provide either --base or --base-tag.", file=sys.stderr)
-        return 2
-    if new_path is None and not args.new_tag:
-        print("Provide either --new or --new-tag.", file=sys.stderr)
+    if not args.new:
+        print("Provide --new <ref>.", file=sys.stderr)
         return 2
 
-    if not base_path.exists() or not new_path.exists():
-        print("Base or new results file not found.", file=sys.stderr)
+    data_dir = Path(args.data) if args.data else None
+    try:
+        resolved_base = resolve_compare_input(str(args.base), data_dir=data_dir)
+        resolved_new = resolve_compare_input(str(args.new), data_dir=data_dir)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
-    comparison = compare_runs(base_path, new_path, fail_on=args.fail_on, require_assert=args.require_assert)
+
+    for line in resolved_lines("BASE", resolved_base):
+        print(line)
+    print("")
+    for line in resolved_lines("NEW", resolved_new):
+        print(line)
+
+    comparison = diff_runs(
+        resolved_base.results.values(),
+        resolved_new.results.values(),
+        fail_on=args.fail_on,
+        require_assert=args.require_assert,
+    )
+    comparison["provenance"] = {
+        "base": {
+            "input": resolved_base.input_value,
+            "kind": resolved_base.kind,
+            "run_id": resolved_base.run_id,
+            "run_dir": str(resolved_base.run_dir) if resolved_base.run_dir else None,
+            "tag": resolved_base.tag,
+            "source": resolved_base.source_description,
+        },
+        "new": {
+            "input": resolved_new.input_value,
+            "kind": resolved_new.kind,
+            "run_id": resolved_new.run_id,
+            "run_dir": str(resolved_new.run_dir) if resolved_new.run_dir else None,
+            "tag": resolved_new.tag,
+            "source": resolved_new.source_description,
+        },
+    }
+
     out_path = Path(args.out) if args.out is not None else None
     format_mode = getattr(args, "format", "md")
     color_mode = getattr(args, "color", "auto")

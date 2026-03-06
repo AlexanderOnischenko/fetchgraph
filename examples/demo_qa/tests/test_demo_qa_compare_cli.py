@@ -74,53 +74,64 @@ def _write_results_file(path: Path, results: list[RunResult]) -> Path:
     return path
 
 
+def _make_run(data_dir: Path, run_name: str, run_id: str, *, tag: str | None, with_results: bool, status: str) -> Path:
+    run_dir = data_dir / ".runs" / "runs" / run_name
+    case_dir = run_dir / "cases" / "case-1"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_meta.json").write_text(json.dumps({"run_id": run_id, "tag": tag}), encoding="utf-8")
+    status_payload = {
+        "id": "case-1",
+        "question": "q",
+        "status": status,
+        "checked": True,
+        "reason": None,
+        "details": None,
+        "artifacts_dir": str(case_dir),
+        "duration_ms": 1,
+        "tags": [tag] if tag else [],
+    }
+    (case_dir / "status.json").write_text(json.dumps(status_payload), encoding="utf-8")
+    if with_results:
+        write_results(run_dir / "results.jsonl", [_make_result("case-1", status)])
+    return run_dir
+
+
 def test_compare_resolves_effective_snapshots(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data_dir = tmp_path / "data"
     _write_effective_snapshot(data_dir, "baseline", [_make_result("case-1", "ok")])
     _write_effective_snapshot(data_dir, "baseline_v2", [_make_result("case-1", "failed")])
 
     args = build_parser().parse_args(
-        ["compare", "--data", str(data_dir), "--base-tag", "baseline", "--new-tag", "baseline_v2"]
+        ["compare", "--data", str(data_dir), "--base", "tag:baseline", "--new", "tag:baseline_v2"]
     )
     exit_code = handle_compare(args)
     captured = capsys.readouterr().out
 
     assert exit_code == 0
+    assert "Resolved BASE" in captured
+    assert "kind: tag" in captured
     assert "case-1" in captured
 
 
 def test_compare_reports_missing_effective_snapshot(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data_dir = tmp_path / "data"
-    args = build_parser().parse_args(["compare", "--data", str(data_dir), "--base-tag", "missing", "--new-tag", "next"])
+    args = build_parser().parse_args(["compare", "--data", str(data_dir), "--base", "tag:missing", "--new", "tag:next"])
 
     exit_code = handle_compare(args)
     captured = capsys.readouterr().err
 
     assert exit_code == 2
-    assert "No effective snapshot found" in captured
+    assert "has no effective snapshot" in captured
 
 
 def test_compare_requires_data_for_tag(capsys: pytest.CaptureFixture[str]) -> None:
-    args = build_parser().parse_args(["compare", "--base-tag", "a", "--new-tag", "b"])
+    args = build_parser().parse_args(["compare", "--base", "tag:a", "--new", "tag:b"])
 
     exit_code = handle_compare(args)
     captured = capsys.readouterr().err
 
     assert exit_code == 2
-    assert "--data is required" in captured
-
-
-def test_compare_rejects_mixed_base_args(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    base = tmp_path / "base.jsonl"
-    new = tmp_path / "new.jsonl"
-    base.write_text("{}", encoding="utf-8")
-    new.write_text("{}", encoding="utf-8")
-
-    with pytest.raises(SystemExit) as excinfo:
-        build_parser().parse_args(["compare", "--base", str(base), "--base-tag", "tag", "--new", str(new)])
-    assert excinfo.value.code == 2
-    captured = capsys.readouterr().err
-    assert "argument --base-tag: not allowed with argument --base" in captured
+    assert "requires --data" in captured
 
 
 def test_compare_table_format_without_color(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -148,6 +159,48 @@ def test_compare_json_format(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     captured = capsys.readouterr().out
 
     assert exit_code == 0
-    payload = json.loads(captured)
+    payload = json.loads(captured[captured.find("{"):])
     assert payload["summary"]["coverage"]["base_total_cases"] == 1
     assert payload["top_fixes"]
+
+
+def test_compare_run_id_and_latest_tag_refs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data_dir = tmp_path / "data"
+    _make_run(data_dir, "20260306_195550_retail_cases_32d32108", "32d32108", tag="baseline", with_results=False, status="ok")
+    _make_run(data_dir, "20260306_201512_retail_cases_44148564", "44148564", tag="qwen_pipeline", with_results=True, status="failed")
+
+    args = build_parser().parse_args(
+        ["compare", "--data", str(data_dir), "--base", "32d32108", "--new", "latest:qwen_pipeline"]
+    )
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "kind: run_id" in captured
+    assert "kind: latest_tag_run" in captured
+    assert "source: cases/**/status.json" in captured
+
+
+def test_compare_latest_ref(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data_dir = tmp_path / "data"
+    _make_run(data_dir, "20260306_195550_retail_cases_32d32108", "32d32108", tag="baseline", with_results=True, status="ok")
+    _make_run(data_dir, "20260306_201512_retail_cases_44148564", "44148564", tag="qwen_pipeline", with_results=True, status="failed")
+
+    args = build_parser().parse_args(["compare", "--data", str(data_dir), "--base", "latest", "--new", "44148564"])
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "kind: latest" in captured
+
+
+def test_compare_reports_unsupported_ref(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data_dir = tmp_path / "data"
+    _make_run(data_dir, "20260306_195550_retail_cases_32d32108", "32d32108", tag="baseline", with_results=True, status="ok")
+
+    args = build_parser().parse_args(["compare", "--data", str(data_dir), "--base", "foo:bar:baz", "--new", "32d32108"])
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr().err
+
+    assert exit_code == 2
+    assert 'unsupported ref "foo:bar:baz"' in captured

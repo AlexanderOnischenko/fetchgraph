@@ -6,7 +6,6 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from ..parsing.plan_parser import PlanParser
-from ..planning.normalize import PlanNormalizer
 from ..replay.log import EventLoggerLike
 from .models import (
     BaselineSpec,
@@ -281,10 +280,16 @@ def create_generic_agent(
     max_refetch_iters: int = 1,
     max_tokens: int = 4000,
     summarizer_llm: Optional[Callable[[str], str]] = None,
+    use_pipeline_normalizer: bool = True,  # NEW: use node-based pipeline
 ) -> BaseGraphAgent:
     """Convenience wrapper building a generic :class:`BaseGraphAgent`.
 
     The factory wires built-in generic prompts for planning and synthesis.
+    
+    Args:
+        use_pipeline_normalizer: If True (default), use the new node-based
+            PlanningPipeline via create_pipeline_normalizer(). If False, use
+            the legacy PlanNormalizer.from_providers().
     """
 
     llm_plan = make_llm_plan_generic(llm_invoke, task_profile, providers)
@@ -298,6 +303,39 @@ def create_generic_agent(
     def default_domain_parser(raw: RawLLMOutput) -> Any:
         return normalize_llm_output(raw).text
 
+    # NEW: Use node-based pipeline normalizer by default
+    plan_normalizer = None
+    if use_pipeline_normalizer:
+        try:
+            from fetchgraph.planning.adapter import create_pipeline_normalizer
+            from fetchgraph.core.models import Plan
+            
+            # Build schema from providers if available
+            schema = None
+            for prov in providers.values():
+                if hasattr(prov, 'describe'):
+                    try:
+                        info = prov.describe()
+                        if hasattr(info, 'selectors_schema') and info.selectors_schema:
+                            schema = info.selectors_schema
+                            break
+                    except Exception:
+                        pass
+            
+            plan_normalizer = create_pipeline_normalizer(
+                providers=providers,
+                plan_model=Plan,
+                schema=schema,
+                llm_fn=llm_invoke,  # For refetch
+            )
+        except ImportError as e:
+            # Fallback to legacy normalizer if pipeline not available
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Pipeline normalizer not available, using legacy PlanNormalizer: {e}"
+            )
+
     agent = BaseGraphAgent(
         llm_plan=llm_plan,
         llm_synth=llm_synth,
@@ -307,6 +345,7 @@ def create_generic_agent(
         verifiers=verifiers or [],
         packer=packer,
         plan_parser=plan_parser,
+        plan_normalizer=plan_normalizer,  # NEW: pipeline or legacy
         baseline=baseline,
         task_profile=task_profile,
         llm_refetch=llm_refetch,
@@ -329,7 +368,7 @@ class BaseGraphAgent:
         verifiers: List[Verifier],
         packer: ContextPacker,
         plan_parser: Optional[Callable[[RawLLMOutput], Plan]] = None,
-        plan_normalizer: Optional[PlanNormalizer] = None,
+        plan_normalizer: Optional[Any] = None,  # PipelineNormalizerAdapter or legacy
         baseline: Optional[List[BaselineSpec]] = None,
         max_retries: int = 2,
         task_profile: Optional[TaskProfile] = None,
@@ -348,9 +387,23 @@ class BaseGraphAgent:
             self.plan_parser = PlanParser().parse
         else:
             self.plan_parser = plan_parser
-        self.plan_normalizer = plan_normalizer or PlanNormalizer.from_providers(
-            providers
-        )
+        
+        # NEW: Use pipeline normalizer or fallback to legacy
+        if plan_normalizer is not None:
+            self.plan_normalizer = plan_normalizer
+        else:
+            # Fallback to legacy PlanNormalizer (deprecated)
+            try:
+                from fetchgraph.planning.adapter import create_pipeline_normalizer
+                self.plan_normalizer = create_pipeline_normalizer(
+                    providers=providers,
+                    plan_model=Plan,
+                )
+            except ImportError:
+                # Legacy fallback (will be removed in future)
+                from ..planning.normalize.legacy import PlanNormalizer
+                self.plan_normalizer = PlanNormalizer.from_providers(providers)
+        
         self.event_logger = event_logger
         if self.plan_normalizer is not None:
             self.plan_normalizer.event_logger = event_logger

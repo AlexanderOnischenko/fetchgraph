@@ -12,10 +12,10 @@ WORKDIR=/Users/alexanderonishchenko/Documents/_Projects/fetchgraph
 LOG="$HOME/batch_tag.log"
 
 # Команда для ПЕРВОГО запуска
-FIRST_CMD='make batch-tag TAG=my_tag NOTE="прогон перед мерджем"'
+FIRST_CMD='make batch-tag TAG=normalization_fix NOTE="qwen code фиксит нормализацию"'
 
 # Команда для ПОВТОРНЫХ запусков
-REPEAT_CMD='make batch-tag TAG=my_tag NOTE="прогон перед мерджем"'
+REPEAT_CMD='make batch-tag TAG=normalization_fix NOTE="qwen code фиксит нормализацию"'
 ### ============================================================
 
 LOCKDIR="/tmp/batch_tag_runner.lock"

@@ -15,7 +15,7 @@ from fetchgraph.planning.normalize import (
     PlanNormalizer,
     PlanNormalizerOptions,
 )
-from fetchgraph.planning.normalize.plan_normalizer import SelectorNormalizationRule
+from fetchgraph.planning.normalize import SelectorNormalizationRule
 from fetchgraph.relational.models import RelationalRequest
 from fetchgraph.relational.normalize import normalize_relational_selectors
 

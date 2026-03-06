@@ -2,7 +2,7 @@
 set -u
 
 ### ================== НАСТРОЙКИ (менять тут) ==================
-DELAY=0       # 65 минут до первого запуска
+DELAY=3600       # 65 минут до первого запуска
 INTERVAL=5400    # 90 минут между запусками
 TICK=300         # печатать обратный отсчёт раз в 5 минут
 
@@ -12,10 +12,10 @@ WORKDIR=/Users/alexanderonishchenko/Documents/_Projects/fetchgraph
 LOG="$HOME/batch_tag.log"
 
 # Команда для ПЕРВОГО запуска
-FIRST_CMD='make batch-tag TAG=new_pipeline NOTE="пайплайн, который построил qwen"'
+FIRST_CMD='make batch-tag TAG=new_pipeline_fixes NOTE="пайплайн, который построил qwen"'
 
 # Команда для ПОВТОРНЫХ запусков
-REPEAT_CMD='make batch-tag TAG=new_pipeline NOTE="пайплайн, который построил qwen"'
+REPEAT_CMD='make batch-tag TAG=new_pipeline_fixes NOTE="пайплайн, который построил qwen"'
 ### ============================================================
 
 LOCKDIR="/tmp/batch_tag_runner.lock"

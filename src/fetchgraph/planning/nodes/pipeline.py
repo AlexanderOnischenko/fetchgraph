@@ -529,6 +529,11 @@ class PlanningPipeline:
         )
         self.state.compile_result = compile_result.value
         notes.extend(compile_result.notes)
+        
+        # IMPORTANT: Use transformed_selectors from compile_bind if available
+        # This ensures aggregates extracted from SELECT expressions are used
+        if compile_result.value and compile_result.value.transformed_selectors:
+            self.state.normalized_selectors = compile_result.value.transformed_selectors
 
         # TRACER: Log compile+bind replay event
         if self.config.enable_replay_logging and self.state.event_logger is not None and compile_result.value:

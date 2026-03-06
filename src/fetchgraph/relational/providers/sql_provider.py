@@ -436,17 +436,23 @@ class SqlRelationalDataProvider(RelationalDataProvider):
 
         if req.aggregations:
             for spec in req.aggregations:
-                ent, fld = self._resolve_field(req.root_entity, spec.field, None)
-                col_ref = self._column_ref(self._lookup_alias(ent, index), fld)
-                agg_func = spec.agg
-                if agg_func == "count_distinct":
-                    agg_expr = f"COUNT(DISTINCT {col_ref})"
-                elif agg_func == "avg":
-                    agg_expr = f"AVG({col_ref})"
+                # Handle COUNT(*) - count all rows
+                if spec.field == "*" and spec.agg == "count":
+                    agg_expr = "COUNT(*)"
+                    alias = spec.alias or "count_all"
+                    select_parts.append(f"{agg_expr} AS {self._quote_ident(alias)}")
                 else:
-                    agg_expr = f"{agg_func.upper()}({col_ref})"
-                alias = spec.alias or f"{spec.agg}_{spec.field}"
-                select_parts.append(f"{agg_expr} AS {self._quote_ident(alias)}")
+                    ent, fld = self._resolve_field(req.root_entity, spec.field, None)
+                    col_ref = self._column_ref(self._lookup_alias(ent, index), fld)
+                    agg_func = spec.agg
+                    if agg_func == "count_distinct":
+                        agg_expr = f"COUNT(DISTINCT {col_ref})"
+                    elif agg_func == "avg":
+                        agg_expr = f"AVG({col_ref})"
+                    else:
+                        agg_expr = f"{agg_func.upper()}({col_ref})"
+                    alias = spec.alias or f"{spec.agg}_{spec.field}"
+                    select_parts.append(f"{agg_expr} AS {self._quote_ident(alias)}")
         elif group_cols:
             select_parts.append("COUNT(*) AS \"count\"")
 

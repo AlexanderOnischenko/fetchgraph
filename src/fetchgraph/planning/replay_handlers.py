@@ -213,19 +213,20 @@ def replay_plan_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[
 
 def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[str, Any]:
     """Replay handler for compile/bind stage (spec_v1).
-    
+
     This handler replays the binding of selectors to schema.
-    
+
     Input:
         {
             "selectors": Dict[str, Any],
             "schema": Dict[str, Any],
         }
-    
+
     Output:
         {
             "bound_query": {...},  # BoundRelationalQuery or None
-            "bindings": {...},  # Field bindings
+            "transformed_selectors": {...},  # Selectors with aggregates extracted from SELECT
+            "diag": {...},  # Diagnostic info
         }
     """
     from fetchgraph.core.models import Plan
@@ -234,7 +235,7 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
         PipelineConfig,
         PlanningPipeline,
     )
-    
+
     selectors = input_data.get("selectors", {})
     schema = input_data.get("schema", {})
 
@@ -255,7 +256,30 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
             },
         }
 
-    bound_query = result.value.bound_query if result.value else None
+    compile_value = result.value if result.value else None
+    bound_query = compile_value.bound_query if compile_value else None
+    transformed = compile_value.transformed_selectors if compile_value else {}
+    errors = compile_value.errors if compile_value else []
+    
+    # VALIDATION: Check for compile errors
+    if errors:
+        raise AssertionError(f"Compile/bind errors: {'; '.join(errors)}")
+    
+    # VALIDATION: Ensure transformed selectors have required fields for relational queries
+    if transformed:
+        op = transformed.get("op")
+        if op == "query":
+            if "root_entity" not in transformed:
+                raise AssertionError("Compiled selectors missing 'root_entity'")
+            
+            # Check that aggregations are properly formed
+            aggs = transformed.get("aggregations", [])
+            for i, agg in enumerate(aggs):
+                if isinstance(agg, dict):
+                    if "agg" not in agg:
+                        raise AssertionError(f"aggregations[{i}] missing required field 'agg'")
+                    if "field" not in agg:
+                        raise AssertionError(f"aggregations[{i}] missing required field 'field'")
 
     return {
         "bound_query": {
@@ -263,6 +287,13 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
             "bound_select": len(getattr(bound_query, 'bound_select', []) if bound_query else []),
             "resolved_relations": getattr(bound_query, 'resolved_relations', []) if bound_query else [],
         } if bound_query else None,
+        "transformed_selectors": transformed,
+        "diag": {
+            "compile_success": not bool(errors),
+            "has_bound_query": bound_query is not None,
+            "has_transformed_selectors": bool(transformed),
+            "aggregations_extracted": len(transformed.get("aggregations", [])) if transformed else 0,
+        },
     }
 
 

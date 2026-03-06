@@ -511,16 +511,21 @@ class PandasRelationalDataProvider(RelationalDataProvider):
 
         agg_results: Dict[str, AggregationResult] = {}
         for spec in req.aggregations:
-            col = self._resolve_column(df, req.root_entity, spec.field)
-            if spec.agg == "count_distinct":
-                value = df[col].nunique(dropna=True)
-            elif spec.agg == "count":
-                value = df[col].count()
-            elif spec.agg == "avg":
-                value = df[col].mean()
+            # Handle COUNT(*) - count all rows
+            if spec.field == "*" and spec.agg == "count":
+                value = len(df)
+                alias = spec.alias or "count_all"
             else:
-                value = getattr(df[col], spec.agg)()
-            alias = spec.alias or f"{spec.agg}_{spec.field}"
+                col = self._resolve_column(df, req.root_entity, spec.field)
+                if spec.agg == "count_distinct":
+                    value = df[col].nunique(dropna=True)
+                elif spec.agg == "count":
+                    value = df[col].count()
+                elif spec.agg == "avg":
+                    value = df[col].mean()
+                else:
+                    value = getattr(df[col], spec.agg)()
+                alias = spec.alias or f"{spec.agg}_{spec.field}"
             agg_results[alias] = AggregationResult(key=alias, value=value)
         return QueryResult(aggregations=agg_results, meta={"relations_used": req.relations})
 

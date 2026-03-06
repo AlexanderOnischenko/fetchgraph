@@ -108,28 +108,75 @@ class AggregationNormalizeNode:
         selectors: Dict[str, Any],
     ) -> NodeResult[AggregationNormalizeResult]:
         """Execute aggregation normalization.
-        
+
         Args:
             ctx: Pipeline context
             selectors: Provider-normalized selectors
-        
+
         Returns:
             NodeResult with normalized aggregations
         """
-        logger.debug("AggregationNormalizeNode: executing (stub)")
+        logger.debug("AggregationNormalizeNode: executing")
+
+        notes = []
+        normalized_aggregations = []
+        normalized_group_by = []
+
+        # Extract aggregations from selectors
+        aggregations = selectors.get("aggregations", [])
+        if isinstance(aggregations, list):
+            for agg in aggregations:
+                if isinstance(agg, dict):
+                    agg_func = agg.get("agg", "")
+                    field_name = agg.get("field", "")
+                    alias = agg.get("alias", None)
+                    is_distinct = agg.get("is_distinct", False)
+                    
+                    # Normalize aggregation function name
+                    canonical_agg = self.normalize_agg_name(agg_func)
+                    if is_distinct and canonical_agg == "count":
+                        canonical_agg = "count_distinct"
+                    
+                    # Generate alias if not provided
+                    if not alias:
+                        alias = f"{canonical_agg}_{field_name.replace('.', '_')}"
+                    
+                    normalized_aggregations.append(
+                        NormalizedAggregation(
+                            agg=canonical_agg,
+                            field=field_name,
+                            alias=alias,
+                            is_distinct=is_distinct,
+                        )
+                    )
+                    notes.append(f"Normalized aggregation: {agg_func}({field_name}) -> {canonical_agg}({field_name}) as {alias}")
         
-        # Stub: pass through unchanged
-        notes = [
-            "AggregationNormalizeNode: aggregation normalization (stub - no changes)",
-        ]
+        # Extract group_by from selectors
+        group_by = selectors.get("group_by", [])
+        if isinstance(group_by, list):
+            normalized_group_by = list(group_by)
         
+        # Compute group_by closure (ensure all non-agg select fields are in group_by)
+        select_fields = selectors.get("select", [])
+        if isinstance(select_fields, list) and select_fields:
+            # TODO: implement full group_by closure logic
+            pass
+
+        if not normalized_aggregations:
+            notes.append("AggregationNormalizeNode: no aggregations found in selectors")
+        else:
+            notes.append(f"AggregationNormalizeNode: normalized {len(normalized_aggregations)} aggregation(s)")
+
         result = AggregationNormalizeResult(
-            normalized_aggregations=[],
-            normalized_group_by=[],
+            normalized_aggregations=normalized_aggregations,
+            normalized_group_by=normalized_group_by,
             notes=notes,
-            changes={},
+            changes={
+                "input_agg_count": len(aggregations) if isinstance(aggregations, list) else 0,
+                "output_agg_count": len(normalized_aggregations),
+            },
         )
-        
+
         return NodeResult(
             value=result,
             notes=notes,

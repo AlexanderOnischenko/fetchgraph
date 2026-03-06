@@ -1,0 +1,16 @@
+{
+  "diag": {
+    "aggregations_preserved": true,
+    "input_aggregations_count": 1,
+    "output_aggregations_count": 1
+  },
+  "normalized_aggregations": [
+    {
+      "agg": "count",
+      "alias": "count_order_id",
+      "field": "order_id",
+      "is_distinct": false
+    }
+  ],
+  "normalized_group_by": []
+}

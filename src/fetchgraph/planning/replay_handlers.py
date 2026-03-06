@@ -242,6 +242,13 @@ def replay_aggregation_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -
         }
 
     agg_value = result.value
+    
+    # Extract input aggregations count for validation
+    input_aggregations = selectors.get("aggregations", [])
+    input_agg_count = len(input_aggregations) if isinstance(input_aggregations, list) else 0
+    
+    output_agg_count = len(agg_value.normalized_aggregations) if agg_value else 0
+    
     return {
         "normalized_aggregations": [
             {
@@ -253,6 +260,11 @@ def replay_aggregation_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -
             for agg in (agg_value.normalized_aggregations if agg_value else [])
         ],
         "normalized_group_by": agg_value.normalized_group_by if agg_value else [],
+        "diag": {
+            "input_aggregations_count": input_agg_count,
+            "output_aggregations_count": output_agg_count,
+            "aggregations_preserved": input_agg_count == output_agg_count,
+        },
     }
 
 

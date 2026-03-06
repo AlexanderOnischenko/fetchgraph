@@ -152,22 +152,17 @@ class PipelineNormalizerAdapter:
         """
         from fetchgraph.core.models import ContextFetchSpec, Plan
 
-        # Extract normalized selectors from pipeline state
-        # The pipeline stores them in state.normalized_selectors
-        normalized_selectors = {}
-        if hasattr(result, 'diag') and isinstance(result.diag, dict):
-            # Try to extract from diag (if pipeline exposes them)
-            pass
-        
-        # For now, extract from pipeline state directly
-        # Note: This requires access to pipeline.state which may not be available
-        # A better approach is to include normalized_selectors in PipelineResult
-        
+        # Extract normalized selectors from PipelineResult
+        # The pipeline now exposes them in result.normalized_selectors
+        normalized_selectors = result.normalized_selectors if hasattr(result, 'normalized_selectors') else {}
+
         # Reconstruct Plan with normalized selectors in context_plan
         # The selectors should be unwrapped (no provider key)
+        # IMPORTANT: Use the pipeline's active_provider, not a hardcoded value
+        provider_name = self.pipeline.active_provider or "unknown"
         normalized_plan = Plan(
             required_context=[],
-            context_plan=[ContextFetchSpec(provider="relational", mode="full", selectors=normalized_selectors)] if normalized_selectors else [],
+            context_plan=[ContextFetchSpec(provider=provider_name, mode="full", selectors=normalized_selectors)] if normalized_selectors else [],
             adr_queries=[],
             constraints=[],
             entities=[],
@@ -227,11 +222,35 @@ def create_pipeline_normalizer(
         repair_rules = _build_repair_rules()
 
     # Create pipeline config with replay logging setting
+    # IMPORTANT: active_provider must be set from providers dict to avoid mismatches
     if config is None:
-        config = PipelineConfig(enable_replay_logging=enable_replay_logging)
+        # Derive active_provider from the first provider in the dict
+        # If providers is empty, allow it but pipeline will fail if actually used
+        # This is acceptable for test scenarios that don't invoke normalization
+        if providers:
+            active_provider_name = next(iter(providers.keys()))
+            config = PipelineConfig(
+                active_provider=active_provider_name,
+                enable_replay_logging=enable_replay_logging,
+            )
+        else:
+            # Empty providers - create config without active_provider
+            # Pipeline will raise on first use, which is fine for tests
+            config = PipelineConfig(
+                active_provider=None,
+                enable_replay_logging=enable_replay_logging,
+            )
     else:
         # Override enable_replay_logging if explicitly provided
         config.enable_replay_logging = enable_replay_logging
+        # Validate active_provider if set
+        if config.active_provider is not None and config.active_provider not in providers:
+            raise ValueError(
+                f"PipelineConfig.active_provider={config.active_provider!r} does not match "
+                f"any of the registered providers: {list(providers.keys())}. "
+                f"Either change active_provider to one of the provider names, or register "
+                f"a provider with the name {config.active_provider!r}."
+            )
 
     # Create pipeline
     pipeline = PlanningPipeline(

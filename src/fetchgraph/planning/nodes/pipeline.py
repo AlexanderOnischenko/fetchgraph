@@ -115,7 +115,8 @@ class PipelineConfig:
     output_format: str = "json"
 
     # Active provider (for single-provider pipeline)
-    active_provider: str = "relational"
+    # Must be set explicitly - no default value to avoid mismatches
+    active_provider: str | None = None
 
     # Tracer replay logging
     enable_replay_logging: bool = False  # Disabled by default for production
@@ -165,22 +166,25 @@ class PipelineState:
 @dataclass
 class PipelineResult:
     """Final result from the planning pipeline."""
-    
+
     # Success case
     output: Any | None = None
-    
+
     # Error case
     error: str | None = None
     errors: list[str] = field(default_factory=list)
-    
+
     # Metadata
     notes: list[str] = field(default_factory=list)
     diag: dict[str, Any] = field(default_factory=dict)
-    
+
     # Retry metadata
     refetch_count: int = 0
     self_heal_count: int = 0
     
+    # Normalized selectors for context fetch (NEW)
+    normalized_selectors: dict[str, Any] = field(default_factory=dict)
+
     @property
     def is_success(self) -> bool:
         return self.error is None and len(self.errors) == 0
@@ -376,6 +380,7 @@ class PlanningPipeline:
             notes=self.state.all_notes,
             refetch_count=self.state.refetch_count,
             self_heal_count=self.state.self_heal_count,
+            normalized_selectors=self.state.normalized_selectors,
         )
     
     def _run_pre_binding_segment(self, skip_parse_extract: bool = False) -> dict[str, Any]:
@@ -442,6 +447,14 @@ class PlanningPipeline:
         # TRACER: Log normalize+validate replay event
         if self.config.enable_replay_logging and validate_result.value:
             validate_value = validate_result.value
+            # active_provider must be set for tracer logging
+            if self.config.active_provider is None:
+                raise RuntimeError(
+                    "PipelineConfig.active_provider is not set. "
+                    "This should not happen in production - it indicates a misconfiguration. "
+                    "When creating the pipeline, ensure providers dict is non-empty or "
+                    "provide a config with active_provider set explicitly."
+                )
             before_ok = validate_value.validation_results.get(self.config.active_provider, True) if validate_value.validation_results else True
             _log_replay_event(
                 event_logger=self.state.event_logger,
@@ -707,17 +720,25 @@ class PlanningPipeline:
         selectors_by_provider: dict[str, Any],
     ) -> dict[str, Any]:
         """Extract selectors for active provider from multi-provider dict.
-        
+
         CRITICAL FIX #3: convert {provider: selectors} → selectors for single provider.
         """
+        # active_provider must be set for selector extraction
+        if self.active_provider is None:
+            raise RuntimeError(
+                "Pipeline active_provider is not set. "
+                "This should not happen in production - it indicates a misconfiguration. "
+                "When creating the pipeline, ensure providers dict is non-empty or "
+                "provide a config with active_provider set explicitly."
+            )
         if self.active_provider in selectors_by_provider:
             return selectors_by_provider[self.active_provider]
-        
+
         # Fallback: return first provider's selectors or empty dict
         if selectors_by_provider:
             first_key = next(iter(selectors_by_provider.keys()))
             return selectors_by_provider[first_key]
-        
+
         return {}
     
     def _extract_selectors_from_plan(self, plan: BaseModel) -> dict[str, Any]:

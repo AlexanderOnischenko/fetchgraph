@@ -55,10 +55,10 @@ class ExecuteNode:
     
     def __init__(
         self,
-        provider: str,
+        provider: str | None = None,
         execute_fn: Optional[Callable[[Any], Any]] = None,
     ) -> None:
-        self.provider = provider
+        self.provider = provider or "unknown"
         self.execute_fn = execute_fn
     
     def execute(

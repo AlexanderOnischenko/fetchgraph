@@ -66,10 +66,10 @@ class LoweringNode:
     
     def __init__(
         self,
-        provider: str,
+        provider: str | None = None,
         lowering_fn: Callable | None = None,
     ) -> None:
-        self.provider = provider
+        self.provider = provider or "unknown"
         self.lowering_fn = lowering_fn
     
     def execute(

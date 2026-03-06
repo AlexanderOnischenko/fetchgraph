@@ -261,6 +261,12 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             return series.astype(str).str.contains(str(value), case=True, regex=False)
         if op == "ilike":
             return series.astype(str).str.contains(str(value), case=False, regex=False)
+        if op == "between":
+            # value should be a tuple/list of (low, high)
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ValueError(f"BETWEEN operator requires a [low, high] list, got: {value}")
+            low, high = value
+            return (series >= low) & (series <= high)
         raise ValueError(f"Unsupported comparison operator: {op}")
 
     def _apply_filters(

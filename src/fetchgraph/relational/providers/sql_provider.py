@@ -228,6 +228,13 @@ class SqlRelationalDataProvider(RelationalDataProvider):
         if op == "ilike":
             params.append(f"%{str(value).lower()}%")
             return f"LOWER({column}) LIKE ?"
+        if op == "between":
+            # value should be a tuple/list of (low, high)
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ValueError(f"BETWEEN operator requires a [low, high] list, got: {value}")
+            low, high = value
+            params.extend([low, high])
+            return f"{column} BETWEEN ? AND ?"
         raise ValueError(f"Unsupported comparison operator: {op}")
 
     def _build_filters(

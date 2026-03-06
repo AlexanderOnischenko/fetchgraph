@@ -342,11 +342,17 @@ class CompileBindNode:
             filter_op = filters.get("op", "")
             
             # Check for unsupported operators
-            if filter_op and filter_op not in ("=", "!=", "<", ">", "<=", ">=", "LIKE", "IN", "BETWEEN"):
+            supported_ops = ("=", "!=", "<", ">", "<=", ">=", "LIKE", "IN", "NOT_IN", "BETWEEN")
+            if filter_op and filter_op.upper() not in supported_ops:
                 if filter_op.upper() == "BETWEEN":
-                    errors.append(f"Unsupported comparison operator: {filter_op}. Use explicit range filters instead.")
+                    # BETWEEN is now supported - validate the value format
+                    filter_value = filters.get("value")
+                    if not isinstance(filter_value, (list, tuple)) or len(filter_value) != 2:
+                        errors.append(f"BETWEEN operator requires a [low, high] list value, got: {filter_value}")
+                    else:
+                        notes.append(f"CompileBindNode: BETWEEN filter on {filter_field}")
                 else:
-                    errors.append(f"Unknown filter operator: {filter_op}")
+                    errors.append(f"Unsupported comparison operator: {filter_op}")
         
         # Validate group_by
         for gb in selectors.get("group_by", []):

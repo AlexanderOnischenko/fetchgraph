@@ -136,10 +136,10 @@ def replay_plan_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[
         is_relational_op = op in ("query", "aggregate", "semantic_only")
         has_relational_keys = any(k in normalized_selectors for k in ("root_entity", "relations", "aggregations", "entity"))
         
+        inferred_entity: str | None = None
         if (is_relational_op or has_relational_keys) and "root_entity" not in normalized_selectors:
             # Try to infer root_entity from field names
-            inferred_entity = None
-            
+
             # Check aggregations
             for agg in normalized_selectors.get("aggregations", []):
                 if isinstance(agg, dict):
@@ -147,7 +147,7 @@ def replay_plan_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[
                     if "." in field:
                         inferred_entity = field.split(".")[0]
                         break
-            
+
             # Check select fields
             if not inferred_entity:
                 for sel in normalized_selectors.get("select", []):
@@ -156,7 +156,7 @@ def replay_plan_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[
                         if "." in expr:
                             inferred_entity = expr.split(".")[0]
                             break
-            
+
             # Check filters
             if not inferred_entity:
                 filters = normalized_selectors.get("filters", {})
@@ -164,7 +164,7 @@ def replay_plan_normalize_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[
                     field = filters.get("field", "")
                     if "." in field:
                         inferred_entity = field.split(".")[0]
-            
+
             if inferred_entity:
                 normalized_selectors = dict(normalized_selectors)
                 normalized_selectors["root_entity"] = inferred_entity

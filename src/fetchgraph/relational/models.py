@@ -10,7 +10,7 @@ inputs/outputs.
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ColumnDescriptor(BaseModel):
@@ -135,44 +135,45 @@ class RelationalQuery(BaseModel):
     If True, providers should use strict, case-sensitive comparisons.
     """
     
+    @model_validator(mode="before")
     @classmethod
-    def model_validate(cls, v: Any) -> "RelationalQuery":
-        """Validate and normalize the model.
+    def normalize_filters_and_having(cls, data: Any) -> Any:
+        """Normalize filters and having from list format to proper FilterClause.
         
-        Normalizes filters from list format to LogicalFilter with 'and' operator.
+        This handles LLM output where filters may be a list instead of a dict.
         """
-        if isinstance(v, dict):
-            v = dict(v)  # Make a copy to avoid mutating input
+        if isinstance(data, dict):
+            data = dict(data)  # Make a copy to avoid mutating input
             
             # Normalize filters from list to LogicalFilter
-            filters = v.get("filters")
+            filters = data.get("filters")
             if isinstance(filters, list):
                 if len(filters) == 0:
-                    v["filters"] = None
+                    data["filters"] = None
                 elif len(filters) == 1:
-                    v["filters"] = filters[0]
+                    data["filters"] = filters[0]
                 else:
-                    v["filters"] = {
+                    data["filters"] = {
                         "type": "logical",
                         "op": "and",
                         "clauses": filters,
                     }
             
             # Normalize having from list to LogicalFilter
-            having = v.get("having")
+            having = data.get("having")
             if isinstance(having, list):
                 if len(having) == 0:
-                    v["having"] = None
+                    data["having"] = None
                 elif len(having) == 1:
-                    v["having"] = having[0]
+                    data["having"] = having[0]
                 else:
-                    v["having"] = {
+                    data["having"] = {
                         "type": "logical",
                         "op": "and",
                         "clauses": having,
                     }
         
-        return super().model_validate(v)
+        return data
 
 
 class SchemaRequest(BaseModel):

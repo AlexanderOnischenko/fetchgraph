@@ -131,14 +131,40 @@ def _validate_field_refs_contract(
             entity = clause.get("entity")
             field = clause.get("field", "")
 
+            # Validate qualified field references (field contains entity prefix)
+            if field and "." in field:
+                field_entity, column = field.split(".", 1)
+                if field_entity not in entity_to_columns:
+                    raise AssertionError(f"{path}: entity '{field_entity}' not found in schema")
+                if column not in entity_to_columns.get(field_entity, set()):
+                    raise AssertionError(
+                        f"{path}: column '{column}' not found in entity '{field_entity}'"
+                    )
+                # Check relation for cross-entity references
+                if field_entity != root_entity:
+                    has_relation_in_schema = (
+                        (root_entity, field_entity) in relation_by_entity_pair or
+                        (field_entity, root_entity) in relation_by_entity_pair
+                    )
+                    if has_relation_in_schema:
+                        expected_relations = set()
+                        if (root_entity, field_entity) in relation_by_entity_pair:
+                            expected_relations.add(relation_by_entity_pair[(root_entity, field_entity)])
+                        if (field_entity, root_entity) in relation_by_entity_pair:
+                            expected_relations.add(relation_by_entity_pair[(field_entity, root_entity)])
+                        relations = set(transformed.get("relations", []))
+                        relation_found = bool(expected_relations & relations)
+                        if not relation_found:
+                            raise AssertionError(
+                                f"{path}: cross-entity field '{field}' requires relation "
+                                f"between '{root_entity}' and '{field_entity}', but none found"
+                            )
+                # Qualified field validated successfully
+                return
+            
+            # Validate unqualified field with separate entity field
             if entity and entity not in entity_to_columns:
                 raise AssertionError(f"{path}: entity '{entity}' not found in schema")
-
-            if entity and field and "." in field:
-                raise AssertionError(
-                    f"{path}: non-canonical field '{field}' with entity '{entity}'; "
-                    "field must be bare column name when entity is specified"
-                )
 
             if entity and field and field not in entity_to_columns.get(entity, set()):
                 raise AssertionError(
@@ -159,7 +185,7 @@ def _validate_field_refs_contract(
                         expected_relations.add(relation_by_entity_pair[(root_entity, entity)])
                     if (entity, root_entity) in relation_by_entity_pair:
                         expected_relations.add(relation_by_entity_pair[(entity, root_entity)])
-                    
+
                     # Check if any expected relation was added to transformed selectors
                     relations = set(transformed.get("relations", []))
                     relation_found = bool(expected_relations & relations)

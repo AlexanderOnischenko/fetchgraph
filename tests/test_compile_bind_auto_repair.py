@@ -232,6 +232,32 @@ class TestAutoQualifyFields:
         assert auto_repairs[0]["from"] == "customers.customer_segment"
         assert auto_repairs[0]["to"] == "customers.segment"
 
+    def test_same_entity_prefix_strip_cross_entity(self):
+        """Test same-entity prefix strip works for ANY qualified entity, not just root_entity.
+        
+        Regression test: customers.customer_segment -> customers.segment should work
+        even when root_entity="orders" (not "customers").
+        """
+        node = _make_node()
+        node._build_schema_index()
+
+        # root_entity is "orders", but field is "customers.customer_segment"
+        selectors = {
+            "root_entity": "orders",
+            "select": [{"expr": "customers.customer_segment"}],
+        }
+
+        notes = []
+        errors = []
+        auto_repairs = []
+        node._auto_qualify_fields(selectors, "orders", notes, errors, auto_repairs)
+
+        # Field should be repaired via same-entity prefix strip
+        assert selectors["select"][0]["expr"] == "customers.segment"
+        assert len(errors) == 0
+        assert len(auto_repairs) == 1
+        assert auto_repairs[0]["kind"] == "same_entity_prefix_strip"
+
 
 class TestCompileBindResult:
     """Test CompileBindNode execute() with auto-qualification."""

@@ -550,106 +550,63 @@ class CompileBindNode:
             # Already qualified: entity.column
             field_entity, column = field_expr.split(".", 1)
             
-            if field_entity == root_entity:
-                # Field is qualified with root_entity - check if column exists
-                if column in self._entity_to_columns.get(field_entity, set()):
-                    return None, errors  # Column exists, no change needed
-                
-                # Column doesn't exist in root_entity - try same-entity prefix strip first
-                # Rule 5.3: Same-entity prefix strip (customer_segment -> segment for customers)
-                normalized = self._normalize_candidate_name(column, field_entity)
-                if normalized and normalized != column and normalized in self._entity_to_columns.get(field_entity, set()):
-                    # Found valid column after prefix strip
-                    notes.append(f"CompileBindNode: same-entity prefix strip {field_expr} -> {field_entity}.{normalized}")
-                    auto_repairs.append({
-                        "kind": "same_entity_prefix_strip",
-                        "from": field_expr,
-                        "to": f"{field_entity}.{normalized}",
-                    })
-                    return f"{field_entity}.{normalized}", errors
-                
-                # Column still not found - search connected entities
-                connected_entities = self._adjacency_by_entity.get(field_entity, set())
-                found_in = []
-                for entity in connected_entities:
-                    if column in self._entity_to_columns.get(entity, set()):
-                        found_in.append(entity)
-                if len(found_in) == 1:
-                    relation = self._relation_by_entity_pair.get((root_entity, found_in[0]))
+            # Field is qualified with specific entity
+            # First check if column exists in the specified entity
+            if column in self._entity_to_columns.get(field_entity, set()):
+                # Column exists - check relation if cross-entity
+                if field_entity != root_entity:
+                    relation = self._relation_by_entity_pair.get((root_entity, field_entity))
                     if relation:
                         relations_to_add.add(relation)
-                    notes.append(f"CompileBindNode: auto-qualified {field_expr} -> {found_in[0]}.{column}")
-                    return f"{found_in[0]}.{column}", errors
-                elif len(found_in) > 1:
-                    errors.append(f"Ambiguous field reference '{field_expr}': column '{column}' not in {field_entity}, found in {[f'{e}.{column}' for e in found_in]}")
-                    return None, errors
-                else:
-                    errors.append(f"Column not found for entity '{field_entity}': {column}")
-                    return None, errors
-            elif column in self._entity_to_columns.get(field_entity, set()):
-                # Column exists in specified entity — check relation
-                relation = self._relation_by_entity_pair.get((root_entity, field_entity))
+                        return None, errors  # Keep as-is, relation added
+                    else:
+                        # Check if relation exists in schema (will be added by another field)
+                        has_relation = (
+                            (root_entity, field_entity) in self._relation_by_entity_pair or
+                            (field_entity, root_entity) in self._relation_by_entity_pair
+                        )
+                        if has_relation:
+                            return None, errors  # Relation exists in schema
+                        # CRITICAL: Cross-entity field without relation - this is an error
+                        errors.append(
+                            f"Cross-entity field '{field_expr}' requires relation "
+                            f"between '{root_entity}' and '{field_entity}', but none found"
+                        )
+                        return None, errors
+                return None, errors  # Same entity, column exists, no change needed
+            
+            # Column doesn't exist in specified entity - try same-entity prefix strip
+            # Rule 5.3: Same-entity prefix strip (customer_segment -> segment for customers)
+            # This applies to ANY qualified entity, not just root_entity
+            normalized = self._normalize_candidate_name(column, field_entity)
+            if normalized and normalized != column and normalized in self._entity_to_columns.get(field_entity, set()):
+                # Found valid column after prefix strip
+                notes.append(f"CompileBindNode: same-entity prefix strip {field_expr} -> {field_entity}.{normalized}")
+                auto_repairs.append({
+                    "kind": "same_entity_prefix_strip",
+                    "from": field_expr,
+                    "to": f"{field_entity}.{normalized}",
+                })
+                return f"{field_entity}.{normalized}", errors
+            
+            # Column still not found - search connected entities
+            connected_entities = self._adjacency_by_entity.get(field_entity, set())
+            found_in = []
+            for entity in connected_entities:
+                if column in self._entity_to_columns.get(entity, set()):
+                    found_in.append(entity)
+            if len(found_in) == 1:
+                relation = self._relation_by_entity_pair.get((root_entity, found_in[0]))
                 if relation:
                     relations_to_add.add(relation)
-                    return None, errors  # Keep as-is
-                else:
-                    # Check if relation was already added via another field
-                    connected_via_added_relations = False
-                    for r in relations_to_add:
-                        if '_to_' in r:
-                            parts = r.split('_to_')
-                            if len(parts) == 2 and (
-                                (parts[0] == root_entity and parts[1] == field_entity) or
-                                (parts[1] == root_entity and parts[0] == field_entity)
-                            ):
-                                connected_via_added_relations = True
-                                break
-                    if connected_via_added_relations:
-                        return None, errors
-                    # CRITICAL: Cross-entity field without relation - this is an error
-                    errors.append(
-                        f"Cross-entity field '{field_expr}' requires relation "
-                        f"between '{root_entity}' and '{field_entity}', but none found"
-                    )
-                    return None, errors
+                notes.append(f"CompileBindNode: auto-qualified {field_expr} -> {found_in[0]}.{column}")
+                return f"{found_in[0]}.{column}", errors
+            elif len(found_in) > 1:
+                errors.append(f"Ambiguous field reference '{field_expr}': column '{column}' not in {field_entity}, found in {[f'{e}.{column}' for e in found_in]}")
+                return None, errors
             else:
-                # Column doesn't exist in specified entity — search connected entities
-                connected_entities = self._adjacency_by_entity.get(field_entity, set())
-                found_in = []
-                
-                for entity in connected_entities:
-                    if column in self._entity_to_columns.get(entity, set()):
-                        found_in.append(entity)
-                
-                if len(found_in) == 1:
-                    # Found in exactly one connected entity — re-qualify
-                    relation1 = self._relation_by_entity_pair.get((root_entity, field_entity))
-                    relation2 = self._relation_by_entity_pair.get((field_entity, found_in[0]))
-                    if relation1:
-                        relations_to_add.add(relation1)
-                    if relation2:
-                        relations_to_add.add(relation2)
-                    notes.append(f"CompileBindNode: auto-qualified {field_expr} -> {found_in[0]}.{column} via {field_entity}")
-                    # Record auto-repair
-                    auto_repairs.append({
-                        "kind": "field_relocated",
-                        "from": field_expr,
-                        "to": f"{found_in[0]}.{column}",
-                        "via_entity": field_entity,
-                        "relations_added": [r for r in [relation1, relation2] if r],
-                    })
-                    return f"{found_in[0]}.{column}", errors
-                elif len(found_in) > 1:
-                    # Ambiguous
-                    errors.append(
-                        f"Ambiguous field reference '{field_expr}': "
-                        f"column '{column}' not in {field_entity}, found in {[f'{e}.{column}' for e in found_in]}"
-                    )
-                    return None, errors
-                else:
-                    # Not found anywhere - this is a genuine error
-                    errors.append(f"Column not found for entity '{field_entity}': {column}")
-                    return None, errors
+                errors.append(f"Column not found for entity '{field_entity}': {column}")
+                return None, errors
         else:
             # Bare field: column
             column = field_expr

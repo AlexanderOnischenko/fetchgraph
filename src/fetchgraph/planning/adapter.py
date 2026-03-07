@@ -232,18 +232,42 @@ def create_pipeline_normalizer(
     if repair_rules is None:
         repair_rules = _build_repair_rules()
 
+    # Extract entities_schema from providers for compile-bind field resolution
+    # This needs to happen regardless of whether config is provided
+    entities_schema: Dict[str, Any] = {"entities": [], "relations": []}
+    for name, prov in providers.items():
+        if isinstance(prov, SupportsDescribe):
+            try:
+                # Extract full entities schema from PandasRelationalDataProvider
+                # This is used by CompileBindNode for field resolution
+                # Only PandasRelationalDataProvider has entities/relations attributes
+                from ..relational.providers.pandas_provider import PandasRelationalDataProvider
+                if isinstance(prov, PandasRelationalDataProvider):
+                    for entity in prov.entities:
+                        entities_schema["entities"].append({
+                            "name": entity.name,
+                            "columns": [{"name": col.name, "type": getattr(col, 'type', 'text'), "pk": getattr(col, 'pk', False)} for col in entity.columns],
+                        })
+                    for relation in prov.relations:
+                        entities_schema["relations"].append({
+                            "name": relation.name,
+                            "from_entity": relation.from_entity,
+                            "to_entity": relation.to_entity,
+                            "from_column": relation.join.from_column,
+                            "to_column": relation.join.to_column,
+                        })
+            except Exception:
+                pass
+
     # Create pipeline config with replay logging setting
     # IMPORTANT: active_provider must be set from providers dict to avoid mismatches
-    # Initialize entities_schema for use below
-    entities_schema: Dict[str, Any] = {"entities": [], "relations": []}
-    
     if config is None:
         # Derive active_provider from the first provider in the dict
         # If providers is empty, allow it but pipeline will fail if actually used
         # This is acceptable for test scenarios that don't invoke normalization
         if providers:
             active_provider_name = next(iter(providers.keys()))
-            
+
             # Build schema info from providers for self-heal feedback
             schema_info = {}
             provider_catalog = {}
@@ -257,25 +281,6 @@ def create_pipeline_normalizer(
                         # Extract entity info from selectors_schema if available
                         if hasattr(info, 'selectors_schema') and info.selectors_schema:
                             schema_info[name] = {"schema": info.selectors_schema}
-
-                        # Extract full entities schema from PandasRelationalDataProvider
-                        # This is used by CompileBindNode for field resolution
-                        # Only PandasRelationalDataProvider has entities/relations attributes
-                        from ..relational.providers.pandas_provider import PandasRelationalDataProvider
-                        if isinstance(prov, PandasRelationalDataProvider):
-                            for entity in prov.entities:
-                                entities_schema["entities"].append({
-                                    "name": entity.name,
-                                    "columns": [{"name": col.name, "type": getattr(col, 'type', 'text'), "pk": getattr(col, 'pk', False)} for col in entity.columns],
-                                })
-                            for relation in prov.relations:
-                                entities_schema["relations"].append({
-                                    "name": relation.name,
-                                    "from_entity": relation.from_entity,
-                                    "to_entity": relation.to_entity,
-                                    "from_column": relation.join.from_column,
-                                    "to_column": relation.join.to_column,
-                                })
                     except Exception:
                         pass
 

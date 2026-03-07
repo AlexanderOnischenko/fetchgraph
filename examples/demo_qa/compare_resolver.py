@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Optional
@@ -71,17 +72,53 @@ def load_results_for_run_dir(run_dir: Path) -> tuple[dict[str, RunResult], str, 
     return results, "cases/**/status.json", run_meta
 
 
+
+
+def _as_iso_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _run_dir_name_timestamp(run_dir: Path) -> datetime | None:
+    match = re.match(r"^(\d{8})_(\d{6})", run_dir.name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(f"{match.group(1)}{match.group(2)}", "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+
+
+def _run_sort_key(run_dir: Path, run_meta: Mapping[str, object]) -> tuple[int, float, float, str]:
+    for key in ["finished_at", "ended_at", "timestamp", "started_at"]:
+        ts = _as_iso_timestamp(run_meta.get(key))
+        if ts is not None:
+            return (3, ts.timestamp(), run_dir.stat().st_mtime, run_dir.name)
+    name_ts = _run_dir_name_timestamp(run_dir)
+    if name_ts is not None:
+        return (2, name_ts.timestamp(), run_dir.stat().st_mtime, run_dir.name)
+    return (1, run_dir.stat().st_mtime, run_dir.stat().st_mtime, run_dir.name)
+
 def _latest_run_for_tag(data_dir: Path, tag: str | None) -> Optional[Path]:
-    runs = []
+    runs: list[tuple[tuple[int, float, float, str], Path]] = []
     for run_dir in _iter_run_dirs(_runs_root(data_dir)):
         meta = _load_run_meta(run_dir) or {}
         if tag is not None and str(meta.get("tag") or "") != tag:
             continue
-        runs.append(run_dir)
+        runs.append((_run_sort_key(run_dir, meta), run_dir))
     if not runs:
         return None
-    runs.sort(key=lambda p: p.stat().st_mtime)
-    return runs[-1]
+    runs.sort(key=lambda item: item[0])
+    return runs[-1][1]
 
 
 def _looks_like_run_id(value: str) -> bool:
@@ -103,8 +140,8 @@ def _resolve_run_id(data_dir: Path, run_id: str) -> Path:
 
 
 def _resolve_effective_tag(data_dir: Path, tag: str) -> Path:
-    results_path, _ = _effective_paths(data_dir / ".runs", tag)
-    if not results_path.exists():
+    results_path, meta_path = _effective_paths(data_dir / ".runs", tag)
+    if not results_path.exists() or not meta_path.exists():
         raise ValueError(f"compare: tag={tag} has no effective snapshot")
     return results_path
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -106,3 +107,22 @@ def test_load_results_falls_back_to_status_json(tmp_path: Path) -> None:
     results, source, _ = load_results_for_run_dir(run_dir)
     assert source == "cases/**/status.json"
     assert results["case-1"].status == "failed"
+
+
+def test_tag_requires_effective_meta(tmp_path: Path) -> None:
+    results_path, _ = _effective_paths(tmp_path / ".runs", "baseline")
+    write_results(results_path, [_result("case-1", "ok")])
+    with pytest.raises(ValueError, match="has no effective snapshot"):
+        resolve_compare_input("tag:baseline", data_dir=tmp_path)
+
+
+def test_latest_prefers_run_name_timestamp_over_mtime(tmp_path: Path) -> None:
+    older_name = _mk_run(tmp_path, "20260306_195550_cases_aaa1", "aaa1", tag="baseline", with_results=True, status="ok")
+    newer_name = _mk_run(tmp_path, "20260306_201512_cases_bbb1", "bbb1", tag="baseline", with_results=True, status="failed")
+
+    now = 1_900_000_000
+    os.utime(older_name, (now + 10_000, now + 10_000))
+    os.utime(newer_name, (now, now))
+
+    resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
+    assert resolved.run_id == "bbb1"

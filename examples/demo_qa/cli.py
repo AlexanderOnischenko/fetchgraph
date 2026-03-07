@@ -192,18 +192,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     compare_p = sub.add_parser("compare", help="Compare two batch runs/results by ref")
     compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (required for run_id/tag/latest refs)")
-    compare_p.add_argument(
+    base_group = compare_p.add_mutually_exclusive_group(required=True)
+    base_group.add_argument(
         "--base",
         type=str,
-        required=True,
         help="Baseline ref: /path/results.jsonl | /path/run_dir | <run_id> | latest | tag:<tag> | latest:<tag>",
     )
-    compare_p.add_argument(
+    base_group.add_argument("--base-tag", type=str, help="[deprecated] Equivalent to --base tag:<tag>")
+    new_group = compare_p.add_mutually_exclusive_group(required=True)
+    new_group.add_argument(
         "--new",
         type=str,
-        required=True,
         help="New ref: /path/results.jsonl | /path/run_dir | <run_id> | latest | tag:<tag> | latest:<tag>",
     )
+    new_group.add_argument("--new-tag", type=str, help="[deprecated] Equivalent to --new tag:<tag>")
     compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
     compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
     compare_p.add_argument("--format", choices=["md", "table", "json"], default="md", help="Output format")

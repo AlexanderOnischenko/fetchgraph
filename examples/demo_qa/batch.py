@@ -1702,26 +1702,33 @@ def _render_missing_effective_error(tag: str, attempted: list[Path]) -> str:
 
 
 def handle_compare(args) -> int:
-    if not args.base:
-        print("Provide --base <ref>.", file=sys.stderr)
+    base_ref = str(args.base) if getattr(args, "base", None) else None
+    new_ref = str(args.new) if getattr(args, "new", None) else None
+    if getattr(args, "base_tag", None):
+        base_ref = f"tag:{args.base_tag}"
+    if getattr(args, "new_tag", None):
+        new_ref = f"tag:{args.new_tag}"
+
+    if not base_ref:
+        print("Provide --base <ref> (or deprecated --base-tag <tag>).", file=sys.stderr)
         return 2
-    if not args.new:
-        print("Provide --new <ref>.", file=sys.stderr)
+    if not new_ref:
+        print("Provide --new <ref> (or deprecated --new-tag <tag>).", file=sys.stderr)
         return 2
 
     data_dir = Path(args.data) if args.data else None
     try:
-        resolved_base = resolve_compare_input(str(args.base), data_dir=data_dir)
-        resolved_new = resolve_compare_input(str(args.new), data_dir=data_dir)
+        resolved_base = resolve_compare_input(base_ref, data_dir=data_dir)
+        resolved_new = resolve_compare_input(new_ref, data_dir=data_dir)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
     for line in resolved_lines("BASE", resolved_base):
-        print(line)
-    print("")
+        print(line, file=sys.stderr)
+    print("", file=sys.stderr)
     for line in resolved_lines("NEW", resolved_new):
-        print(line)
+        print(line, file=sys.stderr)
 
     comparison = diff_runs(
         resolved_base.results.values(),

@@ -105,12 +105,12 @@ def test_compare_resolves_effective_snapshots(tmp_path: Path, capsys: pytest.Cap
         ["compare", "--data", str(data_dir), "--base", "tag:baseline", "--new", "tag:baseline_v2"]
     )
     exit_code = handle_compare(args)
-    captured = capsys.readouterr().out
+    captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Resolved BASE" in captured
-    assert "kind: tag" in captured
-    assert "case-1" in captured
+    assert "Resolved BASE" in captured.err
+    assert "kind: tag" in captured.err
+    assert "case-1" in captured.out
 
 
 def test_compare_reports_missing_effective_snapshot(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -156,12 +156,13 @@ def test_compare_json_format(tmp_path: Path, capsys: pytest.CaptureFixture[str])
 
     args = build_parser().parse_args(["compare", "--base", str(base), "--new", str(new), "--format", "json"])
     exit_code = handle_compare(args)
-    captured = capsys.readouterr().out
+    captured = capsys.readouterr()
 
     assert exit_code == 0
-    payload = json.loads(captured[captured.find("{"):])
+    payload = json.loads(captured.out)
     assert payload["summary"]["coverage"]["base_total_cases"] == 1
     assert payload["top_fixes"]
+    assert "Resolved BASE" in captured.err
 
 
 def test_compare_run_id_and_latest_tag_refs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -173,12 +174,12 @@ def test_compare_run_id_and_latest_tag_refs(tmp_path: Path, capsys: pytest.Captu
         ["compare", "--data", str(data_dir), "--base", "32d32108", "--new", "latest:qwen_pipeline"]
     )
     exit_code = handle_compare(args)
-    captured = capsys.readouterr().out
+    captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "kind: run_id" in captured
-    assert "kind: latest_tag_run" in captured
-    assert "source: cases/**/status.json" in captured
+    assert "kind: run_id" in captured.err
+    assert "kind: latest_tag_run" in captured.err
+    assert "source: cases/**/status.json" in captured.err
 
 
 def test_compare_latest_ref(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -188,10 +189,10 @@ def test_compare_latest_ref(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
 
     args = build_parser().parse_args(["compare", "--data", str(data_dir), "--base", "latest", "--new", "44148564"])
     exit_code = handle_compare(args)
-    captured = capsys.readouterr().out
+    captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "kind: latest" in captured
+    assert "kind: latest" in captured.err
 
 
 def test_compare_reports_unsupported_ref(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -204,3 +205,19 @@ def test_compare_reports_unsupported_ref(tmp_path: Path, capsys: pytest.CaptureF
 
     assert exit_code == 2
     assert 'unsupported ref "foo:bar:baz"' in captured
+
+
+def test_compare_deprecated_tag_args_still_work(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data_dir = tmp_path / "data"
+    _write_effective_snapshot(data_dir, "baseline", [_make_result("case-1", "ok")])
+    _write_effective_snapshot(data_dir, "next", [_make_result("case-1", "failed")])
+
+    args = build_parser().parse_args(
+        ["compare", "--data", str(data_dir), "--base-tag", "baseline", "--new-tag", "next", "--format", "json"]
+    )
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["summary"]["coverage"]["base_total_cases"] == 1

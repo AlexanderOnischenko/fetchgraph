@@ -7,14 +7,14 @@ This node binds selectors to the relational schema:
   - select.expr, filters.field, group_by.field, aggregations.field
   - Qualify bare fields (add entity prefix) or fail as ambiguous
   - (Optional) select * → expand by schema
-- Parse SQL expressions in select and extract aggregates
-- Handle function calls like DATE_TRUNC, COUNT, SUM, etc.
+- Deterministic auto-repair of obvious field/column errors (FR-1 to FR-8)
 
 Result: BoundRelationalQuery (internal canonical form) with transformed selectors
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 from dataclasses import dataclass, field
@@ -77,9 +77,12 @@ class CompileBindResult:
 
     # Notes
     notes: List[str]
-    
+
     # Transformed selectors (with aggregates extracted from select)
     transformed_selectors: Dict[str, Any] = field(default_factory=dict)
+
+    # Auto-repairs applied (FR-7: Observability)
+    auto_repairs: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class CompileBindNode:
@@ -92,7 +95,7 @@ class CompileBindNode:
     - Qualify bare fields or fail as ambiguous
     - Parse SQL expressions in select and extract aggregates
     - Handle function calls like DATE_TRUNC, COUNT, SUM, etc.
-    - (Optional) Expand select *
+    - Deterministic auto-repair of obvious field/column errors (FR-1 to FR-8)
     """
 
     # SQL aggregate function pattern: COUNT(*), SUM(x), MAX(a.b), etc.
@@ -100,7 +103,7 @@ class CompileBindNode:
         r'\b(COUNT|SUM|AVG|MIN|MAX|COUNT_DISTINCT)\s*\(\s*(DISTINCT\s+)?(\*|[a-zA-Z_][a-zA-Z0-9_.]*)\s*\)',
         re.IGNORECASE
     )
-    
+
     # Function call pattern: DATE_TRUNC('month', field), etc.
     FUNC_PATTERN = re.compile(
         r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([^)]*)\s*\)',
@@ -116,7 +119,12 @@ class CompileBindNode:
         self.schema = schema or {}
         self.entities = entities or set()
         self.relations = relations or []
-        
+
+        # Schema indices (FR-1)
+        self._entity_to_columns: Dict[str, Set[str]] = {}
+        self._adjacency_by_entity: Dict[str, Set[str]] = {}
+        self._relation_by_entity_pair: Dict[Tuple[str, str], str] = {}
+
         # Known SQL functions that are NOT aggregations
         self.non_agg_functions = {
             'DATE_TRUNC', 'DATE_PART', 'EXTRACT', 'CAST', 'CONVERT',
@@ -141,29 +149,31 @@ class CompileBindNode:
         logger.debug("CompileBindNode: executing")
         notes = []
         errors = []
-        
+        auto_repairs = []
+
         root_entity = selectors.get("root_entity")
         if not root_entity:
             errors.append("Missing required 'root_entity' in selectors")
             return NodeResult(
-                value=CompileBindResult(bound_query=None, errors=errors, notes=notes),
+                value=CompileBindResult(bound_query=None, errors=errors, notes=notes, auto_repairs=auto_repairs),
                 notes=notes,
             )
-        
+
         # Step 1: Parse SELECT expressions and extract aggregates
-        transformed_selectors = dict(selectors)
-        select_list = selectors.get("select", [])
-        
+        # Use deepcopy to avoid mutating the original selectors (no-mutation guarantee)
+        transformed_selectors = copy.deepcopy(selectors)
+        select_list = transformed_selectors.get("select", [])
+
         if select_list:
             parsed_aggs, new_select, agg_notes = self._parse_select_expressions(
                 select_list, root_entity
             )
             notes.extend(agg_notes)
-            
+
             # Merge extracted aggregates with existing ones
-            existing_aggs = selectors.get("aggregations", [])
-            merged_aggs = list(existing_aggs)
-            
+            existing_aggs = transformed_selectors.get("aggregations", [])
+            merged_aggs = copy.deepcopy(existing_aggs)
+
             for parsed_agg in parsed_aggs:
                 # Check if this aggregation already exists
                 already_exists = any(
@@ -179,36 +189,54 @@ class CompileBindNode:
                         "is_distinct": parsed_agg.is_distinct,
                     })
                     notes.append(f"CompileBindNode: extracted aggregation {parsed_agg.agg_func}({parsed_agg.field}) from SELECT")
-            
+
             if merged_aggs:
                 transformed_selectors["aggregations"] = merged_aggs
-            
+
             if new_select:
                 transformed_selectors["select"] = new_select
-        
-        # Step 2: Validate root_entity
+
+        # Step 2: Build schema index (FR-1)
+        # Only build indices if schema has entities (not JSON Schema)
+        if self.schema and self.schema.get("entities"):
+            self._build_schema_index()
+
+        # Step 3: Auto-qualify fields through relations (FR-4)
+        # Only auto-qualify if we have schema indices
+        if self._entity_to_columns:
+            self._auto_qualify_fields(transformed_selectors, root_entity, notes, errors, auto_repairs)
+        else:
+            # No schema available - skip auto-qualification, just pass through
+            # This is expected for replay handlers that receive JSON Schema instead of entities schema
+            pass
+
+        # Step 5: Validate root_entity
         root_error = self._check_root_entity(root_entity)
         if root_error:
             errors.append(root_error)
-        
-        # Step 3: Resolve relations
-        relations = selectors.get("relations", [])
+
+        # Step 6: Resolve relations
+        relations = transformed_selectors.get("relations", [])
         resolved_relations, rel_errors = self._resolve_relations(relations, root_entity)
         errors.extend(rel_errors)
         if resolved_relations != relations:
             notes.append(f"CompileBindNode: resolved relations {relations} -> {resolved_relations}")
-        
-        # Step 4: Move filters on aggregation aliases to HAVING clause
+
+        # Step 7: Move filters on aggregation aliases to HAVING clause
         transformed_selectors = self._move_agg_filters_to_having(
             transformed_selectors, notes
         )
-        
-        # Step 5: Bind fields (validation only - don't transform)
-        self._validate_fields(transformed_selectors, root_entity, notes, errors)
-        
+
+        # Step 7.5: Canonicalize structured field refs (entity + field pairs)
+        self._canonicalize_structured_field_refs(transformed_selectors, notes, errors)
+
+        # Step 8: Validate fields (now includes unresolved/ambiguous errors)
+        self._validate_fields(transformed_selectors, notes, errors)
+
         # Build bound query (for tracing/debugging)
+        # Use transformed_selectors (after auto-repair) not original selectors
         bound_query = BoundRelationalQuery(
-            selectors=selectors,
+            selectors=transformed_selectors,
             bound_select=[],
             bound_filters=[],
             bound_group_by=[],
@@ -216,17 +244,18 @@ class CompileBindNode:
             resolved_relations=resolved_relations,
             root_entity=root_entity,
         )
-        
+
         if errors:
             notes.append(f"CompileBindNode: completed with {len(errors)} error(s)")
         else:
             notes.append("CompileBindNode: compile/bind successful")
-        
+
         result = CompileBindResult(
             bound_query=bound_query,
             errors=errors,
             notes=notes,
             transformed_selectors=transformed_selectors,
+            auto_repairs=auto_repairs,
         )
 
         return NodeResult(
@@ -319,53 +348,404 @@ class CompileBindNode:
     def _validate_fields(
         self,
         selectors: Dict[str, Any],
-        root_entity: str,
         notes: List[str],
         errors: List[str],
     ) -> None:
-        """Validate field references in selectors."""
-        # Validate aggregations
+        """Validate field references in selectors.
+
+        Note: Auto-qualification happens in _auto_qualify_fields before this.
+        This method just validates and logs.
+        """
+        # Log aggregations
         for agg in selectors.get("aggregations", []):
             if isinstance(agg, dict):
                 field_expr = agg.get("field", "")
                 agg_func = agg.get("agg", "")
-                
+
                 # Check for unsupported patterns
                 if field_expr == "*" and agg_func.upper() == "COUNT":
                     # COUNT(*) is valid but needs special handling
                     notes.append(f"CompileBindNode: COUNT(*) will be handled at execution time")
-                elif "." in field_expr:
-                    # Qualified field - check entity prefix
-                    field_entity = field_expr.split(".")[0]
-                    if field_entity != root_entity:
-                        notes.append(f"CompileBindNode: aggregation field {field_expr} references non-root entity {field_entity}")
-        
-        # Validate filters
-        filters = selectors.get("filters", {})
-        if isinstance(filters, dict):
-            filter_field = filters.get("field", "")
-            filter_op = filters.get("op", "")
-            
-            # Check for unsupported operators
-            supported_ops = ("=", "!=", "<", ">", "<=", ">=", "LIKE", "IN", "NOT_IN", "BETWEEN")
-            if filter_op and filter_op.upper() not in supported_ops:
-                if filter_op.upper() == "BETWEEN":
-                    # BETWEEN is now supported - validate the value format
-                    filter_value = filters.get("value")
-                    if not isinstance(filter_value, (list, tuple)) or len(filter_value) != 2:
-                        errors.append(f"BETWEEN operator requires a [low, high] list value, got: {filter_value}")
-                    else:
-                        notes.append(f"CompileBindNode: BETWEEN filter on {filter_field}")
-                else:
-                    errors.append(f"Unsupported comparison operator: {filter_op}")
-        
-        # Validate group_by
+
+        # Log group_by
         for gb in selectors.get("group_by", []):
             if isinstance(gb, dict):
                 field_expr = gb.get("field", "")
                 if "(" in field_expr and ")" in field_expr:
                     # Function call in group_by (e.g., DATE_TRUNC)
                     notes.append(f"CompileBindNode: function in group_by: {field_expr} (will be handled at execution)")
+
+    def _auto_qualify_fields(
+        self,
+        selectors: Dict[str, Any],
+        root_entity: str,
+        notes: List[str],
+        errors: List[str],
+        auto_repairs: List[dict],
+    ) -> None:
+        """Auto-qualify fields through relations.
+        
+        Rules:
+        1. If field is qualified (entity.column) and entity != root_entity:
+           - Check if relation exists from root_entity to entity
+           - If yes — add relation and keep field
+           - If no — error
+        2. If field is bare (column):
+           - Check if exists in root_entity
+           - If yes — keep
+           - If no — check in connected entities via relations
+           - If found in one — qualify with that entity
+           - If found in multiple — ambiguous error
+           - If not found — error
+        """
+        if not self._entity_to_columns:
+            return  # No schema index available
+        
+        relations_to_add = set()
+        
+        # Process aggregations
+        for agg in selectors.get("aggregations", []):
+            if isinstance(agg, dict) and "field" in agg:
+                field_expr = agg["field"]
+                new_field, field_errors = self._resolve_field_via_relations(
+                    field_expr, root_entity, relations_to_add, notes, auto_repairs
+                )
+                if new_field:
+                    agg["field"] = new_field
+                # Only add errors if field was NOT re-qualified
+                if not new_field:
+                    errors.extend(field_errors)
+
+        # Process select expressions
+        for sel in selectors.get("select", []):
+            if isinstance(sel, dict) and "expr" in sel:
+                expr = sel["expr"]
+                # Only process simple field expressions (not functions/aggregations)
+                if "(" not in expr:
+                    new_field, field_errors = self._resolve_field_via_relations(
+                        expr, root_entity, relations_to_add, notes, auto_repairs
+                    )
+                    if new_field:
+                        sel["expr"] = new_field
+                    # Only add errors if field was NOT re-qualified
+                    if not new_field:
+                        errors.extend(field_errors)
+
+        # Process filters
+        self._qualify_filter_fields(
+            selectors.get("filters", {}), root_entity, relations_to_add, notes, errors, auto_repairs
+        )
+
+        # Process group_by
+        for gb in selectors.get("group_by", []):
+            if isinstance(gb, dict) and "field" in gb:
+                field_expr = gb["field"]
+                new_field, field_errors = self._resolve_field_via_relations(
+                    field_expr, root_entity, relations_to_add, notes, auto_repairs
+                )
+                if new_field:
+                    gb["field"] = new_field
+                # Only add errors if field was NOT re-qualified
+                if not new_field:
+                    errors.extend(field_errors)
+
+        # Process having (recursive, like filters)
+        self._qualify_filter_fields(
+            selectors.get("having", {}), root_entity, relations_to_add, notes, errors, auto_repairs
+        )
+
+        # Add discovered relations
+        if relations_to_add:
+            existing_relations = set(selectors.get("relations", []))
+            selectors["relations"] = list(existing_relations | relations_to_add)
+            for rel in relations_to_add:
+                notes.append(f"CompileBindNode: auto-added relation {rel}")
+
+    def _canonicalize_structured_field_refs(
+        self,
+        selectors: Dict[str, Any],
+        notes: List[str],
+        errors: List[str],
+    ) -> None:
+        """Canonicalize structured field references for provider compatibility.
+
+        For structures with separate entity field (group_by, filters, having):
+        - If entity is set and field is "entity.column" form, canonicalize to bare column
+        - If entity is set and field is "other_entity.column", return error
+
+        This ensures selectors are in canonical form expected by providers.
+        """
+        # Canonicalize group_by
+        for i, gb in enumerate(selectors.get("group_by", [])):
+            if isinstance(gb, dict):
+                entity = gb.get("entity")
+                field = gb.get("field", "")
+                
+                if entity and "." in field:
+                    field_entity, column = field.split(".", 1)
+                    
+                    if field_entity == entity:
+                        # Same entity prefix - canonicalize to bare field
+                        gb["field"] = column
+                        notes.append(f"CompileBindNode: canonicalized group_by[{i}] field {field} -> {column} for entity {entity}")
+                    else:
+                        # Different entity - this is an error
+                        errors.append(
+                            f"Inconsistent field reference in group_by[{i}]: "
+                            f"entity='{entity}', field='{field}'"
+                        )
+        
+        # Canonicalize filters
+        def canonicalize_filter(clause: Any, path: str) -> None:
+            if not isinstance(clause, dict):
+                return
+            
+            if clause.get("type") == "comparison":
+                entity = clause.get("entity")
+                field = clause.get("field", "")
+                
+                if entity and "." in field:
+                    field_entity, column = field.split(".", 1)
+                    
+                    if field_entity == entity:
+                        # Same entity prefix - canonicalize to bare field
+                        clause["field"] = column
+                        notes.append(f"CompileBindNode: canonicalized {path} field {field} -> {column} for entity {entity}")
+                    else:
+                        # Different entity - this is an error
+                        errors.append(
+                            f"Inconsistent field reference in {path}: "
+                            f"entity='{entity}', field='{field}'"
+                        )
+            elif clause.get("type") == "logical":
+                for i, sub_clause in enumerate(clause.get("clauses", [])):
+                    canonicalize_filter(sub_clause, f"{path}.clauses[{i}]")
+        
+        if selectors.get("filters"):
+            canonicalize_filter(selectors["filters"], "filters")
+        
+        # Canonicalize having
+        if selectors.get("having"):
+            canonicalize_filter(selectors["having"], "having")
+
+    def _resolve_field_via_relations(
+        self,
+        field_expr: str,
+        root_entity: str,
+        relations_to_add: Set[str],
+        notes: List[str],
+        auto_repairs: List[dict],
+    ) -> tuple[Optional[str], List[str]]:
+        """Resolve a field expression through relations.
+
+        Returns (qualified_field, errors) where qualified_field is None if unchanged.
+        """
+        errors = []
+
+        # Handle special case: COUNT(*) - no qualification needed
+        if field_expr == "*":
+            return None, errors
+
+        if "." in field_expr:
+            # Already qualified: entity.column
+            field_entity, column = field_expr.split(".", 1)
+            
+            if field_entity == root_entity:
+                # Field is qualified with root_entity - check if column exists
+                if column in self._entity_to_columns.get(field_entity, set()):
+                    return None, errors  # Column exists, no change needed
+                
+                # Column doesn't exist in root_entity - try same-entity prefix strip first
+                # Rule 5.3: Same-entity prefix strip (customer_segment -> segment for customers)
+                normalized = self._normalize_candidate_name(column, field_entity)
+                if normalized and normalized != column and normalized in self._entity_to_columns.get(field_entity, set()):
+                    # Found valid column after prefix strip
+                    notes.append(f"CompileBindNode: same-entity prefix strip {field_expr} -> {field_entity}.{normalized}")
+                    auto_repairs.append({
+                        "kind": "same_entity_prefix_strip",
+                        "from": field_expr,
+                        "to": f"{field_entity}.{normalized}",
+                    })
+                    return f"{field_entity}.{normalized}", errors
+                
+                # Column still not found - search connected entities
+                connected_entities = self._adjacency_by_entity.get(field_entity, set())
+                found_in = []
+                for entity in connected_entities:
+                    if column in self._entity_to_columns.get(entity, set()):
+                        found_in.append(entity)
+                if len(found_in) == 1:
+                    relation = self._relation_by_entity_pair.get((root_entity, found_in[0]))
+                    if relation:
+                        relations_to_add.add(relation)
+                    notes.append(f"CompileBindNode: auto-qualified {field_expr} -> {found_in[0]}.{column}")
+                    return f"{found_in[0]}.{column}", errors
+                elif len(found_in) > 1:
+                    errors.append(f"Ambiguous field reference '{field_expr}': column '{column}' not in {field_entity}, found in {[f'{e}.{column}' for e in found_in]}")
+                    return None, errors
+                else:
+                    errors.append(f"Column not found for entity '{field_entity}': {column}")
+                    return None, errors
+            elif column in self._entity_to_columns.get(field_entity, set()):
+                # Column exists in specified entity — check relation
+                relation = self._relation_by_entity_pair.get((root_entity, field_entity))
+                if relation:
+                    relations_to_add.add(relation)
+                    return None, errors  # Keep as-is
+                else:
+                    # Check if relation was already added via another field
+                    connected_via_added_relations = False
+                    for r in relations_to_add:
+                        if '_to_' in r:
+                            parts = r.split('_to_')
+                            if len(parts) == 2 and (
+                                (parts[0] == root_entity and parts[1] == field_entity) or
+                                (parts[1] == root_entity and parts[0] == field_entity)
+                            ):
+                                connected_via_added_relations = True
+                                break
+                    if connected_via_added_relations:
+                        return None, errors
+                    # CRITICAL: Cross-entity field without relation - this is an error
+                    errors.append(
+                        f"Cross-entity field '{field_expr}' requires relation "
+                        f"between '{root_entity}' and '{field_entity}', but none found"
+                    )
+                    return None, errors
+            else:
+                # Column doesn't exist in specified entity — search connected entities
+                connected_entities = self._adjacency_by_entity.get(field_entity, set())
+                found_in = []
+                
+                for entity in connected_entities:
+                    if column in self._entity_to_columns.get(entity, set()):
+                        found_in.append(entity)
+                
+                if len(found_in) == 1:
+                    # Found in exactly one connected entity — re-qualify
+                    relation1 = self._relation_by_entity_pair.get((root_entity, field_entity))
+                    relation2 = self._relation_by_entity_pair.get((field_entity, found_in[0]))
+                    if relation1:
+                        relations_to_add.add(relation1)
+                    if relation2:
+                        relations_to_add.add(relation2)
+                    notes.append(f"CompileBindNode: auto-qualified {field_expr} -> {found_in[0]}.{column} via {field_entity}")
+                    # Record auto-repair
+                    auto_repairs.append({
+                        "kind": "field_relocated",
+                        "from": field_expr,
+                        "to": f"{found_in[0]}.{column}",
+                        "via_entity": field_entity,
+                        "relations_added": [r for r in [relation1, relation2] if r],
+                    })
+                    return f"{found_in[0]}.{column}", errors
+                elif len(found_in) > 1:
+                    # Ambiguous
+                    errors.append(
+                        f"Ambiguous field reference '{field_expr}': "
+                        f"column '{column}' not in {field_entity}, found in {[f'{e}.{column}' for e in found_in]}"
+                    )
+                    return None, errors
+                else:
+                    # Not found anywhere - this is a genuine error
+                    errors.append(f"Column not found for entity '{field_entity}': {column}")
+                    return None, errors
+        else:
+            # Bare field: column
+            column = field_expr
+            
+            # Check if exists in root_entity
+            if column in self._entity_to_columns.get(root_entity, set()):
+                return None, errors  # Exists in root, no change needed
+            
+            # Check in connected entities
+            connected_entities = self._adjacency_by_entity.get(root_entity, set())
+            found_in = []
+            
+            for entity in connected_entities:
+                if column in self._entity_to_columns.get(entity, set()):
+                    found_in.append(entity)
+            
+            if len(found_in) == 1:
+                # Found in exactly one connected entity — qualify
+                relation = self._relation_by_entity_pair.get((root_entity, found_in[0]))
+                if relation:
+                    relations_to_add.add(relation)
+                notes.append(f"CompileBindNode: auto-qualified {column} -> {found_in[0]}.{column}")
+                # Record auto-repair
+                auto_repairs.append({
+                    "kind": "bare_field_qualified",
+                    "from": column,
+                    "to": f"{found_in[0]}.{column}",
+                    "relation_added": relation if relation else None,
+                })
+                return f"{found_in[0]}.{column}", errors
+            elif len(found_in) > 1:
+                # Ambiguous
+                errors.append(
+                    f"Ambiguous field reference '{column}': "
+                    f"candidates={[f'{e}.{column}' for e in found_in]}"
+                )
+                return None, errors
+            else:
+                # Not found anywhere
+                errors.append(f"Column not found for entity '{root_entity}': {column}")
+                return None, errors
+
+    def _normalize_candidate_name(self, name: str, entity: str) -> Optional[str]:
+        """Normalize a candidate column name within an entity (FR-5.3).
+
+        Safe normalizations:
+        - lowercase
+        - trim
+        - remove entity prefix (singular/plural): customer_segment -> segment for customers
+        """
+        name = name.lower().strip()
+
+        # Try removing entity prefix
+        entity_singular = entity.rstrip("s").lower()  # customers -> customer
+        entity_plural = entity.lower()  # customers
+
+        prefixes_to_try = [
+            f"{entity_singular}_",
+            f"{entity_plural}_",
+            f"{entity_singular}.",
+            f"{entity_plural}.",
+        ]
+
+        for prefix in prefixes_to_try:
+            if name.startswith(prefix):
+                return name[len(prefix):]
+
+        return name
+
+    def _qualify_filter_fields(
+        self,
+        filters: Any,
+        root_entity: str,
+        relations_to_add: Set[str],
+        notes: List[str],
+        errors: List[str],
+        auto_repairs: List[dict],
+    ) -> None:
+        """Recursively qualify filter field references."""
+        if not isinstance(filters, dict):
+            return
+
+        if filters.get("type") == "comparison":
+            field_expr = filters.get("field", "")
+            if field_expr:
+                new_field, field_errors = self._resolve_field_via_relations(
+                    field_expr, root_entity, relations_to_add, notes, auto_repairs
+                )
+                if new_field:
+                    filters["field"] = new_field
+                # Only add errors if field was NOT re-qualified
+                if not new_field:
+                    errors.extend(field_errors)
+        elif filters.get("type") == "logical":
+            for clause in filters.get("clauses", []):
+                self._qualify_filter_fields(clause, root_entity, relations_to_add, notes, errors, auto_repairs)
     
     def _move_agg_filters_to_having(
         self,
@@ -502,7 +882,45 @@ class CompileBindNode:
         # For now, just check it's present and non-empty
         if not root_entity:
             return "Missing required 'root_entity' in selectors"
+        
+        # If schema index is available, validate root_entity exists in schema
+        if self._entity_to_columns and root_entity not in self._entity_to_columns:
+            available_entities = list(self._entity_to_columns.keys())
+            return f"root_entity '{root_entity}' not found in schema. Available entities: {available_entities}"
+        
         return None
+
+    # ============================================================================
+    # FR-1: Schema Index Building
+    # ============================================================================
+
+    def _build_schema_index(self) -> None:
+        """Build schema indices for fast field resolution (FR-1)."""
+        self._entity_to_columns = {}
+        self._adjacency_by_entity = {}
+        self._relation_by_entity_pair = {}
+
+        entities = self.schema.get("entities", [])
+        relations = self.schema.get("relations", [])
+
+        # Build entity_to_columns
+        for entity in entities:
+            entity_name = entity.get("name", "")
+            columns = entity.get("columns", [])
+
+            self._entity_to_columns[entity_name] = {col.get("name", "") for col in columns}
+
+        # Build adjacency and relation indices from relations
+        for rel in relations:
+            from_entity = rel.get("from_entity", "")
+            to_entity = rel.get("to_entity", "")
+            rel_name = rel.get("name", "")
+            
+            if from_entity and to_entity:
+                self._adjacency_by_entity.setdefault(from_entity, set()).add(to_entity)
+                self._adjacency_by_entity.setdefault(to_entity, set()).add(from_entity)
+                self._relation_by_entity_pair[(from_entity, to_entity)] = rel_name
+                self._relation_by_entity_pair[(to_entity, from_entity)] = rel_name
 
     def _resolve_relations(
         self,

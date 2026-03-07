@@ -69,6 +69,7 @@ def _log_replay_event(
     observed_payload: dict[str, Any],
     diag: dict[str, Any] | None = None,
     note: str | None = None,
+    requires: list[dict] | None = None,
 ) -> None:
     """Log a replay event if tracer is available and logger is provided."""
     if not TRACER_AVAILABLE or event_logger is None:
@@ -82,6 +83,7 @@ def _log_replay_event(
             observed=observed_payload,
             diag=diag,
             note=note,
+            requires=requires,
         )
     except Exception as e:
         logger.warning(f"Failed to log replay event {replay_id}: {e}")
@@ -309,6 +311,22 @@ class PlanningPipeline:
         self.ctx = NodeContext()
         self.self_heal_node.reset()
         self.refetch_node.reset()
+
+        # Emit schema as replay_resource if available and event logging is enabled
+        if self.config.enable_replay_logging and self.state.event_logger is not None:
+            schema_to_emit = schema_info or self.config.schema
+            if schema_to_emit and isinstance(schema_to_emit, dict) and "entities" in schema_to_emit:
+                # Emit as replay_resource (not replay_case) so export can include it in bundle
+                # Format: data.entities (direct format expected by validator)
+                self.state.event_logger.emit(
+                    {
+                        "type": "replay_resource",
+                        "v": 1,
+                        "id": "schema_v1",
+                        "meta": {"format": "json"},
+                        "data": schema_to_emit,  # Direct format: data.entities
+                    }
+                )
         
         # Main retry loop
         while True:
@@ -577,6 +595,12 @@ class PlanningPipeline:
         if self.config.enable_replay_logging and self.state.event_logger is not None and compile_result.value:
             compile_value = compile_result.value
             bound_query = compile_value.bound_query
+            
+            # Build requires list - reference schema resource if available
+            requires = []
+            if self.schema and isinstance(self.schema, dict) and "entities" in self.schema:
+                requires.append({"kind": "resource", "id": "schema_v1"})
+            
             _log_replay_event(
                 event_logger=self.state.event_logger,
                 replay_id="compile_bind.spec_v1",
@@ -599,6 +623,7 @@ class PlanningPipeline:
                     "compile_status": "ok" if not compile_value.errors else "error",
                     "bound_query_status": "present" if bound_query else "none",
                 }),
+                requires=requires if requires else None,
             )
 
         if compile_result.value and compile_result.value.errors:

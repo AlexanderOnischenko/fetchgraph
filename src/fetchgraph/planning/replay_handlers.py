@@ -219,7 +219,7 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
     Input:
         {
             "selectors": Dict[str, Any],
-            "schema": Dict[str, Any],
+            "schema": Dict[str, Any],  # JSON Schema for validation
         }
 
     Output:
@@ -229,18 +229,79 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
             "diag": {...},  # Diagnostic info
         }
     """
-    from fetchgraph.core.models import Plan
+    from pydantic import ValidationError
+
     from fetchgraph.planning.nodes import (
         CompileBindNode,
         PipelineConfig,
         PlanningPipeline,
     )
+    from fetchgraph.relational.models import RelationalQuery
 
     selectors = input_data.get("selectors", {})
     schema = input_data.get("schema", {})
 
-    # Create compile/bind node
-    compile_node = CompileBindNode(schema=schema)
+    # VALIDATION: Validate selectors against RelationalQuery model (shape validation)
+    # This catches structural errors but NOT column_not_found errors
+    binding_schema_present = False
+    binding_validation_mode = "shape_only"
+    
+    try:
+        RelationalQuery.model_validate(selectors)
+    except ValidationError as e:
+        raise AssertionError(f"RelationalQuery validation failed: {e.error_count()} errors")
+
+    # Try to load real binding schema from replay resources
+    # The schema resource should be emitted as replay_resource with id="schema_v1"
+    # and referenced via requires in the replay_case
+    real_schema = None
+    binding_schema_source = None
+
+    if hasattr(ctx, 'resources') and isinstance(ctx.resources, dict):
+        schema_resource = ctx.resources.get("schema_v1")
+        if schema_resource and isinstance(schema_resource, dict):
+            # Load schema from resource data or data_ref
+            schema_data = schema_resource.get("data")
+            if isinstance(schema_data, dict):
+                # Support both formats: data.entities and data.schema
+                if "entities" in schema_data:
+                    real_schema = schema_data
+                    binding_schema_source = "resource_data"
+                elif "schema" in schema_data and isinstance(schema_data["schema"], dict):
+                    # Nested format: data.schema.entities
+                    if "entities" in schema_data["schema"]:
+                        real_schema = schema_data["schema"]
+                        binding_schema_source = "resource_data"
+            
+            # Try to load from data_ref file if not loaded yet
+            if not real_schema:
+                data_ref = schema_resource.get("data_ref")
+                if isinstance(data_ref, dict) and hasattr(ctx, 'resolve_resource_path'):
+                    file_path = data_ref.get("file")
+                    if file_path:
+                        try:
+                            resolved_path = ctx.resolve_resource_path(file_path)
+                            if resolved_path.exists():
+                                # Load YAML schema file
+                                import yaml
+                                with open(resolved_path) as f:
+                                    loaded_schema = yaml.safe_load(f)
+                                if isinstance(loaded_schema, dict) and "entities" in loaded_schema:
+                                    real_schema = loaded_schema
+                                    binding_schema_source = "resource_file"
+                        except Exception:
+                            pass
+
+    # CRITICAL: compile_bind replay MUST have real entities schema
+    # No fallback to shape_only mode - this would allow false positive fixtures
+    if not real_schema:
+        raise AssertionError(
+            "Compile-bind replay requires real entities schema; "
+            "shape_only mode is not allowed. Ensure schema_v1 resource is exported with the fixture."
+        )
+
+    # Create compile/bind node with real schema
+    compile_node = CompileBindNode(schema=real_schema)
 
     # Execute
     from fetchgraph.planning.nodes.base import NodeContext
@@ -260,18 +321,34 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
     bound_query = compile_value.bound_query if compile_value else None
     transformed = compile_value.transformed_selectors if compile_value else {}
     errors = compile_value.errors if compile_value else []
-    
+    auto_repairs = compile_value.auto_repairs if compile_value else []
+
+    # Build relation index from schema for validation
+    relation_by_entity_pair = {}
+    if real_schema and "relations" in real_schema:
+        for rel in real_schema["relations"]:
+            from_entity = rel.get("from_entity", "")
+            to_entity = rel.get("to_entity", "")
+            rel_name = rel.get("name", "")
+            if from_entity and to_entity:
+                relation_by_entity_pair[(from_entity, to_entity)] = rel_name
+                relation_by_entity_pair[(to_entity, from_entity)] = rel_name
+
     # VALIDATION: Check for compile errors
+    # Errors indicate ambiguous/unresolved fields that couldn't be bound
     if errors:
         raise AssertionError(f"Compile/bind errors: {'; '.join(errors)}")
-    
+
     # VALIDATION: Ensure transformed selectors have required fields for relational queries
     if transformed:
         op = transformed.get("op")
+        root_entity = transformed.get("root_entity", "")
+        relations = set(transformed.get("relations", []))
+        
         if op == "query":
-            if "root_entity" not in transformed:
+            if not root_entity:
                 raise AssertionError("Compiled selectors missing 'root_entity'")
-            
+
             # Check that aggregations are properly formed
             aggs = transformed.get("aggregations", [])
             for i, agg in enumerate(aggs):
@@ -281,6 +358,60 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
                     if "field" not in agg:
                         raise AssertionError(f"aggregations[{i}] missing required field 'field'")
 
+                    # Check relation for non-root qualified field in aggregations
+                    field = agg.get("field", "")
+                    if "." in field:
+                        agg_entity, column = field.split(".", 1)
+                        if agg_entity != root_entity:
+                            # Check if relation exists in schema
+                            has_relation_in_schema = (
+                                (root_entity, agg_entity) in relation_by_entity_pair or
+                                (agg_entity, root_entity) in relation_by_entity_pair
+                            )
+                            if has_relation_in_schema:
+                                # Check if relation was added to transformed selectors
+                                relation_found = any(
+                                    (root_entity in r or agg_entity in r)
+                                    for r in relations
+                                )
+                                if not relation_found:
+                                    raise AssertionError(
+                                        f"aggregations[{i}]: cross-entity field '{field}' requires relation "
+                                        f"between '{root_entity}' and '{agg_entity}', but none found in relations"
+                                    )
+
+            # VALIDATION: Check canonical form for structured field refs
+            # For group_by, filters, having with entity field, field must be bare (no entity prefix)
+            for i, gb in enumerate(transformed.get("group_by", [])):
+                if isinstance(gb, dict):
+                    entity = gb.get("entity")
+                    field = gb.get("field", "")
+                    if entity and "." in field:
+                        raise AssertionError(
+                            f"Non-canonical group_by[{i}]: entity='{entity}' requires bare field, got '{field}'"
+                        )
+
+            def check_filter_canonical(clause: Any, path: str) -> None:
+                if not isinstance(clause, dict):
+                    return
+
+                if clause.get("type") == "comparison":
+                    entity = clause.get("entity")
+                    field = clause.get("field", "")
+                    if entity and "." in field:
+                        raise AssertionError(
+                            f"Non-canonical {path}: entity='{entity}' requires bare field, got '{field}'"
+                        )
+                elif clause.get("type") == "logical":
+                    for j, sub_clause in enumerate(clause.get("clauses", [])):
+                        check_filter_canonical(sub_clause, f"{path}.clauses[{j}]")
+
+            if transformed.get("filters"):
+                check_filter_canonical(transformed["filters"], "filters")
+
+            if transformed.get("having"):
+                check_filter_canonical(transformed["having"], "having")
+
     return {
         "bound_query": {
             "root_entity": getattr(bound_query, 'root_entity', None) if bound_query else None,
@@ -288,11 +419,16 @@ def replay_compile_bind_spec_v1(input_data: dict[str, Any], ctx: Any) -> dict[st
             "resolved_relations": getattr(bound_query, 'resolved_relations', []) if bound_query else [],
         } if bound_query else None,
         "transformed_selectors": transformed,
+        "errors": errors,
+        "auto_repairs": auto_repairs,
         "diag": {
             "compile_success": not bool(errors),
+            "binding_validation_mode": "full",
+            "binding_schema_source": binding_schema_source,
             "has_bound_query": bound_query is not None,
             "has_transformed_selectors": bool(transformed),
             "aggregations_extracted": len(transformed.get("aggregations", [])) if transformed else 0,
+            "auto_repairs_count": len(auto_repairs),
         },
     }
 

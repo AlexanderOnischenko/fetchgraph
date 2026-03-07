@@ -121,7 +121,15 @@ def test_known_bad_backlog(bundle_path: Path, request: pytest.FixtureRequest) ->
         pytest.fail(message, pytrace=False)
 
     try:
-        validator(out)
+        # Call validator with root and ctx for contract validation
+        # Use inspect to support both old (out) and new (out, root, ctx) signatures
+        import inspect
+        sig = inspect.signature(validator)
+        params = list(sig.parameters.keys())
+        if len(params) >= 3:
+            validator(out, root, ctx)
+        else:
+            validator(out)
     except (AssertionError, ValidationError) as exc:
         diag = out.get("diag") if isinstance(out, dict) else None
         rule_trace = format_rule_trace(diag, tail=rule_trace_tail())

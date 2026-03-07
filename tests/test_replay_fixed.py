@@ -85,7 +85,14 @@ def test_replay_fixed_cases(case_path: Path) -> None:
             f"No validator registered for replay id={replay_id!r}. Add it to REPLAY_VALIDATORS.",
             pytrace=False,
         )
-    validator(out)
+    # Call validator with root and ctx for contract validation
+    import inspect
+    sig = inspect.signature(validator)
+    params = list(sig.parameters.keys())
+    if len(params) >= 3:
+        validator(out, root, ctx)
+    else:
+        validator(out)
     assert out == expected
 
 

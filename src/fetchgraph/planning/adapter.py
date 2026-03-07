@@ -234,6 +234,9 @@ def create_pipeline_normalizer(
 
     # Create pipeline config with replay logging setting
     # IMPORTANT: active_provider must be set from providers dict to avoid mismatches
+    # Initialize entities_schema for use below
+    entities_schema: Dict[str, Any] = {"entities": [], "relations": []}
+    
     if config is None:
         # Derive active_provider from the first provider in the dict
         # If providers is empty, allow it but pipeline will fail if actually used
@@ -244,21 +247,38 @@ def create_pipeline_normalizer(
             # Build schema info from providers for self-heal feedback
             schema_info = {}
             provider_catalog = {}
+
             for name, prov in providers.items():
                 if isinstance(prov, SupportsDescribe):
                     try:
                         info = prov.describe()
                         provider_catalog[name] = info
-                        
-                        # Extract entities from describe() result
-                        # ProviderInfo doesn have entities directly, but some providers
-                        # return additional info via describe() that we can use
+
+                        # Extract entity info from selectors_schema if available
                         if hasattr(info, 'selectors_schema') and info.selectors_schema:
-                            # Extract entity info from selectors_schema if available
                             schema_info[name] = {"schema": info.selectors_schema}
+
+                        # Extract full entities schema from PandasRelationalDataProvider
+                        # This is used by CompileBindNode for field resolution
+                        # Only PandasRelationalDataProvider has entities/relations attributes
+                        from ..relational.providers.pandas_provider import PandasRelationalDataProvider
+                        if isinstance(prov, PandasRelationalDataProvider):
+                            for entity in prov.entities:
+                                entities_schema["entities"].append({
+                                    "name": entity.name,
+                                    "columns": [{"name": col.name, "type": getattr(col, 'type', 'text'), "pk": getattr(col, 'pk', False)} for col in entity.columns],
+                                })
+                            for relation in prov.relations:
+                                entities_schema["relations"].append({
+                                    "name": relation.name,
+                                    "from_entity": relation.from_entity,
+                                    "to_entity": relation.to_entity,
+                                    "from_column": relation.join.from_column,
+                                    "to_column": relation.join.to_column,
+                                })
                     except Exception:
                         pass
-            
+
             config = PipelineConfig(
                 active_provider=active_provider_name,
                 enable_replay_logging=enable_replay_logging,
@@ -289,13 +309,17 @@ def create_pipeline_normalizer(
             )
 
     # Create pipeline
+    # Use entities_schema if available (for CompileBindNode field resolution)
+    # Otherwise fall back to the schema parameter (JSON Schema for validation)
+    pipeline_schema = entities_schema if entities_schema["entities"] else schema
+    
     pipeline = PlanningPipeline(
         config=config,
         plan_model=plan_model,
         provider_rules=provider_rules,
         validation_rules=validation_rules,
         repair_rules=repair_rules,
-        schema=schema,
+        schema=pipeline_schema,
         llm_fn=llm_fn,
     )
     

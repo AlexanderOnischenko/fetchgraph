@@ -149,3 +149,23 @@ def test_load_case_bundle_uses_outer_bucket_when_stem_contains_bucket_name(tmp_p
 
     assert ctx.fixture_bucket_dir == root / "fixed"
     assert ctx.fixture_stem == "agg_003/fixed/a"
+
+
+def test_load_case_bundle_prefers_nearest_replay_cases_anchor(tmp_path: Path) -> None:
+    outer_root = tmp_path / "outer" / "replay_cases" / "known_bad" / "shadow"
+    inner_root = outer_root / "project" / "tests" / "fixtures" / "replay_cases"
+    case_path = inner_root / "fixed" / "agg_003" / "a.case.json"
+    payload = {
+        "schema": "fetchgraph.tracer.case_bundle",
+        "v": 1,
+        "root": {"type": "replay_case", "v": 2, "id": "plan_normalize.spec_v1", "input": {}},
+        "resources": {},
+        "extras": {},
+    }
+    case_path.parent.mkdir(parents=True, exist_ok=True)
+    case_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, ctx = load_case_bundle(case_path)
+
+    assert ctx.fixture_bucket_dir == inner_root / "fixed"
+    assert ctx.fixture_stem == "agg_003/a"

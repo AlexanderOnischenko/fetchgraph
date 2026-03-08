@@ -81,8 +81,8 @@ def _infer_fixture_layout(path: Path) -> tuple[Path, str]:
         raise ValueError(f"Unsupported case bundle filename: {resolved}")
 
     parts = resolved.parts
-    # Prefer canonical .../replay_cases/<bucket>/... anchor when available.
-    for idx in range(len(parts) - 2):
+    # Prefer canonical .../replay_cases/<bucket>/... anchor closest to the case file.
+    for idx in range(len(parts) - 3, -1, -1):
         if parts[idx] != "replay_cases":
             continue
         bucket_idx = idx + 1

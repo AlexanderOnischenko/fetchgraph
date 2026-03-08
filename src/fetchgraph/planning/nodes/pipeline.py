@@ -258,6 +258,7 @@ class PlanningPipeline:
         self.refetch_node = RefetchNode(
             llm_fn=llm_fn,
             max_refetch_attempts=self.config.max_refetch_attempts,
+            sender="generic_plan",  # Use generic_plan sender for refetch attempts
         )
         self.compile_bind_node = CompileBindNode(schema=schema)
         self.semantic_validate_node = SemanticValidateNode()
@@ -426,7 +427,13 @@ class PlanningPipeline:
         # ========== SEGMENT 3: Policy & Execution ==========
         exec_result = self._run_execution_segment()
         if exec_result.get("error"):
-            return self._error_result(exec_result["error"])
+            # Classify execution error to enable self-heal/refetch
+            error_info = self._classify_error(exec_result["error"])
+            return self._error_result(
+                exec_result["error"],
+                error_types=error_info.get("error_types", ["execution_error"]),
+                stage="execute",
+            )
         
         # Success
         return PipelineResult(
@@ -758,17 +765,17 @@ class PlanningPipeline:
     
     def _rerun_segment(self, segment: str | None) -> PipelineResult:
         """Re-run pipeline from a specific segment after self-heal.
-        
+
         CRITICAL FIX #2: skip parse/extract to preserve healed selectors.
         """
-        
+
         if segment == "provider_normalize":
             # Re-run from provider_normalize through validate
             # (skip parse/extract to preserve healed selectors)
             result = self._run_pre_binding_segment(skip_parse_extract=True)
             if result.get("error"):
                 return self._error_result(result["error"], error_types=result.get("error_types", []))
-        
+
         elif segment == "compile_bind":
             # Re-run from compile_bind through semantic_validate
             result = self._run_binding_segment()
@@ -778,7 +785,7 @@ class PlanningPipeline:
                     error_types=result.get("error_types", []),
                     stage="compile_bind",
                 )
-        
+
         elif segment == "aggregation_normalize":
             # Re-run from aggregation_normalize through validate_aggregation
             result = self._run_aggregation_segment()
@@ -788,7 +795,23 @@ class PlanningPipeline:
                     error_types=result.get("error_types", []),
                     stage="aggregation_normalize",
                 )
-        
+
+        elif segment == "execute":
+            # Re-run from execute (execution error - re-execute with repaired selectors)
+            result = self._run_execution_segment()
+            if result.get("error"):
+                return self._error_result(
+                    result["error"],
+                    error_types=result.get("error_types", ["execution_error"]),
+                    stage="execute",
+                )
+            return PipelineResult(
+                output=result.get("output"),
+                notes=self.state.all_notes,
+                refetch_count=self.state.refetch_count,
+                self_heal_count=self.state.self_heal_count,
+            )
+
         # Continue with remaining segments
         return self._run_pipeline_segments()
     
@@ -901,6 +924,25 @@ class PlanningPipeline:
                 "repairable": True,
                 "error_types": ["aggregation_validate_error"],
                 "stage": "validate_aggregation",
+            }
+
+        # Execution errors (e.g., column not found during fetch) → repairable via LLM feedback
+        if "execute" in error_lower or "execution" in error_lower:
+            # Check for specific error patterns within execution errors
+            if ("column not found" in error_lower or
+                "field not found" in error_lower or
+                "keyerror" in error_lower):
+                return {
+                    "needs_refetch": True,
+                    "repairable": True,
+                    "error_types": ["column_not_found", "planning_error"],
+                    "stage": "execute",
+                }
+            return {
+                "needs_refetch": True,
+                "repairable": False,
+                "error_types": ["execution_error"],
+                "stage": "execute",
             }
 
         # Default: try refetch

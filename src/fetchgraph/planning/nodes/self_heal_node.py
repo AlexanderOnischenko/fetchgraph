@@ -220,22 +220,27 @@ class SelfHealNode:
         rules_applied: List[str],
     ) -> Optional[str]:
         """Determine which pipeline segment should be re-run after repair.
-        
+
         Returns:
             Segment name or None if no re-run needed
         """
         # Pre-binding repairs → re-run from provider_normalize
         if original_stage in ["validate_selectors", "provider_normalize"]:
             return "provider_normalize"
-        
+
         # Binding repairs → re-run from compile_bind
         if original_stage in ["compile_bind", "semantic_validate"]:
             return "compile_bind"
-        
+
+        # Execution errors (column not found during fetch) → re-run from compile_bind
+        # The plan has wrong column/entity names, needs LLM regeneration
+        if original_stage in ["execute", "execution"]:
+            return "compile_bind"
+
         # Aggregation repairs → re-run from aggregation_normalize
         if original_stage in ["aggregation_normalize", "validate_aggregation"]:
             return "aggregation_normalize"
-        
+
         # Default: re-run from provider_normalize
         return "provider_normalize"
     

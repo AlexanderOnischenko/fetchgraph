@@ -89,11 +89,13 @@ class RefetchNode:
         llm_fn: Optional[Callable[[str], str]] = None,
         max_refetch_attempts: int = 3,
         cache_attempts: bool = True,
+        sender: str = "generic_plan",  # Sender for LLMInvoke protocol
     ) -> None:
         self.llm_fn = llm_fn
         self.max_refetch_attempts = max_refetch_attempts
         self.cache_attempts = cache_attempts
-        
+        self.sender = sender
+
         # State
         self._attempt_history: List[str] = []
         self._attempt_count = 0
@@ -152,8 +154,9 @@ class RefetchNode:
             )
         
         try:
-            raw_text = self.llm_fn(retry_prompt)
-            
+            # Call LLM with sender argument (LLMInvoke protocol requires it)
+            raw_text = self.llm_fn(retry_prompt, sender=self.sender)
+
             # Cache this attempt (for history tracking, not loop detection)
             if self.cache_attempts:
                 self._attempt_history.append(retry_prompt)

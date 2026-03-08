@@ -975,18 +975,18 @@ class PlanningPipeline:
 
     def _do_refetch(self, error: str, error_types: list[str] | None = None) -> RefetchResult | None:
         """Execute refetch.
-        
+
         For planning errors (wrong column/entity names), builds detailed feedback
         including schema information to help LLM generate correct plan.
         """
         from .self_heal_node import build_planning_error_feedback
-        
+
         # Check if this is a planning error that needs detailed feedback
         is_planning_error = error_types and any(
             t in ["column_not_found", "planning_error", "field_not_found", "unknown_field"]
             for t in error_types
         )
-        
+
         if is_planning_error:
             # Build detailed feedback with schema reference
             error_feedback = build_planning_error_feedback(
@@ -999,13 +999,17 @@ class PlanningPipeline:
                 }],
                 schema_info=self.state.schema_info,
             )
+            # Convert plan to JSON string for previous_plan field
+            previous_plan_str = json.dumps(self.state.current_plan, indent=2) if self.state.current_plan else None
         else:
             error_feedback = error
-        
+            previous_plan_str = None
+
         request = RefetchRequest(
             original_prompt=self.state.current_raw_text,
             error_feedback=error_feedback,
             previous_attempts=[],
+            previous_plan=previous_plan_str,
         )
         result = self.refetch_node.execute(self.ctx, request)
         return result.value

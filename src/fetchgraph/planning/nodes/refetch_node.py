@@ -55,18 +55,21 @@ class RefetchResult:
 @dataclass(frozen=True)
 class RefetchRequest:
     """Request for LLM refetch."""
-    
+
     # Original prompt/context
     original_prompt: str
-    
+
     # Error feedback to give LLM
     error_feedback: str
-    
+
     # Previous attempts (for context)
     previous_attempts: List[str] = field(default_factory=list)
-    
+
     # Specific guidance for retry
     guidance: Optional[str] = None
+
+    # Previous plan that failed (for context - helps LLM see what was wrong)
+    previous_plan: Optional[str] = None
 
 
 class RefetchNode:
@@ -206,17 +209,24 @@ class RefetchNode:
             "\n\n--- ERROR FEEDBACK ---",
             f"The previous plan had errors: {request.error_feedback}",
         ]
-        
+
+        # Include previous plan if available (helps LLM see what was wrong)
+        if request.previous_plan:
+            parts.extend([
+                "\n\n--- PREVIOUS PLAN (had errors) ---",
+                request.previous_plan,
+            ])
+
         if request.guidance:
             parts.append(f"\n\n--- GUIDANCE FOR RETRY ---\n{request.guidance}")
-        
+
         if request.previous_attempts:
             parts.append("\n\n--- PREVIOUS ATTEMPTS (do not repeat these) ---")
             for i, attempt in enumerate(request.previous_attempts[-3:], 1):
                 parts.append(f"\nAttempt {i}: {attempt[:200]}...")
-        
+
         parts.append("\n\nPlease generate a corrected plan that addresses the errors above.")
-        
+
         return "".join(parts)
     
     def reset(self) -> None:

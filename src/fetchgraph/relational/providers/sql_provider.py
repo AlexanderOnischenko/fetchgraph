@@ -443,11 +443,14 @@ class SqlRelationalDataProvider(RelationalDataProvider):
 
         if req.aggregations:
             for spec in req.aggregations:
-                # Handle COUNT(*) - count all rows
+                # G-4a: Handle COUNT(*) special case - count all rows
                 if spec.field == "*" and spec.agg == "count":
                     agg_expr = "COUNT(*)"
                     alias = spec.alias or "count_all"
                     select_parts.append(f"{agg_expr} AS {self._quote_ident(alias)}")
+                # G-4a: Reject other AGG(*) forms as contract errors
+                elif spec.field == "*" and spec.agg != "count":
+                    raise ValueError(f"Invalid aggregation: {spec.agg}(*) is not supported. Only COUNT(*) is allowed.")
                 else:
                     ent, fld = self._resolve_field(req.root_entity, spec.field, None)
                     col_ref = self._column_ref(self._lookup_alias(ent, index), fld)

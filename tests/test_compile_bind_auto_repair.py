@@ -479,6 +479,145 @@ class TestCompileBindIntegration:
         assert result.value.transformed_selectors["group_by"][0]["field"] == "status"
 
 
+class TestAggregationValidator:
+    """Test aggregation_normalize validator."""
+
+    def test_valid_aggregation_output(self):
+        """Test that valid aggregation output passes validation."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        out = {
+            "normalized_aggregations": [
+                {"agg": "count", "field": "order_id", "alias": "count_order_id"}
+            ],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query"},
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
+        }
+
+        # Should not raise
+        validate_aggregation_normalize_spec_v1(out)
+
+    def test_canonical_agg_names(self):
+        """Test that all canonical aggregation names are accepted."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        for agg_name in ["count", "count_distinct", "sum", "avg", "min", "max", "median"]:
+            out = {
+                "normalized_aggregations": [
+                    {"agg": agg_name, "field": "field", "alias": f"{agg_name}_field"}
+                ],
+                "normalized_group_by": [],
+                "normalized_selectors": {"op": "query"},
+                "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
+            }
+            # Should not raise for canonical names
+            validate_aggregation_normalize_spec_v1(out)
+
+    def test_non_canonical_agg_name_fails(self):
+        """Test that non-canonical aggregation names fail validation."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        out = {
+            "normalized_aggregations": [
+                {"agg": "COUNT_DISTINCT", "field": "field", "alias": "count_distinct_field"}
+            ],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query"},
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
+        }
+
+        # Should raise for non-canonical name
+        with pytest.raises(AssertionError) as exc_info:
+            validate_aggregation_normalize_spec_v1(out)
+        assert "not canonical" in str(exc_info.value)
+
+    def test_count_star_allowed(self):
+        """Test that COUNT(*) is allowed as count with field='*'."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        out = {
+            "normalized_aggregations": [
+                {"agg": "count", "field": "*", "alias": "count_all"}
+            ],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query"},
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
+        }
+
+        # Should not raise for COUNT(*)
+        validate_aggregation_normalize_spec_v1(out)
+
+    def test_sum_star_not_allowed(self):
+        """Test that SUM(*) is not allowed."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        out = {
+            "normalized_aggregations": [
+                {"agg": "sum", "field": "*", "alias": "sum_all"}
+            ],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query"},
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
+        }
+
+        # Should raise for SUM(*)
+        with pytest.raises(AssertionError) as exc_info:
+            validate_aggregation_normalize_spec_v1(out)
+        assert "COUNT(*) is the only allowed" in str(exc_info.value)
+
+    def test_alias_uniqueness(self):
+        """Test that duplicate aliases fail validation."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        out = {
+            "normalized_aggregations": [
+                {"agg": "count", "field": "field1", "alias": "count_all"},
+                {"agg": "sum", "field": "field2", "alias": "count_all"},  # Duplicate alias
+            ],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query"},
+            "diag": {"input_aggregations_count": 2, "output_aggregations_count": 2},
+        }
+
+        # Should raise for duplicate alias
+        with pytest.raises(AssertionError) as exc_info:
+            validate_aggregation_normalize_spec_v1(out)
+        assert "Duplicate alias" in str(exc_info.value)
+
+    def test_op_must_be_query(self):
+        """Test that op must be 'query' after aggregation normalize."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        out = {
+            "normalized_aggregations": [],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "aggregate"},  # Should be 'query'
+            "diag": {"input_aggregations_count": 0, "output_aggregations_count": 0},
+        }
+
+        # Should raise for op != 'query'
+        with pytest.raises(AssertionError) as exc_info:
+            validate_aggregation_normalize_spec_v1(out)
+        assert "op must be 'query'" in str(exc_info.value)
+
+    def test_aggregations_preserved(self):
+        """Test that aggregations are preserved (input count == output count)."""
+        from fetchgraph.tracer.validators import validate_aggregation_normalize_spec_v1
+
+        out = {
+            "normalized_aggregations": [],  # Empty output
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query"},
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 0},  # Lost aggregations
+        }
+
+        # Should raise when aggregations are lost
+        with pytest.raises(AssertionError) as exc_info:
+            validate_aggregation_normalize_spec_v1(out)
+        assert "aggregations were lost" in str(exc_info.value)
+
+
 class TestReplayValidation:
     """Test replay validation with schema resources."""
 

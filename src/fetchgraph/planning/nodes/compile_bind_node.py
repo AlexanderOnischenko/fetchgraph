@@ -406,7 +406,25 @@ class CompileBindNode:
         # Process aggregations
         for agg in selectors.get("aggregations", []):
             if isinstance(agg, dict) and "field" in agg:
+                agg_func = agg.get("agg", "")
                 field_expr = agg["field"]
+                
+                # G-4a: Special case COUNT(*) - do not resolve * as schema column
+                if agg_func == "count" and field_expr == "*":
+                    notes.append(f"CompileBindNode: COUNT(*) special case preserved (field='*')")
+                    auto_repairs.append({
+                        "type": "count_star_special_case_preserved",
+                        "agg": agg_func,
+                        "field": field_expr,
+                        "alias": agg.get("alias", ""),
+                    })
+                    continue  # Skip field resolution for COUNT(*)
+                
+                # G-4a: Reject other AGG(*) forms as contract errors
+                if field_expr == "*" and agg_func != "count":
+                    errors.append(f"Invalid aggregation: {agg_func}(*) is not supported. Only COUNT(*) is allowed.")
+                    continue
+                
                 new_field, field_errors = self._resolve_field_via_relations(
                     field_expr, root_entity, relations_to_add, notes, auto_repairs
                 )

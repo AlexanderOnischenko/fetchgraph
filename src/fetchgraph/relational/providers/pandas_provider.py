@@ -492,7 +492,14 @@ class PandasRelationalDataProvider(RelationalDataProvider):
             group_cols = [self._resolve_column(df, req.root_entity, g.field, g.entity) for g in req.group_by]
             grouped = df.groupby(group_cols, dropna=False)
             agg_kwargs: Dict[str, Any] = {}
+            count_star_alias: Optional[str] = None
+            
             for spec in req.aggregations:
+                # G-4a: Handle COUNT(*) special case - skip column resolution
+                if spec.field == "*" and spec.agg == "count":
+                    # COUNT(*) with GROUP BY - use size() which counts rows per group
+                    count_star_alias = spec.alias or "count"
+                    continue  # Will be handled separately
                 col = self._resolve_column(df, req.root_entity, spec.field)
                 func: Any
                 if spec.agg == "count_distinct":
@@ -503,9 +510,26 @@ class PandasRelationalDataProvider(RelationalDataProvider):
                     func = spec.agg
                 alias = spec.alias or f"{spec.agg}_{spec.field}"
                 agg_kwargs[alias] = pd.NamedAgg(column=col, aggfunc=func)
+            
             if agg_kwargs:
-                agg_df = grouped.agg(**agg_kwargs).reset_index()
+                # Has regular aggregations (may also have COUNT(*))
+                if count_star_alias:
+                    # Mix of COUNT(*) and other aggregations
+                    # First do regular aggregations
+                    agg_df = grouped.agg(**agg_kwargs).reset_index()
+                    # Then add COUNT(*) via size()
+                    size_series = cast(pd.Series, grouped.size())
+                    agg_df[count_star_alias] = size_series.values
+                else:
+                    # Only regular aggregations
+                    agg_df = grouped.agg(**agg_kwargs).reset_index()
+            elif count_star_alias:
+                # Only COUNT(*)
+                size_series = cast(pd.Series, grouped.size())
+                agg_df = size_series.reset_index(name=count_star_alias)
             else:
+                # No aggregations - use size() for default count per group
+                # This is used by composite provider for _count_remote_matches_by_key
                 size_series = cast(pd.Series, grouped.size())
                 agg_df = size_series.reset_index(name="count")
             

@@ -5,6 +5,7 @@ import readline
 import sys
 import datetime
 import uuid
+import os
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -39,6 +40,29 @@ def _maybe_add_history(entry: str) -> None:
         readline.add_history(entry)
 
 
+class _Ansi:
+    RESET = "\033[0m"
+    BLUE = "\033[34m"
+    YELLOW = "\033[33m"
+    DIM = "\033[90m"
+
+
+def _use_color() -> bool:
+    if os.getenv("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+def _paint(text: str, color: str) -> str:
+    if not _use_color():
+        return text
+    return f"{color}{text}{_Ansi.RESET}"
+
+
+def _print_banner(title: str, color: str) -> None:
+    print(_paint(f"--- {title} ---", color))
+
+
 def start_repl(
     data_dir: Path,
     schema_path: Path,
@@ -46,6 +70,7 @@ def start_repl(
     enable_semantic: bool = False,
     log_file: Optional[Path] = None,
     diagnostics: Sequence[str] | None = None,
+    verbose: bool = False,
 ) -> None:
     provider, _ = build_provider(data_dir, schema_path, enable_semantic=enable_semantic)
     runner = build_agent(llm, provider)
@@ -56,13 +81,16 @@ def start_repl(
     plan_debug_mode = "off"
     last_artifacts: RunArtifacts | None = None
 
-    print("Type your question (or /help). Use /exit or Ctrl+D to exit. Press ↑ to edit the last input.")
     if diagnostics:
+        _print_banner("Diagnostics", _Ansi.BLUE)
         for line in diagnostics:
-            print(line)
-    print(f"Artifacts root: {runs_root}")
-    if log_file:
-        print(f"Log file: {log_file}")
+            print(_paint(line, _Ansi.BLUE))
+        print(_paint(f"Artifacts root: {runs_root}", _Ansi.BLUE))
+        if log_file:
+            print(_paint(f"Log file: {log_file}", _Ansi.BLUE))
+        print(_paint("-------------------", _Ansi.BLUE))
+
+    print(_paint("Type your question (or /help). Use /exit or Ctrl+D to exit. Press ↑ to edit the last input.", _Ansi.YELLOW))
     while True:
         try:
             line = input("demo-qa> ").strip()
@@ -75,16 +103,16 @@ def start_repl(
         if line == "/exit":
             break
         if line == "/help":
-            print("Commands: /schema, /plan on|off|once, /ctx, /run, /logs, /exit")
+            print(_paint("Commands: /schema, /plan on|off|once, /ctx, /run, /logs, /exit", _Ansi.YELLOW))
             continue
         if line.startswith("/plan"):
             _, _, arg = line.partition(" ")
             choice = arg.strip()
             if choice in {"on", "off", "once"}:
                 plan_debug_mode = choice
-                print(f"Plan debug set to {plan_debug_mode}")
+                print(_paint(f"Plan debug set to {plan_debug_mode}", _Ansi.YELLOW))
             else:
-                print("Usage: /plan on|off|once")
+                print(_paint("Usage: /plan on|off|once", _Ansi.YELLOW))
             continue
         if line == "/ctx":
             if last_artifacts and last_artifacts.context is not None:
@@ -141,7 +169,8 @@ def start_repl(
                 print("--- PLAN ---")
                 print(json.dumps(artifacts.plan, ensure_ascii=False, indent=2))
             print(result.answer or "")
-            print(f"Events: {Path(result.artifacts_dir) / 'events.jsonl'}")
+            if verbose:
+                print(_paint(f"Events: {Path(result.artifacts_dir) / 'events.jsonl'}", _Ansi.DIM))
         except Exception as exc:  # pragma: no cover - REPL resilience
             run_root = runs_root / run_dir_name
             cfg = LayoutConfig()

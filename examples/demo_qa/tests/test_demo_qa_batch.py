@@ -570,3 +570,57 @@ def test_packaged_default_config_used_when_no_cli_or_data_dir(tmp_path: Path, mo
     expected_default = Path(batch.__file__).resolve().parent / "demo_qa.toml"
     assert Path(config_path) == expected_default
     assert run_meta["inputs"]["config_hash"] == batch._hash_file(expected_default)
+
+
+def test_chat_parser_supports_verbose_flag(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    schema = tmp_path / "schema.yaml"
+    schema.write_text("tables: []\n", encoding="utf-8")
+
+    args_default = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema)])
+    assert args_default.verbose is False
+
+    args_verbose = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema), "--verbose"])
+    assert args_verbose.verbose is True
+
+
+def test_handle_chat_hides_diagnostics_unless_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import examples.demo_qa.chat_repl as chat_repl
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    schema = tmp_path / "schema.yaml"
+    schema.write_text("tables: []\n", encoding="utf-8")
+
+    llm_settings = SimpleNamespace(
+        base_url="http://localhost:8002/v1",
+        plan_model="default",
+        plan_temperature=0.0,
+        synth_model="default",
+        synth_temperature=0.2,
+        timeout_s=900.0,
+        retries=2,
+    )
+    monkeypatch.setattr(batch, "load_settings", lambda config_path, data_dir: (SimpleNamespace(llm=llm_settings), None))
+    monkeypatch.setattr(batch, "configure_logging", lambda **kwargs: data_dir / ".runs" / "logs" / "chat.log")
+    monkeypatch.setattr(batch, "build_llm", lambda settings: SimpleNamespace())
+
+    captured_calls: list[dict] = []
+
+    def _capture_start_repl(*args, **kwargs):
+        captured_calls.append(kwargs)
+
+    monkeypatch.setattr(chat_repl, "start_repl", _capture_start_repl)
+
+    args_default = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema)])
+    assert batch.handle_chat(args_default) == 0
+    assert captured_calls[-1]["verbose"] is False
+    assert captured_calls[-1]["diagnostics"] is None
+
+    args_verbose = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema), "--verbose"])
+    assert batch.handle_chat(args_verbose) == 0
+    assert captured_calls[-1]["verbose"] is True
+    diagnostics = captured_calls[-1]["diagnostics"]
+    assert diagnostics is not None
+    assert any(line.startswith("LLM endpoint:") for line in diagnostics)

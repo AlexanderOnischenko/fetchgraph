@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat_p.add_argument("--log-dir", type=Path, default=None, help="Directory for log files")
     chat_p.add_argument("--log-stderr", action="store_true", help="Also stream logs to stderr")
     chat_p.add_argument("--log-jsonl", action="store_true", help="Write logs as JSONL")
+    chat_p.add_argument("--verbose", action="store_true", help="Show diagnostic details in chat output")
 
     batch_p = sub.add_parser("batch", help="Run a batch of questions from a JSONL file")
     batch_p.add_argument("--data", type=Path, required=True)

@@ -108,6 +108,7 @@ MOVE_TRACES ?= 0
 #   make llm-edit LLM_TOML=path/to/demo_qa.toml
 LLM_TOML ?= demo_qa.toml
 LLM_TOML_EXAMPLE ?= demo_qa.toml.example
+CHAT_VERBOSE ?= 0
 
 # macOS: открываем в TextEdit
 OPEN ?= open
@@ -312,7 +313,7 @@ warn-missing-tracer:
 
 warn-missing-llm-config:
 	@if [ ! -f "$(LLM_TOML)" ]; then \
-	  echo "WARNING: LLM config not found (LLM_TOML='$(LLM_TOML)'). Run: make llm-init"; \
+	  printf '\033[33m%s\033[0m\n' "WARNING: LLM config not found (LLM_TOML='$(LLM_TOML)'). Run: make llm-init"; \
 	fi
 
 warn-config: warn-missing-init
@@ -371,7 +372,7 @@ llm-edit:
 # Алиасы под команды CLI
 # ==============================================================================
 chat: warn-missing-llm-config check
-	@$(CLI) chat --data "$(DATA)" --schema "$(SCHEMA)"
+	@$(CLI) chat --data "$(DATA)" --schema "$(SCHEMA)" $(if $(filter 1 true TRUE yes YES,$(CHAT_VERBOSE)),--verbose,)
 
 # 1) Полный прогон всего набора
 batch: ensure-runs-dir

@@ -359,6 +359,24 @@ def validate_aggregation_normalize_spec_v1(out: dict) -> None:
     if not isinstance(normalized_group_by, list):
         raise AssertionError("normalized_group_by must be a list")
 
+    # Validate each group_by entry is a proper GroupBySpec dict (not bare string)
+    # After aggregation normalize, group_by should be structured as dicts with entity/field
+    for i, gb in enumerate(normalized_group_by):
+        if not isinstance(gb, dict):
+            raise AssertionError(
+                f"normalized_group_by[{i}] must be a dict (GroupBySpec), not {type(gb).__name__}; "
+                "group_by entries should be structured with entity/field after normalization"
+            )
+        # Check required GroupBySpec fields
+        if "field" not in gb:
+            raise AssertionError(f"normalized_group_by[{i}] missing required key 'field'")
+        # entity can be None for bare fields, but if present, it should be a string
+        entity = gb.get("entity")
+        if entity is not None and not isinstance(entity, str):
+            raise AssertionError(
+                f"normalized_group_by[{i}].entity must be a string or null, got {type(entity).__name__}"
+            )
+
     # Check normalized_selectors exists
     normalized_selectors = out.get("normalized_selectors")
     if normalized_selectors is None:

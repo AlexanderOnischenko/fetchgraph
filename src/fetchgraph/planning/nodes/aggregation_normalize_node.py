@@ -48,8 +48,8 @@ class AggregationNormalizeResult:
     # Normalized aggregations
     normalized_aggregations: List[NormalizedAggregation]
 
-    # Normalized group_by fields
-    normalized_group_by: List[str]
+    # Normalized group_by fields (in GroupBySpec dict format)
+    normalized_group_by: List[Dict[str, Any]]
 
     # Notes about transformations
     notes: List[str]
@@ -230,10 +230,14 @@ class AggregationNormalizeNode:
             if new_gb_count > existing_gb_count:
                 changes["group_by_fields_added"] = new_gb_count - existing_gb_count
                 notes.append(f"AggregationNormalizeNode: added {changes['group_by_fields_added']} field(s) to group_by for closure")
-        
+
         # Update group_by in normalized_selectors
         if normalized_group_by:
-            normalized_selectors["group_by"] = normalized_group_by
+            # G-10: Canonicalize group_by to GroupBySpec format (entity + bare field)
+            canonical_group_by = self._canonicalize_group_by(normalized_group_by)
+            normalized_selectors["group_by"] = canonical_group_by
+            # Also use canonical form for normalized_group_by in result
+            normalized_group_by = canonical_group_by
 
         # Step 7: Move aggregate predicates from filters to having (G-AN-11, G-AN-12)
         filters_moved_count = self._move_aggregate_filters_to_having(
@@ -361,6 +365,47 @@ class AggregationNormalizeNode:
             is_distinct=False,  # We use agg="count_distinct" instead
         )
     
+    def _canonicalize_group_by(
+        self,
+        group_by: List[Any],
+    ) -> List[Dict[str, Any]]:
+        """Canonicalize group_by entries to GroupBySpec format.
+
+        Converts string entries like "entity.field" to dict format:
+        {"entity": "entity", "field": "field"}
+
+        Also normalizes dict entries with combined field like {"field": "entity.field"}
+        to proper format {"entity": "entity", "field": "field"}.
+
+        This ensures compatibility with RelationalQuery model validation.
+        """
+        result = []
+        for gb in group_by:
+            if isinstance(gb, dict):
+                # Dict format - check if field contains entity prefix
+                field = gb.get("field", "")
+                entity = gb.get("entity")
+                
+                if entity is None and "." in field:
+                    # Legacy format: {"field": "entity.field"} - split it
+                    field_entity, field_name = field.split(".", 1)
+                    result.append({"entity": field_entity, "field": field_name})
+                else:
+                    # Already in proper format or bare field
+                    result.append(gb)
+            elif isinstance(gb, str):
+                # String format - convert to dict
+                if "." in gb:
+                    entity, field = gb.split(".", 1)
+                    result.append({"entity": entity, "field": field})
+                else:
+                    # Bare field - no entity
+                    result.append({"entity": None, "field": gb})
+            else:
+                # Unknown format - keep as-is
+                result.append(gb)
+        return result
+
     def _infer_root_entity(self, selectors: Dict[str, Any]) -> Optional[str]:
         """Infer root_entity from field names (G-AN-02)."""
         # Check aggregations first

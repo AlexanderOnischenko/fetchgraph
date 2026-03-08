@@ -224,7 +224,9 @@ class TestGroupByClosure:
             "normalized_aggregations": [
                 {"agg": "count", "field": "orders.id", "alias": "count_orders"}
             ],
-            "normalized_group_by": ["orders.status"],
+            "normalized_group_by": [
+                {"entity": "orders", "field": "status"}
+            ],
             "normalized_selectors": {
                 "op": "query",
                 "select": [
@@ -262,7 +264,10 @@ class TestGroupByClosure:
             "normalized_aggregations": [
                 {"agg": "sum", "field": "orders.total", "alias": "sum_total"}
             ],
-            "normalized_group_by": ["orders.status", "orders.region"],
+            "normalized_group_by": [
+                {"entity": "orders", "field": "status"},
+                {"entity": "orders", "field": "region"},
+            ],
             "normalized_selectors": {
                 "op": "query",
                 "select": [

@@ -21,7 +21,8 @@
   ],
   "normalized_group_by": [
     {
-      "field": "orders.channel"
+      "entity": "orders",
+      "field": "channel"
     }
   ],
   "normalized_selectors": {
@@ -63,7 +64,8 @@
     },
     "group_by": [
       {
-        "field": "orders.channel"
+        "entity": "orders",
+        "field": "channel"
       }
     ],
     "op": "query",

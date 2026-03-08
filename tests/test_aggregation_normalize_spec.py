@@ -497,8 +497,9 @@ class TestGAn09GroupByClosure:
         }
         result = node.execute(ctx, selectors)
         gb = result.value.normalized_selectors.get("group_by", [])
-        # First should be the original
-        assert gb[0].get("field") == "orders.status"
+        # First should be the original (canonicalized to entity + field)
+        assert gb[0].get("entity") == "orders"
+        assert gb[0].get("field") == "status"
 
     def test_deduplicate_group_by_fields(self, node, ctx):
         """Duplicate group_by fields should be deduplicated."""

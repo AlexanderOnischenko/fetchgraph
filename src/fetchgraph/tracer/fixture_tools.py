@@ -779,12 +779,14 @@ def fixture_migrate(
             if not isinstance(file_name, str) or not file_name:
                 continue
             rel = _safe_resource_path(file_name, stem=stem)
-            if rel.parts[:3] != ("resources", stem, resource_id):
+            stem_parts = Path(stem).parts
+            expected_prefix = ("resources", *stem_parts, resource_id)
+            if rel.parts[: len(expected_prefix)] != expected_prefix:
                 raise ValueError(
                     "Resource path must be in resources/<stem>/<resource_id>/...; "
                     f"found {file_name!r} in {fixture_ref.case_abs}"
                 )
-            rel_tail = Path(*rel.parts[3:])
+            rel_tail = Path(*rel.parts[len(expected_prefix) :])
             if not rel_tail.parts:
                 raise ValueError(f"Resource path must include a file name: {file_name!r} in {fixture_ref.case_abs}")
             target_rel = Path("resources") / stem / resource_id / rel_tail

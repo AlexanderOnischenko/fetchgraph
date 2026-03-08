@@ -191,6 +191,33 @@ def test_fixture_migrate_leaves_canonical_paths(tmp_path: Path) -> None:
     assert (root / bucket / "resources" / "case" / "rid1" / "file.txt").exists()
 
 
+
+
+def test_fixture_migrate_supports_nested_stem_paths(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    bucket = "fixed"
+    case_path = root / bucket / "agg_003" / "nested" / "case.case.json"
+    resource_file = root / bucket / "resources" / "agg_003" / "nested" / "case" / "rid1" / "file.txt"
+    resource_file.parent.mkdir(parents=True, exist_ok=True)
+    resource_file.write_text("data", encoding="utf-8")
+    payload = _bundle_payload(
+        {
+            "type": "replay_case",
+            "v": 2,
+            "id": "plan_normalize.spec_v1",
+            "input": {"spec": {"provider": "sql"}},
+            "observed": {"out_spec": {"provider": "sql"}},
+        },
+        resources={"rid1": {"data_ref": {"file": "resources/agg_003/nested/case/rid1/file.txt"}}},
+    )
+    _write_bundle(case_path, payload)
+
+    bundles_updated, files_moved = fixture_migrate(root=root, bucket=bucket, dry_run=False)
+
+    assert bundles_updated == 0
+    assert files_moved == 0
+
+
 def test_fixture_migrate_normalizes_backslashes(tmp_path: Path) -> None:
     root = tmp_path / "fixtures"
     bucket = "fixed"

@@ -118,7 +118,7 @@ def test_load_case_bundle_nested_fixture_uses_bucket_root_for_resources(tmp_path
     _, ctx = load_case_bundle(case_path)
 
     assert ctx.fixture_stem == "agg_003/nested/a"
-    assert ctx.base_dir == root / "fixed"
+    assert ctx.base_dir == case_path.parent
     assert ctx.resolve_resource_path("sample/data.txt") == resource_file
 
 
@@ -130,3 +130,22 @@ def test_resolve_resource_path_accepts_nested_resources_prefix(tmp_path: Path) -
     resolved = ctx.resolve_resource_path("resources/agg_003/nested/a/rid1/file.txt")
 
     assert resolved == base_dir / "resources" / "agg_003" / "nested" / "a" / "rid1" / "file.txt"
+
+
+def test_load_case_bundle_uses_outer_bucket_when_stem_contains_bucket_name(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures" / "replay_cases"
+    case_path = root / "fixed" / "agg_003" / "fixed" / "a.case.json"
+    payload = {
+        "schema": "fetchgraph.tracer.case_bundle",
+        "v": 1,
+        "root": {"type": "replay_case", "v": 2, "id": "plan_normalize.spec_v1", "input": {}},
+        "resources": {},
+        "extras": {},
+    }
+    case_path.parent.mkdir(parents=True, exist_ok=True)
+    case_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, ctx = load_case_bundle(case_path)
+
+    assert ctx.fixture_bucket_dir == root / "fixed"
+    assert ctx.fixture_stem == "agg_003/fixed/a"

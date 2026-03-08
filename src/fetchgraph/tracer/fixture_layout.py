@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from fnmatch import fnmatchcase
+from pathlib import Path, PurePosixPath
 
 VALID_BUCKETS = {"fixed", "known_bad"}
 
@@ -81,7 +80,12 @@ def find_case_bundles(
         normalized_pattern = pattern.removesuffix(".case.json")
         for case_path in all_cases:
             stem = _stem_from_case_path(layout, case_path)
-            if fnmatchcase(stem, normalized_pattern):
+            if normalized_pattern.endswith("/**"):
+                prefix = normalized_pattern.removesuffix("/**")
+                if stem == prefix or stem.startswith(f"{prefix}/"):
+                    matches.append(case_path)
+                continue
+            if PurePosixPath(stem).match(normalized_pattern):
                 matches.append(case_path)
 
     return sorted(matches)

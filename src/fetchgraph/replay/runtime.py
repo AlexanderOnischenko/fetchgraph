@@ -81,12 +81,29 @@ def _infer_fixture_layout(path: Path) -> tuple[Path, str]:
         raise ValueError(f"Unsupported case bundle filename: {resolved}")
 
     parts = resolved.parts
-    for idx in range(len(parts) - 1, -1, -1):
+    # Prefer canonical .../replay_cases/<bucket>/... anchor when available.
+    for idx in range(len(parts) - 2):
+        if parts[idx] != "replay_cases":
+            continue
+        bucket_idx = idx + 1
+        if parts[bucket_idx] not in _VALID_FIXTURE_BUCKETS:
+            continue
+        bucket_dir = Path(*parts[: bucket_idx + 1])
+        rel = resolved.relative_to(bucket_dir)
+        if rel.parts and rel.parts[0] == "resources":
+            continue
+        return bucket_dir, rel.as_posix().removesuffix(".case.json")
+
+    # Fallback: choose the left-most bucket segment to avoid nested "fixed/known_bad" stem collisions.
+    for idx in range(len(parts) - 1):
         if parts[idx] not in _VALID_FIXTURE_BUCKETS:
             continue
         bucket_dir = Path(*parts[: idx + 1])
-        stem = resolved.relative_to(bucket_dir).as_posix().removesuffix(".case.json")
-        return bucket_dir, stem
+        rel = resolved.relative_to(bucket_dir)
+        if rel.parts and rel.parts[0] == "resources":
+            continue
+        return bucket_dir, rel.as_posix().removesuffix(".case.json")
+
     return resolved.parent, resolved.name.removesuffix(".case.json")
 
 
@@ -99,7 +116,7 @@ def load_case_bundle(path: Path) -> tuple[dict, ReplayContext]:
     ctx = ReplayContext(
         resources=data.get("resources", {}),
         extras=data.get("extras", {}),
-        base_dir=fixture_bucket_dir,
+        base_dir=path.resolve().parent,
         fixture_stem=fixture_stem,
         fixture_bucket_dir=fixture_bucket_dir,
     )

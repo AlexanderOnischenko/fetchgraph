@@ -74,3 +74,24 @@ def test_fixture_ls_and_find_case_bundles_support_nested_patterns(tmp_path: Path
     assert by_name[0].as_posix().endswith("known_bad/agg_003/nested/a.case.json")
     assert {p.name for p in by_pattern} == {"a.case.json", "b.case.json"}
     assert [c.stem for c in listed] == ["agg_003/nested/a"]
+
+
+def test_find_case_bundles_globstar_semantics(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    known_bad = root / "known_bad"
+    _write_bundle(known_bad / "a.case.json", case_id="x", timestamp="2024-01-01T00:00:00Z")
+    _write_bundle(known_bad / "x" / "a.case.json", case_id="x", timestamp="2024-01-01T00:00:00Z")
+    _write_bundle(known_bad / "agg_003" / "a.case.json", case_id="agg_003", timestamp="2024-01-01T00:00:00Z")
+    _write_bundle(known_bad / "agg_003" / "x" / "a.case.json", case_id="agg_003", timestamp="2024-01-01T00:00:00Z")
+
+    p1 = find_case_bundles(root=root, bucket="known_bad", name=None, pattern="**/a")
+    p2 = find_case_bundles(root=root, bucket="known_bad", name=None, pattern="agg_003/**")
+    p3 = find_case_bundles(root=root, bucket="known_bad", name=None, pattern="agg_003/**/a")
+
+    stems1 = {p.relative_to(known_bad).as_posix().removesuffix('.case.json') for p in p1}
+    stems2 = {p.relative_to(known_bad).as_posix().removesuffix('.case.json') for p in p2}
+    stems3 = {p.relative_to(known_bad).as_posix().removesuffix('.case.json') for p in p3}
+
+    assert {"a", "x/a", "agg_003/a", "agg_003/x/a"}.issubset(stems1)
+    assert stems2 == {"agg_003/a", "agg_003/x/a"}
+    assert stems3 == {"agg_003/a", "agg_003/x/a"}

@@ -54,7 +54,17 @@ def resolve_user_case_input(*, root: Path, case_path: Path) -> Path:
     raise FileNotFoundError(f"Fixture case path not found: {case_path}")
 
 
+
+
+def _normalize_bucket_constraint(bucket: str | None) -> str | None:
+    if bucket in (None, "all"):
+        return None
+    if bucket not in VALID_BUCKETS:
+        raise ValueError(f"Unsupported bucket constraint: {bucket}")
+    return bucket
+
 def parse_fixture_ref(*, root: Path, case_path: Path, expected_bucket: str | None = None) -> FixtureRef:
+    expected_bucket = _normalize_bucket_constraint(expected_bucket)
     case_abs = resolve_user_case_input(root=root, case_path=case_path)
 
     found: FixtureRef | None = None
@@ -218,8 +228,7 @@ def resolve_fixture_selector(
     if case_path is not None and (case_id or name):
         raise ValueError("Only one of case_path, case_id, or name can be used.")
     if case_path is not None:
-        expected_bucket = None if bucket == "all" else bucket
-        return [parse_fixture_ref(root=root, case_path=case_path, expected_bucket=expected_bucket).case_abs]
+        return [parse_fixture_ref(root=root, case_path=case_path, expected_bucket=bucket).case_abs]
     candidates = resolve_fixture_candidates(root=root, bucket=bucket, case_id=case_id, name=name)
     if not candidates:
         selector = case_id or name
@@ -619,7 +628,7 @@ def fixture_rm(
 
     targets: list[Path] = []
     for case_path_item in matched:
-        fixture_ref = parse_fixture_ref(root=root, case_path=case_path_item, expected_bucket=bucket_filter)
+        fixture_ref = parse_fixture_ref(root=root, case_path=case_path_item, expected_bucket=bucket)
         layout = FixtureLayout(root, fixture_ref.bucket)
         stem = fixture_ref.stem
         if scope in ("cases", "both"):
@@ -762,7 +771,7 @@ def fixture_migrate(
     bundles_updated = 0
     files_moved = 0
     for case_path in matched:
-        fixture_ref = parse_fixture_ref(root=root, case_path=case_path, expected_bucket=bucket_filter)
+        fixture_ref = parse_fixture_ref(root=root, case_path=case_path, expected_bucket=bucket)
         stem = fixture_ref.stem
         payload = load_bundle_json(fixture_ref.case_abs)
         resources = payload.get("resources") or {}
@@ -818,7 +827,7 @@ def fixture_ls(
     results: list[FixtureCandidate] = []
     for path in candidates:
         payload = load_bundle_json(path)
-        fixture_ref = parse_fixture_ref(root=root, case_path=path, expected_bucket=bucket_filter)
+        fixture_ref = parse_fixture_ref(root=root, case_path=path, expected_bucket=bucket)
         stem = fixture_ref.stem
         source = payload.get("source")
         source_dict = source if isinstance(source, dict) else {}

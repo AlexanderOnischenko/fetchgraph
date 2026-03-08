@@ -119,3 +119,31 @@ def test_fixture_rm_accepts_repo_relative_case_path_and_dry_run_prints_nested(
     assert removed == 3
     assert "known_bad/agg_003/nested/a.case.json" in out
     assert "known_bad/resources/agg_003/nested/a" in out
+
+
+def test_bucket_all_selector_and_rm_migrate(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    case_fixed = root / "fixed" / "agg_003" / "a.case.json"
+    case_bad = root / "known_bad" / "agg_003" / "b.case.json"
+    _write_bundle(case_fixed, case_id="agg_003")
+    _write_bundle(case_bad, case_id="agg_003")
+
+    selected = fixture_rm(
+        root=root,
+        bucket="all",
+        scope="cases",
+        dry_run=True,
+        case_id="agg_003",
+        all_matches=True,
+    )
+    assert selected == 2
+
+    updated, moved = fixture_migrate(
+        root=root,
+        bucket="all",
+        dry_run=True,
+        case_id="agg_003",
+        all_matches=True,
+    )
+    assert updated == 0
+    assert moved == 0

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 VALID_BUCKETS = {"fixed", "known_bad"}
@@ -45,6 +47,31 @@ def _stem_from_case_path(layout: FixtureLayout, case_path: Path) -> str:
     return rel.removesuffix(".case.json")
 
 
+
+def _stem_matches_pattern(stem: str, pattern: str) -> bool:
+    normalized = pattern.removesuffix(".case.json")
+    stem_parts = PurePosixPath(stem).parts
+    pattern_parts = PurePosixPath(normalized).parts
+
+    @lru_cache(maxsize=None)
+    def match(si: int, pi: int) -> bool:
+        if pi == len(pattern_parts):
+            return si == len(stem_parts)
+
+        token = pattern_parts[pi]
+        if token == "**":
+            return match(si, pi + 1) or (si < len(stem_parts) and match(si + 1, pi))
+
+        if si >= len(stem_parts):
+            return False
+
+        if not fnmatchcase(stem_parts[si], token):
+            return False
+
+        return match(si + 1, pi + 1)
+
+    return match(0, 0)
+
 def find_case_bundles(
     *,
     root: Path,
@@ -77,15 +104,9 @@ def find_case_bundles(
             matches.extend(all_cases)
             continue
 
-        normalized_pattern = pattern.removesuffix(".case.json")
         for case_path in all_cases:
             stem = _stem_from_case_path(layout, case_path)
-            if normalized_pattern.endswith("/**"):
-                prefix = normalized_pattern.removesuffix("/**")
-                if stem == prefix or stem.startswith(f"{prefix}/"):
-                    matches.append(case_path)
-                continue
-            if PurePosixPath(stem).match(normalized_pattern):
+            if _stem_matches_pattern(stem, pattern):
                 matches.append(case_path)
 
     return sorted(matches)

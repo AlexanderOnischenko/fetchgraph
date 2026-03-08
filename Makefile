@@ -112,6 +112,7 @@ MOVE_TRACES ?= 0
 #   make llm-edit LLM_TOML=path/to/demo_qa.toml
 LLM_TOML ?= demo_qa.toml
 LLM_TOML_EXAMPLE ?= demo_qa.toml.example
+CHAT_VERBOSE ?= 0
 
 # macOS: открываем в TextEdit
 OPEN ?= open
@@ -159,9 +160,11 @@ help:
 	@echo "  SCHEMA   - путь к schema.yaml"
 	@echo "  CASES    - путь к cases.json"
 	@echo "  OUT      - куда писать results.jsonl (по умолчанию: \$$DATA/.runs/results.jsonl)"
+	@echo "  CHAT_VERBOSE - 1/true/yes чтобы включить подробную диагностику в make chat"
 	@echo ""
 	@echo "Команды (DemoQA):"
-	@echo "  make chat                 - интерактивный чат"
+	@echo "  make chat                 - интерактивный чат (тихий режим диагностики)"
+	@echo "  make chat CHAT_VERBOSE=1  - чат с подробной диагностикой (--verbose)"
 	@echo "  make batch                - полный прогон всего набора"
 	@echo "  make batch MAX_HEAL_ATTEMPTS=0     - отключить self-heal"
 	@echo "  make batch MAX_REFETCH_ATTEMPTS=0  - отключить LLM refetch"
@@ -318,7 +321,7 @@ warn-missing-tracer:
 
 warn-missing-llm-config:
 	@if [ ! -f "$(LLM_TOML)" ]; then \
-	  echo "WARNING: LLM config not found (LLM_TOML='$(LLM_TOML)'). Run: make llm-init"; \
+	  printf '\033[33m%s\033[0m\n' "WARNING: LLM config not found (LLM_TOML='$(LLM_TOML)'). Run: make llm-init"; \
 	fi
 
 warn-config: warn-missing-init
@@ -377,7 +380,7 @@ llm-edit:
 # Алиасы под команды CLI
 # ==============================================================================
 chat: warn-missing-llm-config check
-	@$(CLI) chat --data "$(DATA)" --schema "$(SCHEMA)"
+	@$(CLI) chat --data "$(DATA)" --schema "$(SCHEMA)" $(if $(filter 1 true TRUE yes YES,$(CHAT_VERBOSE)),--verbose,)
 
 # 1) Полный прогон всего набора
 batch: ensure-runs-dir

@@ -445,17 +445,18 @@ def handle_chat(args) -> int:
 
     llm_settings = settings.llm
     llm_endpoint = llm_settings.base_url or "https://api.openai.com/v1"
-    diagnostics = [
-        f"LLM endpoint: {llm_endpoint}",
-        f"Plan model: {llm_settings.plan_model} (temp={llm_settings.plan_temperature})",
-        f"Synth model: {llm_settings.synth_model} (temp={llm_settings.synth_temperature})",
-        f"Timeout: {llm_settings.timeout_s if llm_settings.timeout_s is not None else 'default'}, "
-        f"Retries: {llm_settings.retries if llm_settings.retries is not None else 'default'}",
-    ]
-    if args.enable_semantic:
-        diagnostics.append(f"Embeddings: CSV semantic backend in {args.data} (*.embeddings.json)")
-    else:
-        diagnostics.append("Embeddings: disabled (use --enable-semantic to build/search embeddings).")
+    diagnostics: list[str] | None = None
+    if args.verbose:
+        diagnostics = [
+            f"Plan model: {llm_settings.plan_model} (temp={llm_settings.plan_temperature})",
+            f"Synth model: {llm_settings.synth_model} (temp={llm_settings.synth_temperature})",
+            f"Timeout: {llm_settings.timeout_s if llm_settings.timeout_s is not None else 'default'}, "
+            f"Retries: {llm_settings.retries if llm_settings.retries is not None else 'default'}",
+        ]
+        if args.enable_semantic:
+            diagnostics.append(f"Embeddings: CSV semantic backend in {args.data} (*.embeddings.json)")
+        else:
+            diagnostics.append("Embeddings: disabled (use --enable-semantic to build/search embeddings).")
 
     llm = build_llm(settings)
 
@@ -468,6 +469,8 @@ def handle_chat(args) -> int:
         enable_semantic=args.enable_semantic,
         log_file=log_file,
         diagnostics=diagnostics,
+        llm_endpoint=llm_endpoint,
+        verbose=args.verbose,
     )
     return 0
 

@@ -1,0 +1,78 @@
+{
+  "diag": {
+    "aggregations_preserved": false,
+    "input_aggregations_count": 1,
+    "op_normalized": false,
+    "output_aggregations_count": 2
+  },
+  "normalized_aggregations": [
+    {
+      "agg": "count",
+      "alias": "count_orders_order_id",
+      "field": "orders.order_id",
+      "is_distinct": false
+    },
+    {
+      "agg": "count",
+      "alias": "total_orders",
+      "field": "*",
+      "is_distinct": false
+    }
+  ],
+  "normalized_group_by": [
+    {
+      "field": "orders.channel"
+    }
+  ],
+  "normalized_selectors": {
+    "aggregations": [
+      {
+        "agg": "count",
+        "alias": "count_orders_order_id",
+        "field": "orders.order_id"
+      },
+      {
+        "agg": "count",
+        "alias": "total_orders",
+        "field": "*"
+      }
+    ],
+    "filters": {
+      "clauses": [
+        {
+          "field": "orders.order_date",
+          "op": ">=",
+          "type": "comparison",
+          "value": "2022-01-01"
+        },
+        {
+          "field": "orders.order_date",
+          "op": "<",
+          "type": "comparison",
+          "value": "2023-01-01"
+        },
+        {
+          "field": "orders.city",
+          "op": "=",
+          "type": "comparison",
+          "value": "San Diego"
+        }
+      ],
+      "op": "and",
+      "type": "logical"
+    },
+    "group_by": [
+      {
+        "field": "orders.channel"
+      }
+    ],
+    "op": "query",
+    "root_entity": "orders",
+    "select": [
+      {
+        "alias": "channel",
+        "expr": "orders.channel"
+      }
+    ]
+  }
+}

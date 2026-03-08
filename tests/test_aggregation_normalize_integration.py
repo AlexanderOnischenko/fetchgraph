@@ -94,46 +94,30 @@ class TestIntegrationExportReplay:
     def test_known_bad_fixture_fails_validator(self, tmp_path: Path):
         """Known bad fixture (contract violation) should fail validator.
         
-        This is the critical test: it proves that aggregation contract violations
-        cause tests to fail (turn red), not just compare with observed output.
+        This test directly creates invalid output to prove that the validator
+        catches contract violations, not relying on the handler which now fixes issues.
         """
-        # Create a case bundle with a contract violation:
-        # Non-aggregate select field NOT in group_by (violates group-by closure)
-        selectors = {
-            "op": "query",
-            "root_entity": "orders",
-            "select": [
-                {"expr": "orders.status"},  # Non-agg field
-                {"expr": "COUNT(orders.id)"},
-            ],
-            "aggregations": [
+        # Create output with group-by closure violation (bypassing handler fix)
+        # This simulates what a buggy handler would produce
+        buggy_out = {
+            "normalized_aggregations": [
                 {"agg": "count", "field": "orders.id", "alias": "count_orders"}
             ],
-        }
-        payload = create_test_case_bundle(
-            selectors=selectors,
-            normalized_aggregations=[
-                {"agg": "count", "field": "orders.id", "alias": "count_orders"}
-            ],
-            normalized_group_by=[],  # Missing 'orders.status' - violates closure!
-            normalized_selectors={
+            "normalized_group_by": [],  # Missing 'orders.status' - violates closure!
+            "normalized_selectors": {
                 "op": "query",
                 "root_entity": "orders",
                 "select": [
-                    {"expr": "orders.status"},
+                    {"expr": "orders.status"},  # Non-agg field not in group_by
                 ],
             },
-            diag={"input_aggregations_count": 1, "output_aggregations_count": 1},
-        )
-
-        case_path = write_case_bundle(tmp_path, payload)
-        root, ctx = load_case_bundle(case_path)
-        out = run_case(root, ctx)
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
+        }
 
         # Validator should FAIL - this proves the contract validation works
         with pytest.raises(AssertionError) as exc_info:
-            validate_aggregation_normalize_spec_v1(out)
-        
+            validate_aggregation_normalize_spec_v1(buggy_out)
+
         assert "group-by closure" in str(exc_info.value)
 
     def test_fixed_fixture_passes_validator(self, tmp_path: Path):
@@ -168,47 +152,34 @@ class TestIntegrationExportReplay:
         validate_aggregation_normalize_spec_v1(out)
 
     def test_aggregate_predicate_in_filters_fails(self, tmp_path: Path):
-        """Aggregate predicate in filters (not having) should fail validator."""
-        selectors = {
-            "op": "query",
-            "root_entity": "orders",
-            "filters": {
-                "type": "comparison",
-                "field": "count_orders",  # References aggregation alias!
-                "op": ">",
-                "value": 10,
-            },
-            "aggregations": [
+        """Aggregate predicate in filters (not having) should fail validator.
+        
+        This test directly creates invalid output to prove validator catches
+        aggregate predicates in wrong place.
+        """
+        # Create output with aggregate predicate in filters (bypassing handler fix)
+        buggy_out = {
+            "normalized_aggregations": [
                 {"agg": "count", "field": "orders.id", "alias": "count_orders"}
             ],
-        }
-        payload = create_test_case_bundle(
-            selectors=selectors,
-            normalized_aggregations=[
-                {"agg": "count", "field": "orders.id", "alias": "count_orders"}
-            ],
-            normalized_group_by=[],
-            normalized_selectors={
+            "normalized_group_by": [],
+            "normalized_selectors": {
                 "op": "query",
                 "root_entity": "orders",
                 "filters": {
                     "type": "comparison",
-                    "field": "count_orders",
+                    "field": "count_orders",  # References aggregation alias!
                     "op": ">",
                     "value": 10,
                 },
             },
-            diag={"input_aggregations_count": 1, "output_aggregations_count": 1},
-        )
-
-        case_path = write_case_bundle(tmp_path, payload)
-        root, ctx = load_case_bundle(case_path)
-        out = run_case(root, ctx)
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
+        }
 
         # Validator should FAIL - aggregate predicate in filters
         with pytest.raises(AssertionError) as exc_info:
-            validate_aggregation_normalize_spec_v1(out)
-        
+            validate_aggregation_normalize_spec_v1(buggy_out)
+
         assert "must be in having, not filters" in str(exc_info.value)
 
     def test_op_not_normalized_fails(self, tmp_path: Path):
@@ -288,34 +259,26 @@ class TestIntegrationExportReplay:
         assert "COUNT(*) is the only allowed aggregation with field='*'" in str(exc_info.value)
 
     def test_duplicate_aliases_invalid(self, tmp_path: Path):
-        """Duplicate aliases should be invalid."""
-        selectors = {
-            "op": "query",
-            "root_entity": "orders",
-            "aggregations": [
+        """Duplicate aliases should be invalid.
+        
+        This test directly creates invalid output to prove validator catches
+        duplicate aliases (which the handler now automatically fixes).
+        """
+        # Create output with duplicate aliases (bypassing handler fix)
+        buggy_out = {
+            "normalized_aggregations": [
                 {"agg": "count", "field": "orders.id", "alias": "cnt"},
-                {"agg": "sum", "field": "orders.total", "alias": "cnt"},  # Duplicate alias!
+                {"agg": "sum", "field": "orders.total", "alias": "cnt"},  # Duplicate!
             ],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query", "root_entity": "orders"},
+            "diag": {"input_aggregations_count": 2, "output_aggregations_count": 2},
         }
-        payload = create_test_case_bundle(
-            selectors=selectors,
-            normalized_aggregations=[
-                {"agg": "count", "field": "orders.id", "alias": "cnt"},
-                {"agg": "sum", "field": "orders.total", "alias": "cnt"},
-            ],
-            normalized_group_by=[],
-            normalized_selectors={"op": "query", "root_entity": "orders"},
-            diag={"input_aggregations_count": 2, "output_aggregations_count": 2},
-        )
-
-        case_path = write_case_bundle(tmp_path, payload)
-        root, ctx = load_case_bundle(case_path)
-        out = run_case(root, ctx)
 
         # Validator should FAIL
         with pytest.raises(AssertionError) as exc_info:
-            validate_aggregation_normalize_spec_v1(out)
-        
+            validate_aggregation_normalize_spec_v1(buggy_out)
+
         assert "Duplicate alias" in str(exc_info.value)
         assert "aliases must be unique" in str(exc_info.value)
 

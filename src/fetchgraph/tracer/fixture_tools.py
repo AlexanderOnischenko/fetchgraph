@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from .diff_utils import first_diff_path
-from .fixture_layout import FixtureLayout, find_case_bundles
+from .fixture_layout import VALID_BUCKETS, FixtureLayout, find_case_bundles
 from .runtime import load_case_bundle, run_case
 from .validators import REPLAY_VALIDATORS
 
@@ -102,6 +102,36 @@ def _format_fixture_diff(output: object, expected: object) -> str:
     lines.append(f"output: {_format_json(output)}")
     return "\n".join(lines)
 
+
+
+def _resolve_case_path(root: Path, case_path: Path) -> Path:
+    if case_path.is_absolute():
+        return case_path.resolve()
+    return (root / case_path).resolve()
+
+
+def _stem_from_bucket_case_path(*, root: Path, bucket: str, case_path: Path) -> str:
+    case_abs = _resolve_case_path(root, case_path)
+    bucket_dir = FixtureLayout(root, bucket).bucket_dir.resolve()
+    if not case_abs.is_relative_to(bucket_dir):
+        raise ValueError(f"Fixture path {case_abs} is outside bucket {bucket_dir}")
+    rel = case_abs.relative_to(bucket_dir).as_posix()
+    if not rel.endswith('.case.json'):
+        raise ValueError(f"Expected .case.json fixture path, got: {case_abs}")
+    return rel.removesuffix('.case.json')
+
+
+def _bucket_and_stem_from_case_path(*, root: Path, case_path: Path) -> tuple[str, str]:
+    case_abs = _resolve_case_path(root, case_path)
+    for bucket in sorted(VALID_BUCKETS):
+        bucket_dir = FixtureLayout(root, bucket).bucket_dir.resolve()
+        if not case_abs.is_relative_to(bucket_dir):
+            continue
+        rel = case_abs.relative_to(bucket_dir).as_posix()
+        if not rel.endswith('.case.json'):
+            break
+        return bucket, rel.removesuffix('.case.json')
+    raise ValueError(f"Unsupported fixture path (not under known buckets): {case_abs}")
 
 def resolve_fixture_candidates(
     *,
@@ -392,8 +422,7 @@ def fixture_green(
         raise ValueError(f"fixture-green expects a known_bad case path, got: {case_path}")
     if not case_path.name.endswith(".case.json"):
         raise ValueError(f"fixture-green expects a .case.json bundle, got: {case_path}")
-    case_rel_path = case_path.relative_to(known_layout.bucket_dir)
-    stem = case_rel_path.as_posix().removesuffix(".case.json")
+    stem = _stem_from_bucket_case_path(root=out_root, bucket="known_bad", case_path=case_path)
     fixed_layout = FixtureLayout(out_root, "fixed")
 
     payload = load_bundle_json(case_path)
@@ -547,8 +576,7 @@ def fixture_rm(
 
     targets: list[Path] = []
     for case_path_item in matched:
-        bucket_name = case_path_item.parent.name
-        stem = case_path_item.name.replace(".case.json", "")
+        bucket_name, stem = _bucket_and_stem_from_case_path(root=root, case_path=case_path_item)
         layout = FixtureLayout(root, bucket_name)
         if scope in ("cases", "both"):
             targets.extend([layout.case_path(stem), layout.expected_path(stem)])
@@ -785,7 +813,7 @@ def fixture_demote(
         all_matches=all_matches,
     )
     for case_path_item in selected_paths:
-        stem = case_path_item.name.replace(".case.json", "")
+        stem = _stem_from_bucket_case_path(root=root, bucket=from_bucket, case_path=case_path_item)
         from_layout = FixtureLayout(root, from_bucket)
         to_layout = FixtureLayout(root, to_bucket)
         from_case = from_layout.case_path(stem)

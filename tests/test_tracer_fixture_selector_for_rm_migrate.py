@@ -89,3 +89,33 @@ def test_fixture_rm_removes_nested_case_resources_by_path(tmp_path: Path) -> Non
     assert not case_path.exists()
     assert not expected_path.exists()
     assert not resource_file.exists()
+
+
+def test_fixture_rm_accepts_repo_relative_case_path_and_dry_run_prints_nested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo"
+    root = repo / "tests" / "fixtures" / "replay_cases"
+    case_path = root / "known_bad" / "agg_003" / "nested" / "a.case.json"
+    expected_path = root / "known_bad" / "agg_003" / "nested" / "a.expected.json"
+    resources_dir = root / "known_bad" / "resources" / "agg_003" / "nested" / "a"
+    _write_bundle(case_path, case_id="agg_003")
+    expected_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_path.write_text("{}", encoding="utf-8")
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo)
+
+    removed = fixture_rm(
+        root=root,
+        bucket="known_bad",
+        scope="both",
+        dry_run=True,
+        case_path=Path("tests/fixtures/replay_cases/known_bad/agg_003/nested/a.case.json"),
+    )
+
+    out = capsys.readouterr().out
+    assert removed == 3
+    assert "known_bad/agg_003/nested/a.case.json" in out
+    assert "known_bad/resources/agg_003/nested/a" in out

@@ -75,3 +75,15 @@ def test_fixture_demote_preserves_nested_paths_with_resources(tmp_path: Path) ->
     assert (known_bad / "agg_003" / "nested" / "a.case.json").exists()
     assert (known_bad / "agg_003" / "nested" / "a.expected.json").exists()
     assert (known_bad / "resources" / "agg_003" / "nested" / "a" / "sample.txt").exists()
+
+
+def test_fixture_demote_accepts_repo_relative_case_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    root = repo / "tests" / "fixtures" / "replay_cases"
+    case_path = root / "fixed" / "agg_003" / "a.case.json"
+    _write_bundle(case_path, case_id="agg_003")
+    monkeypatch.chdir(repo)
+
+    fixture_demote(root=root, case_path=Path("tests/fixtures/replay_cases/fixed/agg_003/a.case.json"), dry_run=False)
+
+    assert (root / "known_bad" / "agg_003" / "a.case.json").exists()

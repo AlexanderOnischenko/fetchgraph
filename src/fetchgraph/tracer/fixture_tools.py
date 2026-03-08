@@ -19,6 +19,80 @@ class FixtureCandidate:
     source: dict
 
 
+@dataclass(frozen=True)
+class FixtureRef:
+    root: Path
+    bucket: str
+    bucket_dir: Path
+    case_abs: Path
+    stem: str
+
+
+def resolve_user_case_input(*, root: Path, case_path: Path) -> Path:
+    if case_path.is_absolute():
+        return case_path.resolve()
+
+    cwd_candidate = (Path.cwd() / case_path).resolve()
+    root_candidate = (root / case_path).resolve()
+    cwd_exists = cwd_candidate.exists()
+    root_exists = root_candidate.exists()
+
+    if cwd_exists and root_exists:
+        if cwd_candidate == root_candidate:
+            return cwd_candidate
+        raise ValueError(
+            "Ambiguous relative case_path; both cwd-relative and root-relative paths exist.\n"
+            f"  input: {case_path}\n"
+            f"  cwd candidate: {cwd_candidate}\n"
+            f"  root candidate: {root_candidate}\n"
+            f"  root: {root}"
+        )
+    if cwd_exists:
+        return cwd_candidate
+    if root_exists:
+        return root_candidate
+    raise FileNotFoundError(f"Fixture case path not found: {case_path}")
+
+
+def parse_fixture_ref(*, root: Path, case_path: Path, expected_bucket: str | None = None) -> FixtureRef:
+    case_abs = resolve_user_case_input(root=root, case_path=case_path)
+
+    found: FixtureRef | None = None
+    for bucket in sorted(VALID_BUCKETS):
+        bucket_dir = FixtureLayout(root, bucket).bucket_dir.resolve()
+        if not case_abs.is_relative_to(bucket_dir):
+            continue
+        rel = case_abs.relative_to(bucket_dir).as_posix()
+        if not rel.endswith(".case.json"):
+            raise ValueError(f"Fixture path must end with .case.json: {case_abs} (input={case_path})")
+        found = FixtureRef(
+            root=root,
+            bucket=bucket,
+            bucket_dir=bucket_dir,
+            case_abs=case_abs,
+            stem=rel.removesuffix(".case.json"),
+        )
+        break
+
+    if found is None:
+        raise ValueError(
+            "Fixture path is outside valid buckets.\n"
+            f"  input: {case_path}\n"
+            f"  resolved: {case_abs}\n"
+            f"  root: {root}\n"
+            f"  valid buckets: {sorted(VALID_BUCKETS)}"
+        )
+    if expected_bucket and found.bucket != expected_bucket:
+        raise ValueError(
+            "Fixture path bucket mismatch.\n"
+            f"  input: {case_path}\n"
+            f"  resolved: {case_abs}\n"
+            f"  expected bucket: {expected_bucket}\n"
+            f"  detected bucket: {found.bucket}"
+        )
+    return found
+
+
 def load_bundle_json(path: Path) -> dict:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema") != "fetchgraph.tracer.case_bundle" or payload.get("v") != 1:
@@ -103,36 +177,6 @@ def _format_fixture_diff(output: object, expected: object) -> str:
     return "\n".join(lines)
 
 
-
-def _resolve_case_path(root: Path, case_path: Path) -> Path:
-    if case_path.is_absolute():
-        return case_path.resolve()
-    return (root / case_path).resolve()
-
-
-def _stem_from_bucket_case_path(*, root: Path, bucket: str, case_path: Path) -> str:
-    case_abs = _resolve_case_path(root, case_path)
-    bucket_dir = FixtureLayout(root, bucket).bucket_dir.resolve()
-    if not case_abs.is_relative_to(bucket_dir):
-        raise ValueError(f"Fixture path {case_abs} is outside bucket {bucket_dir}")
-    rel = case_abs.relative_to(bucket_dir).as_posix()
-    if not rel.endswith('.case.json'):
-        raise ValueError(f"Expected .case.json fixture path, got: {case_abs}")
-    return rel.removesuffix('.case.json')
-
-
-def _bucket_and_stem_from_case_path(*, root: Path, case_path: Path) -> tuple[str, str]:
-    case_abs = _resolve_case_path(root, case_path)
-    for bucket in sorted(VALID_BUCKETS):
-        bucket_dir = FixtureLayout(root, bucket).bucket_dir.resolve()
-        if not case_abs.is_relative_to(bucket_dir):
-            continue
-        rel = case_abs.relative_to(bucket_dir).as_posix()
-        if not rel.endswith('.case.json'):
-            break
-        return bucket, rel.removesuffix('.case.json')
-    raise ValueError(f"Unsupported fixture path (not under known buckets): {case_abs}")
-
 def resolve_fixture_candidates(
     *,
     root: Path,
@@ -146,7 +190,8 @@ def resolve_fixture_candidates(
     results: list[FixtureCandidate] = []
     for path in candidates:
         payload = load_bundle_json(path)
-        stem = path.name.replace(".case.json", "")
+        fixture_ref = parse_fixture_ref(root=root, case_path=path, expected_bucket=bucket)
+        stem = fixture_ref.stem
         source = payload.get("source")
         source_dict = source if isinstance(source, dict) else {}
         if case_id:
@@ -173,7 +218,8 @@ def resolve_fixture_selector(
     if case_path is not None and (case_id or name):
         raise ValueError("Only one of case_path, case_id, or name can be used.")
     if case_path is not None:
-        return [case_path]
+        expected_bucket = None if bucket == "all" else bucket
+        return [parse_fixture_ref(root=root, case_path=case_path, expected_bucket=expected_bucket).case_abs]
     candidates = resolve_fixture_candidates(root=root, bucket=bucket, case_id=case_id, name=name)
     if not candidates:
         selector = case_id or name
@@ -417,12 +463,9 @@ def fixture_green(
             for idx, candidate in enumerate(candidates, start=1):
                 marker = " (selected)" if candidate.path == selected.path else ""
                 print(f"  {idx}. {candidate.path}{marker}")
-    case_path = case_path.resolve()
-    if not case_path.is_relative_to(known_layout.bucket_dir):
-        raise ValueError(f"fixture-green expects a known_bad case path, got: {case_path}")
-    if not case_path.name.endswith(".case.json"):
-        raise ValueError(f"fixture-green expects a .case.json bundle, got: {case_path}")
-    stem = _stem_from_bucket_case_path(root=out_root, bucket="known_bad", case_path=case_path)
+    fixture_ref = parse_fixture_ref(root=out_root, case_path=case_path, expected_bucket="known_bad")
+    case_path = fixture_ref.case_abs
+    stem = fixture_ref.stem
     fixed_layout = FixtureLayout(out_root, "fixed")
 
     payload = load_bundle_json(case_path)
@@ -576,8 +619,9 @@ def fixture_rm(
 
     targets: list[Path] = []
     for case_path_item in matched:
-        bucket_name, stem = _bucket_and_stem_from_case_path(root=root, case_path=case_path_item)
-        layout = FixtureLayout(root, bucket_name)
+        fixture_ref = parse_fixture_ref(root=root, case_path=case_path_item, expected_bucket=bucket_filter)
+        layout = FixtureLayout(root, fixture_ref.bucket)
+        stem = fixture_ref.stem
         if scope in ("cases", "both"):
             targets.extend([layout.case_path(stem), layout.expected_path(stem)])
         if scope in ("resources", "both"):
@@ -643,8 +687,9 @@ def fixture_fix(
             if not isinstance(file_name, str) or not file_name:
                 continue
             rel = _safe_resource_path(file_name, stem=name)
-            if len(rel.parts) >= 2 and rel.parts[0] == "resources" and rel.parts[1] == name:
-                new_rel = Path("resources") / new_name / Path(*rel.parts[2:])
+            old_parts = Path(name).parts
+            if rel.parts[: 1 + len(old_parts)] == ("resources", *old_parts):
+                new_rel = Path("resources") / new_name / Path(*rel.parts[1 + len(old_parts) :])
                 canonical_file = new_rel.as_posix()
                 if file_name != canonical_file:
                     data_ref["file"] = canonical_file
@@ -717,8 +762,9 @@ def fixture_migrate(
     bundles_updated = 0
     files_moved = 0
     for case_path in matched:
-        stem = case_path.name.replace(".case.json", "")
-        payload = load_bundle_json(case_path)
+        fixture_ref = parse_fixture_ref(root=root, case_path=case_path, expected_bucket=bucket_filter)
+        stem = fixture_ref.stem
+        payload = load_bundle_json(fixture_ref.case_abs)
         resources = payload.get("resources") or {}
         if not isinstance(resources, dict):
             continue
@@ -736,13 +782,13 @@ def fixture_migrate(
             if rel.parts[:3] != ("resources", stem, resource_id):
                 raise ValueError(
                     "Resource path must be in resources/<stem>/<resource_id>/...; "
-                    f"found {file_name!r} in {case_path}"
+                    f"found {file_name!r} in {fixture_ref.case_abs}"
                 )
             rel_tail = Path(*rel.parts[3:])
             if not rel_tail.parts:
-                raise ValueError(f"Resource path must include a file name: {file_name!r} in {case_path}")
+                raise ValueError(f"Resource path must include a file name: {file_name!r} in {fixture_ref.case_abs}")
             target_rel = Path("resources") / stem / resource_id / rel_tail
-            src_path = case_path.parent / target_rel
+            src_path = fixture_ref.bucket_dir / target_rel
             if not src_path.exists():
                 raise FileNotFoundError(f"Missing resource file: {src_path}")
             canonical_file = target_rel.as_posix()
@@ -752,9 +798,9 @@ def fixture_migrate(
         if updated:
             bundles_updated += 1
             if dry_run:
-                print(f"Would update bundle: {case_path}")
+                print(f"Would update bundle: {fixture_ref.case_abs}")
             else:
-                _atomic_write_json(case_path, payload)
+                _atomic_write_json(fixture_ref.case_abs, payload)
     return bundles_updated, files_moved
 
 
@@ -770,7 +816,8 @@ def fixture_ls(
     results: list[FixtureCandidate] = []
     for path in candidates:
         payload = load_bundle_json(path)
-        stem = path.name.replace(".case.json", "")
+        fixture_ref = parse_fixture_ref(root=root, case_path=path, expected_bucket=bucket_filter)
+        stem = fixture_ref.stem
         source = payload.get("source")
         source_dict = source if isinstance(source, dict) else {}
         if case_id:
@@ -813,7 +860,8 @@ def fixture_demote(
         all_matches=all_matches,
     )
     for case_path_item in selected_paths:
-        stem = _stem_from_bucket_case_path(root=root, bucket=from_bucket, case_path=case_path_item)
+        fixture_ref = parse_fixture_ref(root=root, case_path=case_path_item, expected_bucket=from_bucket)
+        stem = fixture_ref.stem
         from_layout = FixtureLayout(root, from_bucket)
         to_layout = FixtureLayout(root, to_bucket)
         from_case = from_layout.case_path(stem)

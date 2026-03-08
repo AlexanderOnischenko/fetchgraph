@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from fetchgraph.tracer.fixture_tools import fixture_fix, fixture_green, fixture_migrate
+from fetchgraph.tracer.fixture_tools import (
+    fixture_fix,
+    fixture_green,
+    fixture_migrate,
+    parse_fixture_ref,
+    resolve_user_case_input,
+)
 
 
 def _write_bundle(path: Path, payload: dict) -> None:
@@ -230,3 +236,111 @@ def test_fixture_migrate_rejects_windows_absolute_paths(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Invalid resource path"):
         fixture_migrate(root=root, bucket=bucket, dry_run=False)
+
+
+def test_resolve_user_case_input_prefers_existing_repo_relative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    root = repo / "tests" / "fixtures" / "replay_cases"
+    case_path = root / "known_bad" / "a.case.json"
+    _write_bundle(case_path, _bundle_payload({"type": "replay_case", "v": 2, "id": "x", "input": {}}))
+    monkeypatch.chdir(repo)
+
+    resolved = resolve_user_case_input(root=root, case_path=Path("tests/fixtures/replay_cases/known_bad/a.case.json"))
+
+    assert resolved == case_path.resolve()
+
+
+def test_resolve_user_case_input_supports_root_relative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    root = repo / "tests" / "fixtures" / "replay_cases"
+    case_path = root / "known_bad" / "nested" / "a.case.json"
+    _write_bundle(case_path, _bundle_payload({"type": "replay_case", "v": 2, "id": "x", "input": {}}))
+    monkeypatch.chdir(repo)
+
+    resolved = resolve_user_case_input(root=root, case_path=Path("known_bad/nested/a.case.json"))
+
+    assert resolved == case_path.resolve()
+
+
+def test_resolve_user_case_input_detects_ambiguous_relative_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    root = repo / "fixtures_root"
+    cwd_case = repo / "known_bad" / "a.case.json"
+    root_case = root / "known_bad" / "a.case.json"
+    _write_bundle(cwd_case, _bundle_payload({"type": "replay_case", "v": 2, "id": "x", "input": {}}))
+    _write_bundle(root_case, _bundle_payload({"type": "replay_case", "v": 2, "id": "x", "input": {}}))
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(ValueError, match="Ambiguous relative case_path"):
+        resolve_user_case_input(root=root, case_path=Path("known_bad/a.case.json"))
+
+
+def test_parse_fixture_ref_rejects_path_outside_bucket(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    outside = tmp_path / "other" / "a.case.json"
+    _write_bundle(outside, _bundle_payload({"type": "replay_case", "v": 2, "id": "x", "input": {}}))
+
+    with pytest.raises(ValueError, match="outside valid buckets"):
+        parse_fixture_ref(root=root, case_path=outside)
+
+
+def test_fixture_fix_supports_nested_stem_rename(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    bucket = "fixed"
+    case_path = root / bucket / "agg_003" / "nested" / "old.case.json"
+    resources_dir = root / bucket / "resources" / "agg_003" / "nested" / "old" / "rid1"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    (resources_dir / "file.txt").write_text("data", encoding="utf-8")
+    payload = _bundle_payload(
+        {"type": "replay_case", "v": 2, "id": "plan_normalize.spec_v1", "input": {"spec": {"provider": "sql"}}},
+        resources={"rid1": {"data_ref": {"file": "resources/agg_003/nested/old/rid1/file.txt"}}},
+    )
+    _write_bundle(case_path, payload)
+    expected_path = root / bucket / "agg_003" / "nested" / "old.expected.json"
+    expected_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_path.write_text("{}", encoding="utf-8")
+
+    fixture_fix(
+        root=root,
+        name="agg_003/nested/old",
+        new_name="agg_003/fixed/new",
+        bucket=bucket,
+        dry_run=False,
+    )
+
+    new_case = root / bucket / "agg_003" / "fixed" / "new.case.json"
+    new_expected = root / bucket / "agg_003" / "fixed" / "new.expected.json"
+    new_resource = root / bucket / "resources" / "agg_003" / "fixed" / "new" / "rid1" / "file.txt"
+    assert new_case.exists()
+    assert new_expected.exists()
+    assert new_resource.exists()
+    data = json.loads(new_case.read_text(encoding="utf-8"))
+    assert data["resources"]["rid1"]["data_ref"]["file"] == "resources/agg_003/fixed/new/rid1/file.txt"
+
+
+def test_fixture_green_accepts_repo_relative_case_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    root = repo / "tests" / "fixtures" / "replay_cases"
+    case_path = root / "known_bad" / "agg_003" / "a.case.json"
+    resources_dir = root / "known_bad" / "resources" / "agg_003" / "a"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    payload = _bundle_payload(
+        {
+            "type": "replay_case",
+            "v": 2,
+            "id": "plan_normalize.spec_v1",
+            "input": {"spec": {"provider": "sql"}, "options": {}},
+            "observed": {"out_spec": {"provider": "sql"}},
+        }
+    )
+    _write_bundle(case_path, payload)
+    monkeypatch.chdir(repo)
+
+    fixture_green(
+        case_path=Path("tests/fixtures/replay_cases/known_bad/agg_003/a.case.json"),
+        out_root=root,
+        expected_from="replay",
+    )
+
+    assert (root / "fixed" / "agg_003" / "a.case.json").exists()
+    assert (root / "fixed" / "resources" / "agg_003" / "a").exists()

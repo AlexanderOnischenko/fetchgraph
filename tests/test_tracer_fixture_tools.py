@@ -71,6 +71,36 @@ def test_fixture_green_moves_case_and_resources(tmp_path: Path) -> None:
     assert not resources_dir.exists()
 
 
+
+
+def test_fixture_green_preserves_relative_paths_for_nested_cases(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    case_path = root / "known_bad" / "agg_003" / "nested" / "case.case.json"
+    resources_dir = root / "known_bad" / "resources" / "agg_003" / "nested" / "case"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    (resources_dir / "rid1.txt").write_text("data", encoding="utf-8")
+    payload = _bundle_payload(
+        {
+            "type": "replay_case",
+            "v": 2,
+            "id": "plan_normalize.spec_v1",
+            "input": {"spec": {"provider": "sql"}, "options": {}},
+            "observed": {"out_spec": {"provider": "sql"}},
+        }
+    )
+    _write_bundle(case_path, payload)
+
+    fixture_green(case_path=case_path, out_root=root, expected_from="replay")
+
+    fixed_case = root / "fixed" / "agg_003" / "nested" / "case.case.json"
+    expected_path = root / "fixed" / "agg_003" / "nested" / "case.expected.json"
+    fixed_resources = root / "fixed" / "resources" / "agg_003" / "nested" / "case"
+    assert fixed_case.exists()
+    assert expected_path.exists()
+    assert fixed_resources.exists()
+    assert not case_path.exists()
+    assert not resources_dir.exists()
+
 def test_fixture_green_rolls_back_on_validation_failure(tmp_path: Path) -> None:
     root = tmp_path / "fixtures"
     case_path = root / "known_bad" / "case.case.json"

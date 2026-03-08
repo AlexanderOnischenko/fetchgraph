@@ -392,7 +392,8 @@ def fixture_green(
         raise ValueError(f"fixture-green expects a known_bad case path, got: {case_path}")
     if not case_path.name.endswith(".case.json"):
         raise ValueError(f"fixture-green expects a .case.json bundle, got: {case_path}")
-    stem = case_path.name.replace(".case.json", "")
+    case_rel_path = case_path.relative_to(known_layout.bucket_dir)
+    stem = case_rel_path.as_posix().removesuffix(".case.json")
     fixed_layout = FixtureLayout(out_root, "fixed")
 
     payload = load_bundle_json(case_path)

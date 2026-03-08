@@ -165,7 +165,6 @@ class TestReplayHandlerAggregationNormalization:
                         "agg": "count_distinct",
                         "field": "orders.customer_id",
                         "alias": "unique_customers",
-                        "is_distinct": True,
                     }
                 ],
             }
@@ -175,7 +174,8 @@ class TestReplayHandlerAggregationNormalization:
 
         assert len(out["normalized_aggregations"]) == 1
         assert out["normalized_aggregations"][0]["agg"] == "count_distinct"
-        assert out["normalized_aggregations"][0]["is_distinct"] is True
+        # is_distinct flag is not used - we use agg="count_distinct" instead
+        assert out["normalized_aggregations"][0]["is_distinct"] is False
 
     def test_count_star_normalization(self):
         """COUNT(*) should be normalized to count with field='*'."""

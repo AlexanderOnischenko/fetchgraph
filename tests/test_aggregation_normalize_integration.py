@@ -230,32 +230,25 @@ class TestIntegrationExportReplay:
         validate_aggregation_normalize_spec_v1(out)
 
     def test_sum_star_invalid(self, tmp_path: Path):
-        """SUM(*) should be invalid (only COUNT(*) is allowed)."""
-        selectors = {
-            "op": "query",
-            "root_entity": "orders",
-            "aggregations": [
+        """SUM(*) should be invalid (only COUNT(*) is allowed).
+        
+        Note: AGG(*) forms are now rejected by the node, so this test
+        verifies that the validator catches such invalid output.
+        """
+        # Create invalid output directly (node would reject SUM(*))
+        buggy_out = {
+            "normalized_aggregations": [
                 {"agg": "sum", "field": "*", "alias": "sum_all"}
             ],
+            "normalized_group_by": [],
+            "normalized_selectors": {"op": "query", "root_entity": "orders"},
+            "diag": {"input_aggregations_count": 1, "output_aggregations_count": 1},
         }
-        payload = create_test_case_bundle(
-            selectors=selectors,
-            normalized_aggregations=[
-                {"agg": "sum", "field": "*", "alias": "sum_all"}
-            ],
-            normalized_group_by=[],
-            normalized_selectors={"op": "query", "root_entity": "orders"},
-            diag={"input_aggregations_count": 1, "output_aggregations_count": 1},
-        )
-
-        case_path = write_case_bundle(tmp_path, payload)
-        root, ctx = load_case_bundle(case_path)
-        out = run_case(root, ctx)
 
         # Validator should FAIL
         with pytest.raises(AssertionError) as exc_info:
-            validate_aggregation_normalize_spec_v1(out)
-        
+            validate_aggregation_normalize_spec_v1(buggy_out)
+
         assert "COUNT(*) is the only allowed aggregation with field='*'" in str(exc_info.value)
 
     def test_duplicate_aliases_invalid(self, tmp_path: Path):

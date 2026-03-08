@@ -279,18 +279,34 @@ class AggregationNormalizeNode:
         cleaned = re.sub(r'\s*\(\s*', '(', cleaned)
         cleaned = re.sub(r'\s*\)', ')', cleaned)
 
-        # Check for distinct pattern
-        distinct_match = re.match(r'COUNT\s*\(\s*DISTINCT', cleaned, re.IGNORECASE)
-        if distinct_match:
+        # Check for exact match first (case-insensitive)
+        cleaned_lower = cleaned.lower()
+        exact_matches = {
+            "count": "count",
+            "sum": "sum",
+            "avg": "avg",
+            "average": "avg",
+            "min": "min",
+            "max": "max",
+            "count_distinct": "count_distinct",
+            "median": "median",
+        }
+        if cleaned_lower in exact_matches:
+            return exact_matches[cleaned_lower]
+
+        # Check for distinct pattern - "COUNT DISTINCT" or "COUNT(DISTINCT"
+        if re.match(r'COUNT\s*\(\s*DISTINCT', cleaned, re.IGNORECASE):
+            return "count_distinct"
+        if re.match(r'COUNT\s+DISTINCT', cleaned, re.IGNORECASE):
             return "count_distinct"
 
-        # Look up in canonical map
-        for pattern, canonical in self.canonical_agg_names.items():
+        # Look up in canonical map (check longer patterns first)
+        for pattern, canonical in sorted(self.canonical_agg_names.items(), key=lambda x: -len(x[0])):
             if pattern.upper() in cleaned.upper():
                 return canonical
 
         # Return lowercase by default
-        return cleaned.lower()
+        return cleaned_lower
 
     def _extract_agg_from_expr(self, expr: str) -> Optional[NormalizedAggregation]:
         """Extract aggregation from expression string (G-AN-04).
@@ -299,6 +315,8 @@ class AggregationNormalizeNode:
         - "COUNT(*)" → NormalizedAggregation(agg="count", field="*", alias="count_all")
         - "SUM(line_total)" → NormalizedAggregation(agg="sum", field="line_total", alias="sum_line_total")
         - "COUNT(DISTINCT customer_id)" → NormalizedAggregation(agg="count_distinct", field="customer_id", ...)
+        
+        Only COUNT(*) is supported for field="*". Other AGG(*) forms are rejected.
         """
         if not isinstance(expr, str):
             return None
@@ -317,6 +335,18 @@ class AggregationNormalizeNode:
         # Check for distinct
         is_distinct = 'DISTINCT' in expr.upper()
 
+        # Handle AGG(*) special case - only COUNT(*) is allowed (G-AN-06)
+        if field_name == "*":
+            if agg_name.upper() == "COUNT" and not is_distinct:
+                return NormalizedAggregation(
+                    agg="count",
+                    field="*",
+                    alias="count_all",
+                    is_distinct=False,
+                )
+            # Other AGG(*) forms are not supported
+            return None
+
         canonical_agg = self.normalize_agg_name(agg_name)
         if is_distinct and canonical_agg == "count":
             canonical_agg = "count_distinct"
@@ -328,7 +358,7 @@ class AggregationNormalizeNode:
             agg=canonical_agg,
             field=field_name,
             alias=alias,
-            is_distinct=is_distinct,
+            is_distinct=False,  # We use agg="count_distinct" instead
         )
     
     def _infer_root_entity(self, selectors: Dict[str, Any]) -> Optional[str]:
@@ -363,19 +393,24 @@ class AggregationNormalizeNode:
         alias = agg.get("alias")
         is_distinct = agg.get("is_distinct", False)
 
-        # Handle COUNT(*) special case (G-AN-06)
-        if field_name == "*" and agg_func.upper() == "COUNT":
-            if not alias:
-                alias = "count_all"
-            return NormalizedAggregation(
-                agg="count",
-                field="*",
-                alias=alias,
-                is_distinct=False,
-            )
+        # Handle COUNT(*) special case (G-AN-06) - only count(*) is allowed
+        if field_name == "*":
+            if agg_func.upper() == "COUNT" and not is_distinct:
+                if not alias:
+                    alias = "count_all"
+                return NormalizedAggregation(
+                    agg="count",
+                    field="*",
+                    alias=alias,
+                    is_distinct=False,
+                )
+            # Other AGG(*) forms are not supported - return None to skip
+            return None
 
         # Normalize aggregation function name
         canonical_agg = self.normalize_agg_name(agg_func)
+        
+        # Handle count_distinct (G-AN-13)
         if is_distinct and canonical_agg == "count":
             canonical_agg = "count_distinct"
 
@@ -387,7 +422,7 @@ class AggregationNormalizeNode:
             agg=canonical_agg,
             field=field_name,
             alias=alias,
-            is_distinct=is_distinct,
+            is_distinct=False,  # We use agg="count_distinct" instead
         )
 
     def _ensure_unique_aliases(

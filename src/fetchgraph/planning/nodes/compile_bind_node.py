@@ -235,13 +235,19 @@ class CompileBindNode:
 
         # Build bound query (for tracing/debugging)
         # Use transformed_selectors (after auto-repair) not original selectors
+        # Sort relations for deterministic output
+        final_relations = transformed_selectors.get("relations", [])
+        sorted_relations = sorted(final_relations) if final_relations else []
+        # Also update transformed_selectors for consistency
+        if final_relations:
+            transformed_selectors["relations"] = sorted_relations
         bound_query = BoundRelationalQuery(
             selectors=transformed_selectors,
             bound_select=[],
             bound_filters=[],
             bound_group_by=[],
             bound_aggregations=[],
-            resolved_relations=resolved_relations,
+            resolved_relations=sorted_relations,
             root_entity=root_entity,
         )
 
@@ -472,11 +478,14 @@ class CompileBindNode:
             selectors.get("having", {}), root_entity, relations_to_add, notes, errors, auto_repairs
         )
 
-        # Add discovered relations
+        # Add discovered relations (deterministic order: existing + sorted new)
         if relations_to_add:
-            existing_relations = set(selectors.get("relations", []))
-            selectors["relations"] = list(existing_relations | relations_to_add)
-            for rel in relations_to_add:
+            existing_relations = list(selectors.get("relations", []))
+            existing_set = set(existing_relations)
+            # Add new relations in deterministic order (sorted)
+            new_relations = sorted(relations_to_add - existing_set)
+            selectors["relations"] = existing_relations + new_relations
+            for rel in new_relations:
                 notes.append(f"CompileBindNode: auto-added relation {rel}")
 
     def _canonicalize_structured_field_refs(

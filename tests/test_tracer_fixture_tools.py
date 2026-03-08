@@ -245,6 +245,35 @@ def test_fixture_migrate_normalizes_backslashes(tmp_path: Path) -> None:
     assert (root / bucket / "resources" / "case" / "rid1" / "file.txt").exists()
 
 
+
+
+def test_fixture_migrate_normalizes_backslashes_for_nested_stem(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    bucket = "fixed"
+    case_path = root / bucket / "agg_003" / "nested" / "case.case.json"
+    resources_dir = root / bucket / "resources" / "agg_003" / "nested" / "case" / "rid1"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    (resources_dir / "file.txt").write_text("data", encoding="utf-8")
+    payload = _bundle_payload(
+        {
+            "type": "replay_case",
+            "v": 2,
+            "id": "plan_normalize.spec_v1",
+            "input": {"spec": {"provider": "sql"}},
+            "observed": {"out_spec": {"provider": "sql"}},
+        },
+        resources={"rid1": {"data_ref": {"file": r"resources\agg_003\nested\case\rid1\file.txt"}}},
+    )
+    _write_bundle(case_path, payload)
+
+    bundles_updated, files_moved = fixture_migrate(root=root, bucket=bucket, dry_run=False)
+
+    assert bundles_updated == 1
+    assert files_moved == 0
+    data = json.loads(case_path.read_text(encoding="utf-8"))
+    assert data["resources"]["rid1"]["data_ref"]["file"] == "resources/agg_003/nested/case/rid1/file.txt"
+    assert (root / bucket / "resources" / "agg_003" / "nested" / "case" / "rid1" / "file.txt").exists()
+
 def test_fixture_migrate_rejects_windows_absolute_paths(tmp_path: Path) -> None:
     root = tmp_path / "fixtures"
     bucket = "fixed"

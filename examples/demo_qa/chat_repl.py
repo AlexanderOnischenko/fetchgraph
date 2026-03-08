@@ -70,6 +70,7 @@ def start_repl(
     enable_semantic: bool = False,
     log_file: Optional[Path] = None,
     diagnostics: Sequence[str] | None = None,
+    llm_endpoint: str | None = None,
     verbose: bool = False,
 ) -> None:
     provider, _ = build_provider(data_dir, schema_path, enable_semantic=enable_semantic)
@@ -80,6 +81,11 @@ def start_repl(
 
     plan_debug_mode = "off"
     last_artifacts: RunArtifacts | None = None
+
+    if llm_endpoint:
+        _print_banner("LLM", _Ansi.BLUE)
+        print(_paint(f"Endpoint: {llm_endpoint}", _Ansi.BLUE))
+        print(_paint("-------------", _Ansi.BLUE))
 
     if diagnostics:
         _print_banner("Diagnostics", _Ansi.BLUE)

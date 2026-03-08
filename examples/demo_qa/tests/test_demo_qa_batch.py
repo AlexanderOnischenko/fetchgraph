@@ -585,7 +585,7 @@ def test_chat_parser_supports_verbose_flag(tmp_path: Path) -> None:
     assert args_verbose.verbose is True
 
 
-def test_handle_chat_hides_diagnostics_unless_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_handle_chat_keeps_endpoint_non_verbose_and_expands_diagnostics_in_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import examples.demo_qa.chat_repl as chat_repl
 
     data_dir = tmp_path / "data"
@@ -617,10 +617,12 @@ def test_handle_chat_hides_diagnostics_unless_verbose(tmp_path: Path, monkeypatc
     assert batch.handle_chat(args_default) == 0
     assert captured_calls[-1]["verbose"] is False
     assert captured_calls[-1]["diagnostics"] is None
+    assert captured_calls[-1]["llm_endpoint"] == "http://localhost:8002/v1"
 
     args_verbose = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema), "--verbose"])
     assert batch.handle_chat(args_verbose) == 0
     assert captured_calls[-1]["verbose"] is True
     diagnostics = captured_calls[-1]["diagnostics"]
     assert diagnostics is not None
-    assert any(line.startswith("LLM endpoint:") for line in diagnostics)
+    assert any(line.startswith("Plan model:") for line in diagnostics)
+    assert captured_calls[-1]["llm_endpoint"] == "http://localhost:8002/v1"

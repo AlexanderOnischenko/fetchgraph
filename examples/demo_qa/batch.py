@@ -448,7 +448,6 @@ def handle_chat(args) -> int:
     diagnostics: list[str] | None = None
     if args.verbose:
         diagnostics = [
-            f"LLM endpoint: {llm_endpoint}",
             f"Plan model: {llm_settings.plan_model} (temp={llm_settings.plan_temperature})",
             f"Synth model: {llm_settings.synth_model} (temp={llm_settings.synth_temperature})",
             f"Timeout: {llm_settings.timeout_s if llm_settings.timeout_s is not None else 'default'}, "
@@ -470,6 +469,7 @@ def handle_chat(args) -> int:
         enable_semantic=args.enable_semantic,
         log_file=log_file,
         diagnostics=diagnostics,
+        llm_endpoint=llm_endpoint,
         verbose=args.verbose,
     )
     return 0

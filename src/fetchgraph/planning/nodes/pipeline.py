@@ -572,7 +572,40 @@ class PlanningPipeline:
         )
         self.state.agg_normalize_result = agg_norm_result.value
         notes.extend(agg_norm_result.notes)
-        
+
+        # TRACER: Log aggregation_normalize replay event
+        if self.config.enable_replay_logging and self.state.event_logger is not None and agg_norm_result.value:
+            agg_value = agg_norm_result.value
+            _log_replay_event(
+                event_logger=self.state.event_logger,
+                replay_id="aggregation_normalize.spec_v1",
+                input_payload={
+                    "selectors": self.state.normalized_selectors,
+                },
+                observed_payload={
+                    "normalized_aggregations": [
+                        {
+                            "agg": agg.agg,
+                            "field": agg.field,
+                            "alias": agg.alias,
+                            "is_distinct": agg.is_distinct,
+                        }
+                        for agg in agg_value.normalized_aggregations
+                    ],
+                    "normalized_group_by": agg_value.normalized_group_by,
+                    "normalized_selectors": agg_value.normalized_selectors,
+                },
+                diag={
+                    "input_aggregations_count": agg_value.changes.get("input_agg_count", 0),
+                    "output_aggregations_count": agg_value.changes.get("output_agg_count", 0),
+                    "op_normalized": agg_value.changes.get("op_normalized", False),
+                },
+                note=json.dumps({
+                    "aggregation_normalize_status": "ok",
+                    "aggregations_count": len(agg_value.normalized_aggregations),
+                }),
+            )
+
         # IMPORTANT: Use normalized_selectors from result if available
         # This ensures op='aggregate' → 'query' normalization is applied before compile_bind
         if agg_norm_result.value and agg_norm_result.value.normalized_selectors:

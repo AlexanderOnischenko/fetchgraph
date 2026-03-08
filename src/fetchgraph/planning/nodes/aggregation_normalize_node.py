@@ -182,6 +182,22 @@ class AggregationNormalizeNode:
                     alias = agg.get("alias", None)
                     is_distinct = agg.get("is_distinct", False)
 
+                    # Handle COUNT(*) special case
+                    if field_name == "*" and agg_func.upper() == "COUNT":
+                        # Keep "*" as field - pandas provider will handle it
+                        if not alias:
+                            alias = "count_all"
+                        normalized_aggregations.append(
+                            NormalizedAggregation(
+                                agg="count",
+                                field="*",
+                                alias=alias,
+                                is_distinct=False,
+                            )
+                        )
+                        notes.append(f"Normalized aggregation: COUNT(*) -> count(*) as {alias}")
+                        continue
+
                     # Normalize aggregation function name
                     canonical_agg = self.normalize_agg_name(agg_func)
                     if is_distinct and canonical_agg == "count":

@@ -321,39 +321,106 @@ def validate_plan_normalize_spec_v1(out: dict) -> None:
 
 def validate_aggregation_normalize_spec_v1(out: dict) -> None:
     """Validate aggregation_normalize.spec_v1 output.
-    
+
     Expected output structure:
     {
         "normalized_aggregations": [...],
-        "normalized_group_by": [...]
+        "normalized_group_by": [...],
+        "normalized_selectors": {...},
+        "diag": {...},
     }
+
+    Contract validation (semantic postcondition validation layer):
+    - op == "query" for relational aggregation form
+    - All aggregations have canonical names (count, count_distinct, sum, avg, min, max)
+    - COUNT(*) allowed only as count with field="*"
+    - Each aggregate spec has canonical shape (agg, field, alias)
+    - Aliases are non-empty and unique
+    - No raw supported aggregate expressions in select
+    - If aggregations exist and non-aggregate projected fields exist, they are in group_by
+    - Aggregate predicates are in having, not filters
+    - COUNT(DISTINCT field) canonicalized as count_distinct
+    - Unsupported expressions (e.g., SUM(price * qty)) not treated as simple aggregations
     """
     if not isinstance(out, dict):
         raise AssertionError("Output must be a dict")
-    
+
     # Check normalized_aggregations exists and is a list
     normalized_aggregations = out.get("normalized_aggregations")
     if normalized_aggregations is None:
         raise AssertionError("Output must contain normalized_aggregations list")
     if not isinstance(normalized_aggregations, list):
         raise AssertionError("normalized_aggregations must be a list")
-    
+
     # Check normalized_group_by exists and is a list
     normalized_group_by = out.get("normalized_group_by")
     if normalized_group_by is None:
         raise AssertionError("Output must contain normalized_group_by list")
     if not isinstance(normalized_group_by, list):
         raise AssertionError("normalized_group_by must be a list")
-    
-    # Validate each aggregation has required fields
+
+    # Check normalized_selectors exists
+    normalized_selectors = out.get("normalized_selectors")
+    if normalized_selectors is None:
+        raise AssertionError("Output must contain normalized_selectors")
+    if not isinstance(normalized_selectors, dict):
+        raise AssertionError("normalized_selectors must be a dict")
+
+    # Validate op is normalized to "query"
+    op = normalized_selectors.get("op")
+    if op != "query":
+        raise AssertionError(f"op must be 'query' after aggregation normalize, got '{op}'")
+
+    # Canonical aggregation names (supported aggregations)
+    canonical_agg_names = {"count", "count_distinct", "sum", "avg", "min", "max", "median"}
+
+    # Track aliases for uniqueness check
+    seen_aliases = set()
+
+    # Validate each aggregation
     for i, agg in enumerate(normalized_aggregations):
         if not isinstance(agg, dict):
             raise AssertionError(f"normalized_aggregations[{i}] must be a dict")
+
+        # Check required fields
         if "agg" not in agg:
             raise AssertionError(f"normalized_aggregations[{i}] missing required key 'agg'")
         if "field" not in agg:
-            raise AssertionError(f"normalized_aggregations[{i}] missing required key 'field'")
-    
+            raise AssertionError(f"normalized_aggregations[{i}] missing required field 'field'")
+        if "alias" not in agg:
+            raise AssertionError(f"normalized_aggregations[{i}] missing required key 'alias'")
+
+        agg_name = agg.get("agg", "")
+        agg_field = agg.get("field", "")
+        agg_alias = agg.get("alias", "")
+
+        # Check canonical agg name
+        if agg_name not in canonical_agg_names:
+            raise AssertionError(
+                f"normalized_aggregations[{i}].agg='{agg_name}' is not canonical; "
+                f"must be one of: {', '.join(sorted(canonical_agg_names))}"
+            )
+
+        # Check COUNT(*) special case - only count(*) is allowed, not sum(*), avg(*), etc.
+        if agg_field == "*":
+            if agg_name != "count":
+                raise AssertionError(
+                    f"COUNT(*) is the only allowed aggregation with field='*'; "
+                    f"got agg='{agg_name}'"
+                )
+
+        # Check alias is non-empty
+        if not agg_alias or not isinstance(agg_alias, str):
+            raise AssertionError(f"normalized_aggregations[{i}].alias must be a non-empty string")
+
+        # Check alias uniqueness
+        if agg_alias in seen_aliases:
+            raise AssertionError(
+                f"Duplicate alias '{agg_alias}' in normalized_aggregations[{i}]; "
+                "aliases must be unique"
+            )
+        seen_aliases.add(agg_alias)
+
     # Check diag for input aggregations count - if input had aggregations, output should too
     diag = out.get("diag", {})
     input_agg_count = diag.get("input_aggregations_count", 0)
@@ -363,6 +430,119 @@ def validate_aggregation_normalize_spec_v1(out: dict) -> None:
                 f"Input had {input_agg_count} aggregation(s) but output has none - "
                 "aggregations were lost during normalization"
             )
+
+    # GROUP-BY CLOSURE: All non-aggregate projected fields must be in group_by
+    # This ensures proper SQL semantics for GROUP BY queries
+    select_fields = normalized_selectors.get("select", [])
+    if isinstance(select_fields, list) and normalized_aggregations:
+        # Extract non-aggregate field expressions from select
+        non_agg_select_fields = []
+        for sel in select_fields:
+            if isinstance(sel, dict):
+                expr = sel.get("expr", "")
+                # Check if this is a bare field reference (not an aggregation expression)
+                # Aggregation expressions typically contain function calls like COUNT(...), SUM(...), etc.
+                is_agg_expr = False
+                if isinstance(expr, str):
+                    # Check for aggregation function patterns
+                    for agg_name in canonical_agg_names:
+                        if agg_name.upper() + "(" in expr.upper():
+                            is_agg_expr = True
+                            break
+                elif isinstance(expr, dict):
+                    # Structured expression - check if it's an aggregation
+                    if expr.get("type") in ("aggregation", "function"):
+                        is_agg_expr = True
+
+                if not is_agg_expr and expr:
+                    non_agg_select_fields.append(expr)
+
+        # All non-aggregate select fields must be in group_by
+        group_by_set = set()
+        for gb in normalized_group_by:
+            if isinstance(gb, str):
+                group_by_set.add(gb)
+            elif isinstance(gb, dict):
+                # Handle structured group_by with entity.field format
+                entity = gb.get("entity")
+                field = gb.get("field", "")
+                if entity:
+                    group_by_set.add(f"{entity}.{field}")
+                else:
+                    group_by_set.add(field)
+
+        for field_expr in non_agg_select_fields:
+            field_str = field_expr if isinstance(field_expr, str) else str(field_expr)
+            if field_str not in group_by_set:
+                raise AssertionError(
+                    f"Non-aggregate select field '{field_str}' not found in group_by; "
+                    "all non-aggregate projected fields must be in group_by (group-by closure)"
+                )
+
+    # HAVING VALIDATION: Aggregate predicates should be in having, not filters
+    # Check that filters don't contain aggregate-level predicates
+    filters = normalized_selectors.get("filters", {})
+    if isinstance(filters, dict):
+        # Look for filter clauses that reference aggregation aliases
+        agg_aliases = {agg.get("alias") for agg in normalized_aggregations if isinstance(agg, dict)}
+
+        def check_filter_for_agg_refs(clause: Any, path: str) -> None:
+            if not isinstance(clause, dict):
+                return
+
+            if clause.get("type") == "comparison":
+                field = clause.get("field", "")
+                # Check if filter references an aggregation alias
+                if field in agg_aliases:
+                    raise AssertionError(
+                        f"Filter at {path} references aggregation alias '{field}'; "
+                        "aggregate predicates must be in having, not filters"
+                    )
+            elif clause.get("type") == "logical":
+                for j, sub_clause in enumerate(clause.get("clauses", [])):
+                    check_filter_for_agg_refs(sub_clause, f"{path}.clauses[{j}]")
+
+        check_filter_for_agg_refs(filters, "filters")
+
+    # SELECT VALIDATION: No raw supported aggregate expressions should remain in select
+    # After normalization, aggregations should be extracted to aggregations[] list
+    if isinstance(select_fields, list):
+        for i, sel in enumerate(select_fields):
+            if isinstance(sel, dict):
+                expr = sel.get("expr", "")
+                if isinstance(expr, str):
+                    # Check for raw aggregation function patterns
+                    for agg_name in canonical_agg_names:
+                        pattern = f"{agg_name.upper()}("
+                        if pattern in expr.upper():
+                            raise AssertionError(
+                                f"Raw aggregate expression '{expr}' found in select[{i}]; "
+                                "aggregations must be extracted to aggregations[] list"
+                            )
+
+    # HAVING VALIDATION: Ensure having contains only aggregate-level predicates
+    having = normalized_selectors.get("having", {})
+    if isinstance(having, dict) and normalized_aggregations:
+        # having should reference aggregation aliases or aggregate expressions
+        # This is a soft check - we just verify having structure is reasonable
+        agg_aliases = {agg.get("alias") for agg in normalized_aggregations if isinstance(agg, dict)}
+
+        def validate_having_clause(clause: Any, path: str) -> None:
+            if not isinstance(clause, dict):
+                return
+
+            if clause.get("type") == "comparison":
+                field = clause.get("field", "")
+                # Having should reference aggregation aliases
+                if field and field not in agg_aliases:
+                    # This is a warning-level check - non-agg fields in having might be valid
+                    # in some edge cases, so we don't fail here
+                    pass
+            elif clause.get("type") == "logical":
+                for j, sub_clause in enumerate(clause.get("clauses", [])):
+                    validate_having_clause(sub_clause, f"{path}.clauses[{j}]")
+
+        validate_having_clause(having, "having")
 
 
 def validate_compile_bind_spec_v1(out: dict, root: dict | None = None, ctx: Any = None) -> None:

@@ -147,6 +147,18 @@ def _latest_comparable_run_for_tag(data_dir: Path, tag: str | None) -> tuple[Opt
     return candidates[-1][1], total, skipped
 
 
+
+
+def _looks_like_path_ref(ref: str) -> bool:
+    return (
+        ref.startswith("/")
+        or ref.startswith("./")
+        or ref.startswith("../")
+        or "/" in ref
+        or "\\" in ref
+        or ref.endswith(".jsonl")
+    )
+
 def _looks_like_run_id(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_-]{4,64}", value))
 
@@ -283,6 +295,9 @@ def resolve_compare_input(ref: str, *, data_dir: Path | None) -> ResolvedCompare
             candidate_count=1,
             resolved_case_count=len(results),
         )
+
+    if _looks_like_path_ref(ref) and not ref_path.exists():
+        raise ValueError(f"compare: path ref not found: {ref}")
 
     if ":" in ref:
         raise ValueError(

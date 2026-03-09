@@ -228,3 +228,14 @@ def test_run_id_can_fallback_to_canonical_dir_suffix_when_meta_missing(tmp_path:
     resolved = resolve_compare_input("44148564", data_dir=tmp_path)
     assert resolved.kind == "run_id"
     assert resolved.run_dir == run_dir
+
+
+def test_missing_path_like_ref_returns_not_found(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"path ref not found"):
+        resolve_compare_input("./nope/results.jsonl", data_dir=tmp_path)
+
+
+def test_missing_absolute_jsonl_ref_returns_not_found(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.results.jsonl"
+    with pytest.raises(ValueError, match=r"path ref not found"):
+        resolve_compare_input(str(missing), data_dir=tmp_path)

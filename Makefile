@@ -721,7 +721,7 @@ compare-tag: JUNIT := $(COMPARE_TAG_JUNIT)
 compare-tag: check
 	@test -n "$(strip $(DATA))" || (echo "Нужно задать DATA=... (где лежит .runs)" && exit 1)
 	@test -n "$(strip $(NEW_TAG))" || (echo "Нужно задать NEW_TAG=... (например NEW_TAG=baseline_v2)" && exit 1)
-	@$(MAKE) compare DATA="$(DATA)" BASE="tag:$(BASE_TAG)" NEW="tag:$(NEW_TAG)" DIFF_OUT="$(OUT)" JUNIT="$(JUNIT)"
+	@$(MAKE) --no-print-directory compare DATA="$(DATA)" BASE="tag:$(BASE_TAG)" NEW="tag:$(NEW_TAG)" DIFF_OUT="$(OUT)" JUNIT="$(JUNIT)"
 
 # команды очистки
 

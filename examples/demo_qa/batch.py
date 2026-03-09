@@ -1744,10 +1744,6 @@ def handle_compare(args) -> int:
     for line in resolved_lines("NEW", resolved_new):
         print(line, file=sys.stderr)
 
-    if not resolved_base.results or not resolved_new.results:
-        print("compare: zero-case compare is not allowed.", file=sys.stderr)
-        return 2
-
     comparison = diff_runs(
         resolved_base.results.values(),
         resolved_new.results.values(),

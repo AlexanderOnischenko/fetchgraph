@@ -35,14 +35,20 @@ def _iter_run_dirs(runs_root: Path) -> Iterable[Path]:
     return sorted((p for p in runs_root.iterdir() if p.is_dir()), key=lambda p: p.name)
 
 
-def _load_results_from_status(status_path: Path, *, run_meta: Mapping[str, object]) -> RunResult:
-    payload: dict[str, object] = {}
+def _parse_status_payload(status_path: Path) -> tuple[dict[str, object] | None, str | None]:
     try:
         data = json.loads(status_path.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            payload = data
-    except Exception:
-        payload = {}
+    except Exception as exc:
+        return None, f"unparseable json ({exc})"
+    if not isinstance(data, dict):
+        return None, "json payload is not an object"
+    status = data.get("status")
+    if not isinstance(status, str) or not status.strip():
+        return None, "missing/invalid status"
+    return data, None
+
+
+def _load_results_from_status(status_path: Path, *, run_meta: Mapping[str, object], payload: Mapping[str, object]) -> RunResult:
     case_dir = status_path.parent
     case_id = str(payload.get("id") or case_dir.name)
     return RunResult(
@@ -63,15 +69,31 @@ def _load_results_from_status(status_path: Path, *, run_meta: Mapping[str, objec
     )
 
 
+def _load_status_results(run_dir: Path, *, run_meta: Mapping[str, object]) -> tuple[dict[str, RunResult], int, int, list[str]]:
+    results: dict[str, RunResult] = {}
+    status_paths = sorted(run_dir.glob("cases/**/status.json"))
+    errors: list[str] = []
+    valid_count = 0
+    for status_path in status_paths:
+        payload, error = _parse_status_payload(status_path)
+        if error is not None or payload is None:
+            errors.append(f"{status_path}: {error}")
+            continue
+        valid_count += 1
+        row = _load_results_from_status(status_path, run_meta=run_meta, payload=payload)
+        results[row.id] = row
+    return results, valid_count, len(status_paths), errors
+
+
 def load_results_for_run_dir(run_dir: Path) -> tuple[dict[str, RunResult], str, dict]:
     results_file = run_dir / "results.jsonl"
     run_meta = _load_run_meta(run_dir) or {}
     if results_file.exists():
         return load_results(results_file), "results.jsonl", run_meta
-    results: dict[str, RunResult] = {}
-    for status_path in sorted(run_dir.glob("cases/**/status.json")):
-        row = _load_results_from_status(status_path, run_meta=run_meta)
-        results[row.id] = row
+    results, valid_count, total_status_files, errors = _load_status_results(run_dir, run_meta=run_meta)
+    if total_status_files > 0 and valid_count == 0:
+        error_preview = "; ".join(errors[:3])
+        raise ValueError(f"status.json fallback is not loadable ({error_preview})")
     return results, "cases/**/status.json", run_meta
 
 
@@ -87,10 +109,15 @@ def is_comparable_run_dir(run_dir: Path) -> tuple[bool, str]:
         if rows:
             return True, "results.jsonl"
         return False, "results.jsonl is empty"
-    status_paths = list(run_dir.glob("cases/**/status.json"))
-    if status_paths:
-        return True, "cases/**/status.json"
-    return False, "missing results.jsonl and cases/**/status.json"
+
+    run_meta = _load_run_meta(run_dir) or {}
+    _, valid_count, total_status_files, errors = _load_status_results(run_dir, run_meta=run_meta)
+    if total_status_files == 0:
+        return False, "missing results.jsonl and cases/**/status.json"
+    if valid_count == 0:
+        error_preview = "; ".join(errors[:3])
+        return False, f"status.json fallback has no valid results ({error_preview})"
+    return True, "cases/**/status.json"
 
 
 def _as_iso_timestamp(value: object) -> datetime | None:

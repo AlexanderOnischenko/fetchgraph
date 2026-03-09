@@ -267,3 +267,41 @@ def test_latest_tag_skips_unloadable_results_and_selects_previous(tmp_path: Path
     resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
     assert resolved.run_id == "ok11"
     assert any("not loadable" in item for item in resolved.skipped_incomplete_runs)
+
+
+def test_run_dir_with_only_corrupt_statuses_is_invalid(tmp_path: Path) -> None:
+    run_dir = tmp_path / ".runs" / "runs" / "20260306_201512_cases_badstatus"
+    case_dir = run_dir / "cases" / "case-1"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_meta.json").write_text(json.dumps({"run_id": "badstatus", "tag": "baseline"}), encoding="utf-8")
+    (case_dir / "status.json").write_text("{not-json}\n", encoding="utf-8")
+
+    ok, reason = is_comparable_run_dir(run_dir)
+    assert not ok
+    assert "no valid results" in reason
+    with pytest.raises(ValueError, match=r"is not comparable|is not loadable"):
+        resolve_compare_input(str(run_dir), data_dir=tmp_path)
+
+
+def test_latest_tag_skips_corrupt_status_fallback_and_selects_previous(tmp_path: Path) -> None:
+    _mk_run(tmp_path, "20260306_195550_cases_ok11", "ok11", tag="baseline", with_results=True, status="ok")
+    bad = tmp_path / ".runs" / "runs" / "20260306_201512_cases_badstatus"
+    case_dir = bad / "cases" / "case-1"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    (bad / "run_meta.json").write_text(json.dumps({"run_id": "badstatus", "tag": "baseline"}), encoding="utf-8")
+    (case_dir / "status.json").write_text("{not-json}\n", encoding="utf-8")
+
+    resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
+    assert resolved.run_id == "ok11"
+    assert any("no valid results" in item or "unparseable" in item for item in resolved.skipped_incomplete_runs)
+
+
+def test_explicit_run_id_with_corrupt_status_fallback_is_hard_error(tmp_path: Path) -> None:
+    bad = tmp_path / ".runs" / "runs" / "20260306_201512_cases_badstatus"
+    case_dir = bad / "cases" / "case-1"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    (bad / "run_meta.json").write_text(json.dumps({"run_id": "badstatus", "tag": "baseline"}), encoding="utf-8")
+    (case_dir / "status.json").write_text("{not-json}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"non-comparable|non-loadable"):
+        resolve_compare_input("badstatus", data_dir=tmp_path)

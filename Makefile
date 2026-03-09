@@ -212,8 +212,16 @@ help:
 	@echo "  make tags [PATTERN=*] DATA=... - показать список тегов"
 	@echo "  make case-run  CASE=case_42 - прогнать один кейс"
 	@echo "  make case-open CASE=case_42 - открыть артефакты кейса"
-	@echo "  make compare BASE=... NEW=... [DIFF_OUT=...] [JUNIT=...]"
-	@echo "  make compare-tag BASE_TAG=baseline NEW_TAG=... [COMPARE_TAG_OUT=...] [COMPARE_TAG_JUNIT=...]"
+	@echo "  make compare BASE=<ref> NEW=<ref> [DIFF_OUT=...] [JUNIT=...]"
+	@echo "    refs: /path/to/results.jsonl | /path/to/run_dir | <run_id> | latest | tag:<tag> | latest:<tag>"
+	@echo "    examples:"
+	@echo "      make compare BASE=32d32108 NEW=44148564"
+	@echo "      make compare BASE=latest:baseline NEW=latest:qwen"
+	@echo "      make compare BASE=tag:baseline NEW=tag:qwen"
+	@echo "      make compare BASE=/tmp/a.results.jsonl NEW=/tmp/b.results.jsonl"
+	@echo "      make compare BASE=path/to/run_dir NEW=path/to/other_run_dir"
+	@echo "    tag:<tag> uses effective snapshot; latest:<tag> uses latest real run with run_meta.tag=<tag>"
+	@echo "  make compare-tag BASE_TAG=baseline NEW_TAG=... [COMPARE_TAG_OUT=...] [COMPARE_TAG_JUNIT=...] (alias over compare refs)"
 	@echo ""
 	@echo "Уборка:"
 	@echo "  make tag-rm TAG=... [DRY=1] [PURGE_RUNS=1] [PRUNE_HISTORY=1] [PRUNE_CASE_HISTORY=1]"
@@ -706,27 +714,17 @@ fixture-demote: warn-config
 
 # compare (diff.md + junit)
 compare: check
-	@test -n "$(strip $(BASE))" || (echo "Нужно задать BASE=.../results_prev.jsonl" && exit 1)
-	@test -n "$(strip $(NEW))"  || (echo "Нужно задать NEW=.../results.jsonl" && exit 1)
+	@test -n "$(strip $(BASE))" || (echo "Нужно задать BASE=<ref>" && exit 1)
+	@test -n "$(strip $(NEW))"  || (echo "Нужно задать NEW=<ref>" && exit 1)
 	@mkdir -p "$(DATA)/.runs"
-	@$(CLI) compare \
-	  --base "$(BASE)" \
-	  --new  "$(NEW)" \
-	  --out  "$(DIFF_OUT)" \
-	  --junit "$(JUNIT)"
+	@$(CLI) compare 	  --data "$(DATA)" 	  --base "$(BASE)" 	  --new  "$(NEW)" 	  --out  "$(DIFF_OUT)" 	  --junit "$(JUNIT)"
 
 compare-tag: OUT := $(COMPARE_TAG_OUT)
 compare-tag: JUNIT := $(COMPARE_TAG_JUNIT)
 compare-tag: check
 	@test -n "$(strip $(DATA))" || (echo "Нужно задать DATA=... (где лежит .runs)" && exit 1)
 	@test -n "$(strip $(NEW_TAG))" || (echo "Нужно задать NEW_TAG=... (например NEW_TAG=baseline_v2)" && exit 1)
-	@mkdir -p "$(DATA)/.runs"
-	@$(CLI) compare \
-	  --data "$(DATA)" \
-	  --base-tag "$(BASE_TAG)" \
-	  --new-tag "$(NEW_TAG)" \
-	  --out  "$(OUT)" \
-	  --junit "$(JUNIT)"
+	@$(MAKE) --no-print-directory compare DATA="$(DATA)" BASE="tag:$(BASE_TAG)" NEW="tag:$(NEW_TAG)" DIFF_OUT="$(OUT)" JUNIT="$(JUNIT)"
 
 # команды очистки
 

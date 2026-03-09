@@ -114,15 +114,17 @@ def _run_dir_name_timestamp(run_dir: Path) -> datetime | None:
         return None
 
 
-def _run_sort_key(run_dir: Path, run_meta: Mapping[str, object]) -> tuple[int, float, float, str]:
+def _run_sort_key(run_dir: Path, run_meta: Mapping[str, object]) -> tuple[float, int, float, str]:
+    mtime = run_dir.stat().st_mtime
     for key in ["finished_at", "ended_at", "timestamp", "started_at"]:
         ts = _as_iso_timestamp(run_meta.get(key))
         if ts is not None:
-            return (3, ts.timestamp(), run_dir.stat().st_mtime, run_dir.name)
+            # Primary: effective timestamp (latest real run). Secondary: source quality.
+            return (ts.timestamp(), 3, mtime, run_dir.name)
     name_ts = _run_dir_name_timestamp(run_dir)
     if name_ts is not None:
-        return (2, name_ts.timestamp(), run_dir.stat().st_mtime, run_dir.name)
-    return (1, run_dir.stat().st_mtime, run_dir.stat().st_mtime, run_dir.name)
+        return (name_ts.timestamp(), 2, mtime, run_dir.name)
+    return (mtime, 1, mtime, run_dir.name)
 
 
 def _latest_comparable_run_for_tag(data_dir: Path, tag: str | None) -> tuple[Optional[Path], int, list[str]]:

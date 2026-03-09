@@ -173,3 +173,30 @@ def test_latest_tag_skips_incomplete_and_selects_previous_complete(tmp_path: Pat
     assert resolved.run_id == "ok11"
     assert resolved.candidate_count == 2
     assert resolved.skipped_incomplete_runs
+
+
+def test_latest_prefers_newer_effective_ts_over_source_rank(tmp_path: Path) -> None:
+    older_meta = _mk_run(
+        tmp_path,
+        "20260306_090000_cases_meta_old",
+        "metaold",
+        tag="baseline",
+        with_results=True,
+        status="ok",
+    )
+    (older_meta / "run_meta.json").write_text(
+        json.dumps({"run_id": "metaold", "tag": "baseline", "timestamp": "2026-03-06T10:00:00Z"}),
+        encoding="utf-8",
+    )
+
+    _mk_run(
+        tmp_path,
+        "20260306_110000_cases_name_new",
+        "namenew",
+        tag="baseline",
+        with_results=True,
+        status="failed",
+    )
+
+    resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
+    assert resolved.run_id == "namenew"

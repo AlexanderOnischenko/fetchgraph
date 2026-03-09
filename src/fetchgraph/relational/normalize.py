@@ -34,21 +34,26 @@ def _set_list_field(
 def normalize_relational_selectors(selectors: SelectorsDict) -> SelectorsDict:
     if not isinstance(selectors, dict):
         return selectors
-    
+
     normalized: dict[str, Any] = dict(selectors)
 
     op = normalized.get("op")
     if op == "aggregate":
         normalized["op"] = "query"
         op = "query"
+        if "entity" in normalized and "root_entity" not in normalized:
+            normalized["root_entity"] = normalized.pop("entity")
     if op != "query":
         return normalized
-    
+
+    if "select" not in normalized:
+        normalized["select"] = []
+
     _set_list_field(
         normalized, "aggregations", normalized.get("aggregations"), _normalize_aggregations
     )
     _set_list_field(normalized, "group_by", normalized.get("group_by"), _normalize_group_by)
-    
+
     normalized_filters = _normalize_filters(normalized.get("filters"))
     normalized["filters"] = normalized_filters
 
@@ -103,17 +108,42 @@ def _normalize_filters(value: Any) -> Any:
         if not clauses:
             return None
         if len(clauses) == 1:
-            return clauses[0]
-        return {"type": "logical", "op": "and", "clauses": clauses}
+            return _normalize_comparison_filter(clauses[0])
+        return {"type": "logical", "op": "and", "clauses": [_normalize_comparison_filter(c) for c in clauses]}
     if isinstance(value, dict) and "clauses" in value and "type" not in value:
         normalized = dict(value)
         normalized.setdefault("type", "logical")
         normalized.setdefault("op", "and")
-        # return normalized
         return _normalize_logical_filter(normalized)
     if isinstance(value, dict) and value.get("type") == "logical":
         return _normalize_logical_filter(value)
+    if isinstance(value, dict) and value.get("type") == "comparison":
+        return _normalize_comparison_filter(value)
     return value
+
+
+def _normalize_comparison_filter(value: Any) -> Any:
+    """Normalize a comparison filter.
+    
+    For operators that don't require a value (like 'is_not_null', 'is_null'),
+    ensure the 'value' field is explicitly set to None to satisfy pydantic validation.
+    """
+    if not isinstance(value, dict):
+        return value
+    
+    normalized = dict(value)
+    op = normalized.get("op")
+    
+    if not isinstance(op, str):
+        return normalized
+    
+    op_lower = op.lower()
+    null_check_ops = {"is_null", "is_not_null"}
+    
+    if op_lower in null_check_ops:
+        normalized["value"] = None
+    
+    return normalized
 
 
 def _normalize_min_max_filter(selectors: SelectorsDict, filters: Any) -> SelectorsDict:
@@ -192,5 +222,7 @@ def _normalize_logical_filter(value: Dict[str, Any]) -> Dict[str, Any]:
         normalized["op"] = op.lower()
     clauses = normalized.get("clauses")
     if isinstance(clauses, list):
-        normalized["clauses"] = _flatten_filter_clauses(clauses)
+        normalized["clauses"] = [
+            _normalize_comparison_filter(c) for c in _flatten_filter_clauses(clauses)
+        ]
     return normalized

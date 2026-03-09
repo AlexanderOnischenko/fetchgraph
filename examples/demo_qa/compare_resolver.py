@@ -80,7 +80,10 @@ def is_comparable_run_dir(run_dir: Path) -> tuple[bool, str]:
         return False, "not a directory"
     results_file = run_dir / "results.jsonl"
     if results_file.exists():
-        rows = load_results(results_file)
+        try:
+            rows = load_results(results_file)
+        except Exception as exc:
+            return False, f"results.jsonl is not loadable ({exc})"
         if rows:
             return True, "results.jsonl"
         return False, "results.jsonl is empty"
@@ -191,7 +194,10 @@ def _resolve_effective_tag(data_dir: Path, tag: str) -> Path:
     results_path, meta_path = _effective_paths(data_dir / ".runs", tag)
     if not results_path.exists() or not meta_path.exists():
         raise ValueError(f"compare: tag={tag} has no effective snapshot")
-    rows = load_results(results_path)
+    try:
+        rows = load_results(results_path)
+    except Exception as exc:
+        raise ValueError(f"compare: tag={tag} effective snapshot is not loadable ({exc})") from exc
     if not rows:
         raise ValueError(f"compare: tag={tag} effective snapshot is empty")
     return results_path
@@ -206,7 +212,10 @@ def resolve_compare_input(ref: str, *, data_dir: Path | None) -> ResolvedCompare
     ref_path = Path(ref)
 
     if ref_path.exists() and ref_path.is_file():
-        results = load_results(ref_path)
+        try:
+            results = load_results(ref_path)
+        except Exception as exc:
+            raise ValueError(f"compare: file {ref_path} is not loadable ({exc})") from exc
         _ensure_non_empty_results(results, ctx=f"file {ref_path}")
         return ResolvedCompareInput(
             ref,
@@ -221,6 +230,8 @@ def resolve_compare_input(ref: str, *, data_dir: Path | None) -> ResolvedCompare
     if ref_path.exists() and ref_path.is_dir():
         comparable, reason = is_comparable_run_dir(ref_path)
         if not comparable:
+            if "not loadable" in reason:
+                raise ValueError(f"compare: run_dir={ref_path} is not loadable ({reason})")
             raise ValueError(f"compare: run_dir={ref_path} is not comparable ({reason})")
         results, source, run_meta = load_results_for_run_dir(ref_path)
         _ensure_non_empty_results(results, ctx=f"run_dir {ref_path}")
@@ -283,7 +294,10 @@ def resolve_compare_input(ref: str, *, data_dir: Path | None) -> ResolvedCompare
             raise ValueError("compare: tag:<tag> requires --data")
         tag = ref.split(":", 1)[1]
         results_path = _resolve_effective_tag(data_dir, tag)
-        results = load_results(results_path)
+        try:
+            results = load_results(results_path)
+        except Exception as exc:
+            raise ValueError(f"compare: tag:{tag} is not loadable ({exc})") from exc
         _ensure_non_empty_results(results, ctx=f"tag:{tag}")
         return ResolvedCompareInput(
             ref,
@@ -310,6 +324,8 @@ def resolve_compare_input(ref: str, *, data_dir: Path | None) -> ResolvedCompare
         run_dir = _resolve_run_id(data_dir, ref)
         comparable, reason = is_comparable_run_dir(run_dir)
         if not comparable:
+            if "not loadable" in reason:
+                raise ValueError(f"compare: run_id={ref} resolved to non-loadable run {run_dir} ({reason})")
             raise ValueError(f"compare: run_id={ref} resolved to non-comparable run {run_dir} ({reason})")
         results, source, run_meta = load_results_for_run_dir(run_dir)
         _ensure_non_empty_results(results, ctx=f"run_id {ref}")

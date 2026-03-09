@@ -239,3 +239,31 @@ def test_missing_absolute_jsonl_ref_returns_not_found(tmp_path: Path) -> None:
     missing = tmp_path / "missing.results.jsonl"
     with pytest.raises(ValueError, match=r"path ref not found"):
         resolve_compare_input(str(missing), data_dir=tmp_path)
+
+
+def test_explicit_corrupt_results_file_is_hard_error(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.results.jsonl"
+    bad.write_text("{not-json}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"is not loadable"):
+        resolve_compare_input(str(bad), data_dir=tmp_path)
+
+
+def test_explicit_corrupt_run_dir_is_hard_error(tmp_path: Path) -> None:
+    run_dir = tmp_path / ".runs" / "runs" / "20260306_201512_cases_badload"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_meta.json").write_text(json.dumps({"run_id": "badload", "tag": "baseline"}), encoding="utf-8")
+    (run_dir / "results.jsonl").write_text("{not-json}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"run_dir=.*is not loadable"):
+        resolve_compare_input(str(run_dir), data_dir=tmp_path)
+
+
+def test_latest_tag_skips_unloadable_results_and_selects_previous(tmp_path: Path) -> None:
+    _mk_run(tmp_path, "20260306_195550_cases_ok11", "ok11", tag="baseline", with_results=True, status="ok")
+    bad = tmp_path / ".runs" / "runs" / "20260306_201512_cases_badload"
+    bad.mkdir(parents=True, exist_ok=True)
+    (bad / "run_meta.json").write_text(json.dumps({"run_id": "badload", "tag": "baseline"}), encoding="utf-8")
+    (bad / "results.jsonl").write_text("{not-json}\n", encoding="utf-8")
+
+    resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
+    assert resolved.run_id == "ok11"
+    assert any("not loadable" in item for item in resolved.skipped_incomplete_runs)

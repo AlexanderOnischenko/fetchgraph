@@ -200,3 +200,31 @@ def test_latest_prefers_newer_effective_ts_over_source_rank(tmp_path: Path) -> N
 
     resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
     assert resolved.run_id == "namenew"
+
+
+def test_run_id_partial_suffix_does_not_resolve(tmp_path: Path) -> None:
+    _mk_run(
+        tmp_path,
+        "20260306_201512_retail_cases_abcd1234",
+        "abcd1234",
+        tag=None,
+        with_results=True,
+        status="ok",
+    )
+    with pytest.raises(ValueError, match="run_id=1234 not found"):
+        resolve_compare_input("1234", data_dir=tmp_path)
+
+
+def test_run_id_can_fallback_to_canonical_dir_suffix_when_meta_missing(tmp_path: Path) -> None:
+    run_dir = tmp_path / ".runs" / "runs" / "20260306_201512_retail_cases_44148564"
+    case_dir = run_dir / "cases" / "case-1"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    # intentionally missing run_meta.json
+    (case_dir / "status.json").write_text(
+        json.dumps({"id": "case-1", "status": "ok", "artifacts_dir": str(case_dir), "checked": True}),
+        encoding="utf-8",
+    )
+
+    resolved = resolve_compare_input("44148564", data_dir=tmp_path)
+    assert resolved.kind == "run_id"
+    assert resolved.run_dir == run_dir

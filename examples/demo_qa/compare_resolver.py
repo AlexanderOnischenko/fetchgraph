@@ -151,11 +151,21 @@ def _looks_like_run_id(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_-]{4,64}", value))
 
 
+
+
+def _canonical_run_id_from_dir_name(run_dir: Path) -> str | None:
+    match = re.match(r"^\d{8}_\d{6}_.+_([A-Za-z0-9_-]+)$", run_dir.name)
+    if not match:
+        return None
+    return match.group(1)
+
 def _resolve_run_id(data_dir: Path, run_id: str) -> Path:
     matched: list[Path] = []
     for run_dir in _iter_run_dirs(_runs_root(data_dir)):
         meta = _load_run_meta(run_dir) or {}
-        if str(meta.get("run_id") or "") == run_id or run_dir.name.endswith(run_id):
+        meta_run_id = str(meta.get("run_id") or "")
+        dir_run_id = _canonical_run_id_from_dir_name(run_dir)
+        if meta_run_id == run_id or dir_run_id == run_id:
             matched.append(run_dir)
     if not matched:
         raise ValueError(f"compare: run_id={run_id} not found under {_runs_root(data_dir)}")

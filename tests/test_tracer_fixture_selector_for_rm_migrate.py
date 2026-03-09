@@ -64,3 +64,86 @@ def test_fixture_selector_for_rm_migrate(tmp_path: Path, capsys: pytest.CaptureF
     assert files_moved == 0
     output = capsys.readouterr().out
     assert "bulk operation" in output
+
+
+def test_fixture_rm_removes_nested_case_resources_by_path(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    case_path = root / "known_bad" / "agg_003" / "nested" / "a.case.json"
+    expected_path = root / "known_bad" / "agg_003" / "nested" / "a.expected.json"
+    resource_file = root / "known_bad" / "resources" / "agg_003" / "nested" / "a" / "rid1" / "file.txt"
+    _write_bundle(case_path, case_id="agg_003")
+    expected_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_path.write_text('{}', encoding='utf-8')
+    resource_file.parent.mkdir(parents=True, exist_ok=True)
+    resource_file.write_text('data', encoding='utf-8')
+
+    removed = fixture_rm(
+        root=root,
+        bucket="known_bad",
+        scope="both",
+        dry_run=False,
+        case_path=case_path,
+    )
+
+    assert removed == 3
+    assert not case_path.exists()
+    assert not expected_path.exists()
+    assert not resource_file.exists()
+
+
+def test_fixture_rm_accepts_repo_relative_case_path_and_dry_run_prints_nested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo"
+    root = repo / "tests" / "fixtures" / "replay_cases"
+    case_path = root / "known_bad" / "agg_003" / "nested" / "a.case.json"
+    expected_path = root / "known_bad" / "agg_003" / "nested" / "a.expected.json"
+    resources_dir = root / "known_bad" / "resources" / "agg_003" / "nested" / "a"
+    _write_bundle(case_path, case_id="agg_003")
+    expected_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_path.write_text("{}", encoding="utf-8")
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo)
+
+    removed = fixture_rm(
+        root=root,
+        bucket="known_bad",
+        scope="both",
+        dry_run=True,
+        case_path=Path("tests/fixtures/replay_cases/known_bad/agg_003/nested/a.case.json"),
+    )
+
+    out = capsys.readouterr().out
+    assert removed == 3
+    assert "known_bad/agg_003/nested/a.case.json" in out
+    assert "known_bad/resources/agg_003/nested/a" in out
+
+
+def test_bucket_all_selector_and_rm_migrate(tmp_path: Path) -> None:
+    root = tmp_path / "fixtures"
+    case_fixed = root / "fixed" / "agg_003" / "a.case.json"
+    case_bad = root / "known_bad" / "agg_003" / "b.case.json"
+    _write_bundle(case_fixed, case_id="agg_003")
+    _write_bundle(case_bad, case_id="agg_003")
+
+    selected = fixture_rm(
+        root=root,
+        bucket="all",
+        scope="cases",
+        dry_run=True,
+        case_id="agg_003",
+        all_matches=True,
+    )
+    assert selected == 2
+
+    updated, moved = fixture_migrate(
+        root=root,
+        bucket="all",
+        dry_run=True,
+        case_id="agg_003",
+        all_matches=True,
+    )
+    assert updated == 0
+    assert moved == 0

@@ -503,12 +503,26 @@ def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
             lines.append(f"- BASE resolved run_id: {base_info.get('run_id') or 'n/a'}")
             lines.append(f"- BASE resolved run_dir: {base_info.get('run_dir') or 'n/a'}")
             lines.append(f"- BASE source: {base_info.get('source')}")
+            lines.append(f"- BASE candidate_count: {base_info.get('candidate_count')}")
+            lines.append(f"- BASE resolved_case_count: {base_info.get('resolved_case_count')}")
+            skipped_base = base_info.get('skipped_incomplete_runs')
+            if isinstance(skipped_base, list) and skipped_base:
+                lines.append(f"- BASE skipped_incomplete_runs: {len(skipped_base)}")
+                for item in skipped_base:
+                    lines.append(f"  - {item}")
         if isinstance(new_info, Mapping):
             lines.append(f"- NEW input: {new_info.get('input')}")
             lines.append(f"- NEW kind: {new_info.get('kind')}")
             lines.append(f"- NEW resolved run_id: {new_info.get('run_id') or 'n/a'}")
             lines.append(f"- NEW resolved run_dir: {new_info.get('run_dir') or 'n/a'}")
             lines.append(f"- NEW source: {new_info.get('source')}")
+            lines.append(f"- NEW candidate_count: {new_info.get('candidate_count')}")
+            lines.append(f"- NEW resolved_case_count: {new_info.get('resolved_case_count')}")
+            skipped_new = new_info.get('skipped_incomplete_runs')
+            if isinstance(skipped_new, list) and skipped_new:
+                lines.append(f"- NEW skipped_incomplete_runs: {len(skipped_new)}")
+                for item in skipped_new:
+                    lines.append(f"  - {item}")
         lines.append("")
 
     base_counts = compare["base_counts"]
@@ -1730,6 +1744,10 @@ def handle_compare(args) -> int:
     for line in resolved_lines("NEW", resolved_new):
         print(line, file=sys.stderr)
 
+    if not resolved_base.results or not resolved_new.results:
+        print("compare: zero-case compare is not allowed.", file=sys.stderr)
+        return 2
+
     comparison = diff_runs(
         resolved_base.results.values(),
         resolved_new.results.values(),
@@ -1744,6 +1762,9 @@ def handle_compare(args) -> int:
             "run_dir": str(resolved_base.run_dir) if resolved_base.run_dir else None,
             "tag": resolved_base.tag,
             "source": resolved_base.source_description,
+            "candidate_count": resolved_base.candidate_count,
+            "resolved_case_count": resolved_base.resolved_case_count,
+            "skipped_incomplete_runs": resolved_base.skipped_incomplete_runs,
         },
         "new": {
             "input": resolved_new.input_value,
@@ -1752,6 +1773,9 @@ def handle_compare(args) -> int:
             "run_dir": str(resolved_new.run_dir) if resolved_new.run_dir else None,
             "tag": resolved_new.tag,
             "source": resolved_new.source_description,
+            "candidate_count": resolved_new.candidate_count,
+            "resolved_case_count": resolved_new.resolved_case_count,
+            "skipped_incomplete_runs": resolved_new.skipped_incomplete_runs,
         },
     }
 

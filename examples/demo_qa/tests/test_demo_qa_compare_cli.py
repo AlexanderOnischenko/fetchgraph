@@ -221,3 +221,32 @@ def test_compare_deprecated_tag_args_still_work(tmp_path: Path, capsys: pytest.C
     assert exit_code == 0
     payload = json.loads(captured.out)
     assert payload["summary"]["coverage"]["base_total_cases"] == 1
+
+
+def test_compare_latest_tag_skips_incomplete_reports_diagnostics(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data_dir = tmp_path / "data"
+    _make_run(data_dir, "20260306_195550_cases_ok11", "ok11", tag="baseline", with_results=True, status="ok")
+    incomplete = data_dir / ".runs" / "runs" / "20260306_201512_cases_bad2"
+    incomplete.mkdir(parents=True, exist_ok=True)
+    (incomplete / "run_meta.json").write_text(json.dumps({"run_id": "bad2", "tag": "baseline"}), encoding="utf-8")
+
+    args = build_parser().parse_args(["compare", "--data", str(data_dir), "--base", "latest:baseline", "--new", "latest:baseline"])
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "skipped_incomplete_runs" in captured.err
+    assert "candidate_count: 2" in captured.err
+
+
+def test_compare_explicit_empty_results_file_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    empty = tmp_path / "empty.results.jsonl"
+    empty.write_text("", encoding="utf-8")
+    new = _write_results_file(tmp_path / "new.jsonl", [_make_result("case-1", "ok")])
+
+    args = build_parser().parse_args(["compare", "--base", str(empty), "--new", str(new)])
+    exit_code = handle_compare(args)
+    captured = capsys.readouterr().err
+
+    assert exit_code == 2
+    assert "resolved to zero cases" in captured

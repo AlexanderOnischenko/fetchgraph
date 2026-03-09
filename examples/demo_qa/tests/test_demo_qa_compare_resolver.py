@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from examples.demo_qa.compare_resolver import load_results_for_run_dir, resolve_compare_input
+from examples.demo_qa.compare_resolver import is_comparable_run_dir, load_results_for_run_dir, resolve_compare_input
 from examples.demo_qa.runner import RunResult
 from examples.demo_qa.runs.io import write_results
 from examples.demo_qa.runs.layout import _effective_paths
@@ -126,3 +126,50 @@ def test_latest_prefers_run_name_timestamp_over_mtime(tmp_path: Path) -> None:
 
     resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
     assert resolved.run_id == "bbb1"
+
+
+def test_existing_dir_but_not_run_is_invalid(tmp_path: Path) -> None:
+    bad_dir = tmp_path / "just_dir"
+    bad_dir.mkdir()
+    ok, reason = is_comparable_run_dir(bad_dir)
+    assert not ok
+    assert "missing" in reason
+    with pytest.raises(ValueError, match="not comparable"):
+        resolve_compare_input(str(bad_dir), data_dir=tmp_path)
+
+
+def test_run_dir_with_empty_results_is_invalid(tmp_path: Path) -> None:
+    run_dir = tmp_path / ".runs" / "runs" / "run_empty"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_meta.json").write_text(json.dumps({"run_id": "abcd"}), encoding="utf-8")
+    (run_dir / "results.jsonl").write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="not comparable"):
+        resolve_compare_input(str(run_dir), data_dir=tmp_path)
+
+
+def test_run_dir_with_no_results_and_no_statuses_invalid(tmp_path: Path) -> None:
+    run_dir = tmp_path / ".runs" / "runs" / "run_empty2"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_meta.json").write_text(json.dumps({"run_id": "efgh"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="not comparable"):
+        resolve_compare_input(str(run_dir), data_dir=tmp_path)
+
+
+def test_run_id_incomplete_run_hard_error(tmp_path: Path) -> None:
+    run_dir = tmp_path / ".runs" / "runs" / "20260306_201512_cases_abcd"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_meta.json").write_text(json.dumps({"run_id": "abcd", "tag": "t"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="non-comparable"):
+        resolve_compare_input("abcd", data_dir=tmp_path)
+
+
+def test_latest_tag_skips_incomplete_and_selects_previous_complete(tmp_path: Path) -> None:
+    _mk_run(tmp_path, "20260306_195550_cases_ok11", "ok11", tag="baseline", with_results=True, status="ok")
+    incomplete = tmp_path / ".runs" / "runs" / "20260306_201512_cases_bad2"
+    incomplete.mkdir(parents=True, exist_ok=True)
+    (incomplete / "run_meta.json").write_text(json.dumps({"run_id": "bad2", "tag": "baseline"}), encoding="utf-8")
+
+    resolved = resolve_compare_input("latest:baseline", data_dir=tmp_path)
+    assert resolved.run_id == "ok11"
+    assert resolved.candidate_count == 2
+    assert resolved.skipped_incomplete_runs

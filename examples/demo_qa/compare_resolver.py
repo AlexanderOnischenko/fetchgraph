@@ -128,7 +128,7 @@ def _run_sort_key(run_dir: Path, run_meta: Mapping[str, object]) -> tuple[float,
 
 
 def _latest_comparable_run_for_tag(data_dir: Path, tag: str | None) -> tuple[Optional[Path], int, list[str]]:
-    candidates: list[tuple[tuple[int, float, float, str], Path]] = []
+    candidates: list[tuple[tuple[float, int, float, str], Path]] = []
     skipped: list[str] = []
     total = 0
     for run_dir in _iter_run_dirs(_runs_root(data_dir)):

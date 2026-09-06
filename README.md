@@ -332,6 +332,24 @@ Document metadata before converting scores into :class:`SemanticMatch` entries.
 
 ---
 
+## Examples
+
+The repository contains working examples under:
+
+```text
+examples/
+├── demo_qa/
+└── retail_orders/
+```
+
+`demo_qa` demonstrates a schema-driven question-answering agent over relational data, including planning and evaluation cases.
+
+See:
+
+[examples/demo_qa](examples/demo_qa)
+
+---
+
 ## When should I use fetchgraph?
 
 Fetchgraph is useful when your LLM needs to work across **multiple heterogeneous sources** and the required context changes from request to request.

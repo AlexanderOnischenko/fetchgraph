@@ -1,21 +1,81 @@
-# fetchgraph
+# FetchGraph
 
-Universal, library-style agent that plans what to fetch, fetches context from pluggable providers, and synthesizes an output.
+## The problem
 
-**Pipeline:** PLAN → FETCH → (ASSESS/REFETCH)* → SYNTH → VERIFY → (REFINE)* → SAVE
+Most LLM applications eventually need more than one retrieval strategy.
 
-## Why fetchgraph?
+Traditional RAG usually reduces this to:
 
-`fetchgraph` is a *library-style* LLM agent orchestrator.  
-You bring:
-- your LLM (OpenAI, local, whatever),
-- your data providers (DBs, APIs, files),
+```text
+question → similarity search → chunks → prompt
+```
 
-and `fetchgraph` handles:
-- planning what context to fetch,
-- calling providers with JSON selectors,
-- packing context into the prompt,
-- verifying / refining the result.
+That works well when the problem really is **"find similar text."**
+
+But many real applications need to answer a different question:
+
+> **What information do I need, where should I get it from, and how should I query that source?**
+
+And the data sources themselves can be organized as RAGs, DBs, APIs, etc.
+
+As the number of data sources grows, so does the orchestration code.
+
+The LLM already understands the user's intent.
+
+It should be able to plan the context it needs.
+
+## What fetchgraph does
+
+Fetchgraph turns context retrieval into a **schema-driven planning problem**.
+
+Each data source becomes a **provider**.
+
+A provider exposes two things:
+
+### 1. How to fetch data
+
+```python
+provider.fetch(
+    feature_name,
+    selectors={...},
+)
+```
+
+### 2. How the planner is allowed to query it
+
+```python
+ProviderInfo(
+    name="orders",
+    description="Orders and customer purchases",
+    selectors_schema={...},
+    examples=[...],
+)
+```
+
+From those contracts, fetchgraph builds a provider catalog for the planner.
+
+The planner can then produce a plan such as:
+
+```json
+{
+  "required_context": [
+    "orders"
+  ],
+  "context_plan": [
+    {
+      "provider": "orders",
+      "mode": "full",
+      "selectors": {
+        "op": "query",
+        "root_entity": "orders",
+        "limit": 20
+      }
+    }
+  ]
+}
+```
+
+Fetchgraph executes the plan instead of asking your application to encode every retrieval path manually.
 
 ## Features
 
@@ -271,6 +331,55 @@ The backend will filter returned documents by entity and requested fields using
 Document metadata before converting scores into :class:`SemanticMatch` entries.
 
 ---
+
+## When should I use fetchgraph?
+
+Fetchgraph is useful when your LLM needs to work across **multiple heterogeneous sources** and the required context changes from request to request.
+
+Good examples:
+
+* analytics over relational business data,
+* agents combining APIs and internal documentation,
+* support assistants using account data plus knowledge bases,
+* architecture agents reading specifications, ADRs and repositories,
+* research agents that need different retrieval strategies,
+* applications mixing structured and semantic search.
+
+You probably do **not** need fetchgraph if your entire retrieval problem is:
+
+```text
+one corpus → vector search → top 5 chunks
+```
+
+A normal RAG pipeline will be simpler.
+
+---
+
+## The core idea
+
+The important abstraction in fetchgraph is not a vector store and not a particular agent graph.
+
+It is this boundary:
+
+```text
+LLM intent
+    │
+    ▼
+structured context plan
+    │
+    ▼
+provider contracts
+    │
+    ▼
+real data
+```
+
+Once data sources expose machine-readable contracts, context selection itself becomes something the LLM can plan.
+
+That is what fetchgraph is built for.
+
+---
+
 
 ## LICENSE
 ```text

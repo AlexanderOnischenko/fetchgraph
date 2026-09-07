@@ -86,12 +86,95 @@ Fetchgraph executes the plan instead of asking your application to encode every 
 - pgvector / LangChain vector store integration
 - Library-style API: no framework lock-in
 
+# Quick Start
+
 ## Install
 ```bash
 pip install fetchgraph
 ```
 
-# Quick Start
+Connect your LLM and expose some data through a provider:
+
+```python
+import json
+
+from fetchgraph import (
+    ProviderInfo,
+    TaskProfile,
+    create_generic_agent,
+)
+
+
+class CustomerProvider:
+    name = "customers"
+
+    def describe(self) -> ProviderInfo:
+        return ProviderInfo(
+            name=self.name,
+            description="Customer accounts, subscriptions and billing history.",
+            selectors_schema={
+                "type": "object",
+                "properties": {
+                    "customer_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+            examples=[
+                '{"customer_id": "cus_123"}',
+            ],
+        )
+
+    def fetch(self, feature_name, selectors=None, **kwargs):
+        customer_id = (selectors or {}).get("customer_id")
+
+        # Replace with your DB/API call.
+        return load_customer(customer_id)
+
+    def serialize(self, obj):
+        return json.dumps(obj, default=str)
+
+
+def llm(prompt: str, sender: str) -> str:
+    # Call OpenAI, Anthropic, a local model,
+    # LiteLLM, or any other LLM here.
+    return my_model(prompt)
+
+
+agent = create_generic_agent(
+    llm_invoke=llm,
+    providers={
+        "customers": CustomerProvider(),
+    },
+    task_profile=TaskProfile(
+        task_name="Customer support",
+        goal="Answer questions using available customer data.",
+        output_format="Plain text",
+    ),
+    saver=lambda name, result: None,
+)
+
+answer = agent.run(
+    "Why was customer cus_123 charged twice?"
+)
+
+print(answer)
+```
+
+The important part is that the planner does **not** need hard-coded knowledge of `CustomerProvider`.
+
+The provider describes itself:
+
+```text
+customers
+├── what data it contains
+├── what it can do
+├── selectors JSON Schema
+└── examples
+```
+
+Fetchgraph puts that contract in front of the planner. The LLM decides whether the provider is needed and generates the appropriate selectors.
+
+---
 
 ### Selectors are JSON-only
 

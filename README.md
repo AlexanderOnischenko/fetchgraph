@@ -1,34 +1,158 @@
 # FetchGraph
 
-## The problem
+**One semantic access layer for your AI agents.**
 
-Most LLM applications eventually need more than one retrieval strategy.
+> **Describe your data once. Let any agent query it.**
 
-Traditional RAG usually reduces this to:
+AI agents can already call databases, APIs, vector stores, and MCP tools.
+
+The harder problem is teaching every agent what your data **means**:
+
+- where customers, orders, products, documents, or metrics live,
+- how those entities relate,
+- which fields and operations are valid,
+- and how a natural-language question should be translated into retrieval.
+
+If every agent has to rediscover that from raw schemas and tool descriptions, the same retrieval logic gets rebuilt again and again.
+
+FetchGraph moves that knowledge into a reusable layer.
 
 ```text
-question → similarity search → chunks → prompt
+Agents / Copilots / Workflows
+              │
+              ▼
+        ┌─────────────┐
+        │ FetchGraph  │
+        │ semantic    │
+        │ access layer│
+        └──────┬──────┘
+               │
+       ┌───────┼────────┐
+       ▼       ▼        ▼
+      SQL     APIs      RAG
+                       / files
 ```
 
-That works well when the problem really is **"find similar text."**
+You describe each data source as a **provider**: what it contains, what it can do, and how it may be queried.
 
-But many real applications need to answer a different question:
+Given a natural-language task, FetchGraph can then:
 
-> **What information do I need, where should I get it from, and how should I query that source?**
+1. decide which providers are relevant,
+2. build a structured retrieval plan,
+3. validate and normalize provider-specific selectors,
+4. fetch the required data,
+5. fit the evidence into a context budget,
+6. and pass the assembled context to an LLM to produce the result.
 
-And the data sources themselves can be organized as RAGs, DBs, APIs, etc.
+The goal is simple:
 
-As the number of data sources grows, so does the orchestration code.
+> Adding the second, tenth, or hundredth agent should not require teaching each of them your data architecture again.
 
-The LLM already understands the user's intent.
+---
 
-It should be able to plan the context it needs.
+## Why FetchGraph?
 
-## What fetchgraph does
+Imagine your company has:
 
-Fetchgraph turns context retrieval into a **schema-driven planning problem**.
+- customers in one database,
+- orders in another,
+- product information behind an API,
+- documentation in a vector index,
+- and several agents that need different combinations of that data.
 
-Each data source becomes a **provider**.
+You *can* give every agent direct access to all of those systems and let it figure everything out at runtime.
+
+That works well for simple cases.
+
+But as data sources and agents multiply, every agent starts solving the same questions:
+
+```text
+Where does this information live?
+Which entity should I query?
+Which relation should I follow?
+Which filters are valid?
+Do I need SQL, semantic search, or both?
+```
+
+FetchGraph makes those answers reusable.
+
+For example, a provider can describe a relational source roughly as:
+
+```text
+Customers
+- id
+- segment
+- country
+
+Orders
+- customer_id
+- order_date
+- amount
+
+Customer -> Orders via customer_id
+
+Supported operations:
+- filter
+- relation traversal
+- aggregation
+- semantic search
+```
+
+Then an application can ask:
+
+> Which products grew fastest among enterprise customers in Germany last quarter?
+
+The planner can use the provider descriptions to determine the relevant entities, relations, filters, and aggregations instead of requiring that logic to be hard-coded into the application.
+
+---
+
+## FetchGraph vs. MCP, direct SQL, and RAG
+
+FetchGraph is not intended to replace any of them.
+
+### MCP
+
+MCP is a great way to expose tools and resources to agents.
+
+FetchGraph solves a different problem:
+
+```text
+MCP:        What can the agent call?
+FetchGraph: What information does this task need, and how should it be retrieved?
+```
+
+A FetchGraph application can be wrapped as a tool or exposed over MCP so multiple agents share the same data model and retrieval behavior.
+
+### Direct SQL
+
+For one agent and one well-understood database, letting the model inspect the schema and write SQL directly may be simpler.
+
+FetchGraph becomes useful when you want the knowledge about entities, relations, valid operations, and retrieval rules to be **shared across agents and sources**, rather than rediscovered by every model invocation.
+
+### RAG
+
+Traditional RAG is excellent when the problem is:
+
+```text
+question -> similarity search -> chunks -> prompt
+```
+
+FetchGraph is useful when retrieval also involves structured operations:
+
+```text
+intent
+  -> choose source
+  -> choose entities
+  -> filters / relations / aggregations / semantic search
+  -> fetch evidence
+  -> context
+```
+
+Vector search can simply be one of the provider capabilities.
+
+---
+
+## Core abstraction: providers
 
 A provider exposes two things:
 
@@ -47,53 +171,49 @@ provider.fetch(
 ProviderInfo(
     name="orders",
     description="Orders and customer purchases",
+    capabilities=["query", "aggregate"],
     selectors_schema={...},
     examples=[...],
 )
 ```
 
-From those contracts, fetchgraph builds a provider catalog for the planner.
+FetchGraph builds a catalog from these descriptions and gives it to the planner.
 
-The planner can then produce a plan such as:
+The planner produces structured fetch specifications rather than arbitrary application code:
 
 ```json
 {
-  "required_context": [
-    "orders"
-  ],
+  "required_context": ["orders"],
   "context_plan": [
     {
       "provider": "orders",
-      "mode": "full",
+      "mode": "slice",
       "selectors": {
         "op": "query",
         "root_entity": "orders",
         "limit": 20
-      }
+      },
+      "max_tokens": 2000
     }
   ]
 }
 ```
 
-Fetchgraph executes the plan instead of asking your application to encode every retrieval path manually.
+Providers remain responsible for executing those selectors against the real system.
 
-## Features
+That means a provider may wrap a database client, an ODBC connection, an HTTP API, a vector store, a local dataframe, or another retrieval system without exposing those runtime objects to the planner.
 
-- JSON-only selectors with JSON Schema hints for planners
-- Pluggable context providers (APIs, relational sources, etc.)
-- Relational providers with semantic clauses
-- CSV semantic backend (TF-IDF) for pandas providers
-- pgvector / LangChain vector store integration
-- Library-style API: no framework lock-in
+---
 
-# Quick Start
+# Quick start
 
 ## Install
+
 ```bash
 pip install fetchgraph
 ```
 
-Connect your LLM and expose some data through a provider:
+Connect your LLM and expose a data source through a provider:
 
 ```python
 import json
@@ -111,7 +231,8 @@ class CustomerProvider:
     def describe(self) -> ProviderInfo:
         return ProviderInfo(
             name=self.name,
-            description="Customer accounts, subscriptions and billing history.",
+            description="Customer accounts, subscriptions, and billing history.",
+            capabilities=["lookup"],
             selectors_schema={
                 "type": "object",
                 "properties": {
@@ -135,8 +256,7 @@ class CustomerProvider:
 
 
 def llm(prompt: str, sender: str) -> str:
-    # Call OpenAI, Anthropic, a local model,
-    # LiteLLM, or any other LLM here.
+    # OpenAI, Anthropic, a local model, LiteLLM, etc.
     return my_model(prompt)
 
 
@@ -160,7 +280,7 @@ answer = agent.run(
 print(answer)
 ```
 
-The important part is that the planner does **not** need hard-coded knowledge of `CustomerProvider`.
+The application does not hard-code when the customer provider should be used or which selector should be sent.
 
 The provider describes itself:
 
@@ -168,256 +288,146 @@ The provider describes itself:
 customers
 ├── what data it contains
 ├── what it can do
-├── selectors JSON Schema
+├── selector schema
 └── examples
 ```
 
-Fetchgraph puts that contract in front of the planner. The LLM decides whether the provider is needed and generates the appropriate selectors.
+The planner uses that contract to decide whether the provider is needed and how to query it.
 
 ---
 
-### Selectors are JSON-only
+## What happens during a run?
 
-Providers receive a `selectors` argument that **must be JSON-serializable**. The
-shared alias `SelectorsDict` (exported from `fetchgraph.relational.types`) represents
-`Dict[str, JSONValue]` and is used across protocols and models. The planner/LLM
-produces this structure, so do not place runtime-only Python objects (e.g.
-connections, DataFrames) into `selectors`; pass such hints through `**kwargs`
-instead. Providers can publish the expected shape via `ProviderInfo.selectors_schema`
-(a JSON Schema) and optional `examples` containing stringified JSON payloads.
+The generic agent follows this flow:
 
-Relational providers require `selectors` to include a string field `"op"` that
-chooses the operation (e.g., `"schema"`, `"semantic_only"`, `"query"`). The
-complete set of supported shapes is described by the schema returned from
-`RelationalDataProvider.describe()`.
-
-```python
-from fetchgraph import (
-  BaseGraphAgent, ContextPacker, BaselineSpec, ContextFetchSpec,
-  TaskProfile, RawLLMOutput
-)
-from fetchgraph.core import make_llm_plan_generic, make_llm_synth_generic
-
-# Define providers (implement ContextProvider protocol)
-class SpecProvider:
-    name = "spec"
-    def fetch(self, feature_name, selectors=None, **kw): return {"content": f"Spec for {feature_name}"}
-    def serialize(self, obj): return obj.get("content", "") if isinstance(obj, dict) else str(obj)
-
-def dummy_llm(prompt: str, sender: str) -> str:
-    if sender == "generic_plan":
-        return '{"required_context":["spec"],"context_plan":[{"provider":"spec","mode":"full"}]}'
-    if sender == "generic_synth":
-        return "result: ok"
-    return ""
-
-profile = TaskProfile(
-  task_name="Demo",
-  goal="Produce YAML doc from spec",
-  output_format="YAML: result: <...>"
-)
-
-agent = BaseGraphAgent(
-  llm_plan=make_llm_plan_generic(dummy_llm, profile, {"spec": SpecProvider()}),
-  llm_synth=make_llm_synth_generic(dummy_llm, profile),
-  domain_parser=lambda raw: raw.text,  # RawLLMOutput -> Any
-  saver=lambda feature_name, parsed: None,  # save side-effect
-  providers={"spec": SpecProvider()},
-  verifiers=[type("Ok",(),{"name":"ok","check":lambda self,out: []})()],
-  packer=ContextPacker(max_tokens=2000, summarizer_llm=lambda t: t[:200]),
-  baseline=[BaselineSpec(ContextFetchSpec(provider="spec"))],
-)
-
-print(agent.run("FeatureX"))
+```text
+TASK
+  │
+  ▼
+PLAN
+  │   choose providers + selectors
+  ▼
+FETCH
+  │   execute provider contracts
+  ▼
+PACK
+  │   keep context within a token budget
+  ▼
+ASSESS / REFETCH   (optional)
+  │
+  ▼
+SYNTHESIZE
+  │
+  ▼
+VERIFY / REFINE    (optional)
+  │
+  ▼
+RESULT
 ```
 
-## Working with selectors
+The planning and retrieval steps are explicit, which makes them easier to inspect and evaluate separately from final answer generation.
 
-- **Plan-time inputs**: The planner/LLM crafts `selectors` (a `SelectorsDict`) for
-  each `ContextFetchSpec`. These inputs must be JSON-serializable and should be
-  validated by providers using their published JSON Schema.
-- **Provider contract**: Implementations of `ContextProvider.fetch` should accept
-  `selectors: Optional[SelectorsDict] = None` and treat `**kwargs` as optional
-  runtime hints that may be non-serializable.
-- **Schema + examples**: Providers can guide planners by returning
-  `ProviderInfo(selectors_schema=..., examples=[...])` from `describe()`.
+---
 
-Example for a relational provider that requires an `"op"` selector:
+## Relational data
 
-```python
-from fetchgraph import ProviderInfo
-from fetchgraph.relational import SelectorsDict
+FetchGraph includes relational abstractions for structured business data.
 
-class RelationalDataProvider:
-    name = "relational"
+The public API includes:
 
-    def fetch(self, feature_name: str, selectors: SelectorsDict, **kwargs):
-        op = selectors.get("op")
-        if not op:
-            raise ValueError("selectors.op is required")
-        ...  # existing logic for schema/semantic_only/query
+- `EntityDescriptor`
+- `ColumnDescriptor`
+- `RelationDescriptor`
+- `RelationalDataProvider`
+- `SqlRelationalDataProvider`
+- `PandasRelationalDataProvider`
+- `CompositeRelationalProvider`
 
-    def describe(self) -> ProviderInfo:
-        schema = {
-            "oneOf": [
-                {"type": "object", "required": ["op"], "properties": {"op": {"const": "schema"}}},
-                {"type": "object", "required": ["op", "sql"], "properties": {"op": {"const": "query"}, "sql": {"type": "string"}}},
-            ]
-        }
-        return ProviderInfo(
-            name=self.name,
-            selectors_schema=schema,
-            examples=["{\"op\":\"schema\"}", "{\"op\":\"query\",\"sql\":\"select 1\"}"],
-        )
-```
+Relational providers can describe entities and relations to the planner and support structured operations such as filtering, selecting fields, aggregations, relation traversal, and semantic clauses.
 
-During planning you can feed selectors into `ContextFetchSpec` to fix the
-operation:
+Internally, the planning pipeline can normalize selectors, validate them, bind field references to the schema, normalize aggregations, and retry planning when a generated plan cannot be executed.
 
-```python
-fetch_spec = ContextFetchSpec(provider="relational", selectors={"op": "schema"})
-```
+This is the main reason to use FetchGraph instead of simply putting a raw database schema into every agent prompt: the data-access model becomes a reusable contract with a validation and execution layer behind it.
 
-## CSV semantic backend for Pandas providers
+---
 
-`fetchgraph.relational.semantic.backend` ships a lightweight TF-IDF backend that turns a CSV
-file into semantic embeddings and reuses them across runs. The flow is:
+## Semantic retrieval
 
-1. Build embeddings from a CSV once using `CsvEmbeddingBuilder` and persist them
-   alongside the CSV.
-2. Configure a `CsvSemanticBackend` with one or more `CsvSemanticSource` entries
-   (one per entity) pointing at the CSV and saved embeddings.
-3. Pass that backend into `PandasRelationalDataProvider` so semantic clauses can
-   delegate matching to the precomputed vectors.
+Semantic search is a provider capability rather than a special application architecture.
 
-Example setup:
+FetchGraph currently includes:
+
+- a lightweight CSV semantic backend for Pandas providers,
+- pluggable embedding models,
+- pgvector / LangChain vector-store integration,
+- semantic clauses inside relational requests.
+
+This allows an application to combine structured and semantic retrieval rather than choosing between "SQL" and "RAG" at the application level.
+
+---
+
+## Selectors
+
+Provider selectors are JSON-serializable structures generated during planning.
 
 ```python
-from pathlib import Path
-from fetchgraph.relational.semantic import (
-    EmbeddingModel,
-    CsvEmbeddingBuilder,
-    CsvSemanticBackend,
-    CsvSemanticSource,
-)
-from fetchgraph.relational import ColumnDescriptor, EntityDescriptor, PandasRelationalDataProvider
-
-csv_path = Path("products.csv")
-embedding_path = Path("products_embeddings.json")
-
-# Build once (e.g., during deployment) to avoid recomputing embeddings at runtime.
-CsvEmbeddingBuilder(
-    csv_path=csv_path,
-    entity="product",
-    id_column="id",
-    text_fields=["name", "description"],
-    output_path=embedding_path,
-).build()
-
-semantic_backend = CsvSemanticBackend(
-    {"product": CsvSemanticSource("product", csv_path, embedding_path)}
-)
-
-entities = [
-    EntityDescriptor(
-        name="product",
-        columns=[ColumnDescriptor(name="id", role="primary_key"), ColumnDescriptor(name="name"), ColumnDescriptor(name="description")],
-    )
-]
-
-provider = PandasRelationalDataProvider(
-    name="products", entities=entities, relations=[], frames={"product": ...}, semantic_backend=semantic_backend
-)
-```
-
-You can plug in an embedding model (for example, an OpenAI client) to build and
-query dense embeddings instead of the default TF-IDF vectors:
-
-```python
-from fetchgraph.relational.semantic import (
-    EmbeddingModel,
-    CsvSemanticSource,
-    CsvEmbeddingBuilder,
-    CsvSemanticBackend,
-)
-
-
-class OpenAIEmbeddingModel:
-    def __init__(self, client):
-        self.client = client
-
-    def embed_documents(self, texts):
-        # replace with client.embeddings(...)
-        return [[1.0, 0.0] for _ in texts]
-
-    def embed_query(self, text):
-        return self.embed_documents([text])[0]
-
-
-embedding = OpenAIEmbeddingModel(client)
-
-CsvEmbeddingBuilder(
-    csv_path="fbs.csv",
-    entity="fbs",
-    id_column="id",
-    text_fields=["name", "description"],
-    output_path="fbs_embeddings.json",
-    embedding_model=embedding,
-).build()
-
-csv_backend = CsvSemanticBackend(
-    {
-        "fbs": CsvSemanticSource(
-            entity="fbs",
-            csv_path=Path("fbs.csv"),
-            embedding_path=Path("fbs_embeddings.json"),
-        )
+ContextFetchSpec(
+    provider="orders",
+    mode="slice",
+    selectors={
+        "op": "query",
+        "root_entity": "orders",
     },
-    embedding_model=embedding,
 )
 ```
 
-At query time, `SemanticClause` filters sent to the relational provider will
-call `semantic_backend.search(...)` with the requested entity, fields, and
-query text. Fields must be a subset of the indexed CSV columns (not including
-the reserved `__all__` combined projection). By default, field similarities are
-summed; adjust the backend if you need a different aggregation strategy.
+Providers can publish the expected selector shape through `ProviderInfo.selectors_schema` and examples through `ProviderInfo.examples`.
 
-### pgvector / LangChain vector stores
+Runtime-only Python objects such as database connections, DataFrames, or model clients should stay inside the provider or be passed as runtime hints — not inside planner-generated selectors.
 
-If you already manage embeddings in PostgreSQL with ``pgvector`` via LangChain,
-you can supply your existing vector stores directly:
+---
 
-```python
-from langchain_community.vectorstores.pgvector import PGVector
-from fetchgraph.relational.semantic import PgVectorSemanticBackend, PgVectorSemanticSource
+## Current capabilities
 
-vector_store = PGVector.from_existing_index(
-    collection_name="product_vectors", connection_string="postgresql+psycopg://..."
-)
+- schema-driven provider catalog
+- LLM-generated structured retrieval plans
+- pluggable providers for heterogeneous sources
+- JSON Schema-guided selectors
+- relational entities and relations
+- filtering and aggregations
+- structured + semantic retrieval
+- SQL and Pandas relational providers
+- composite relational providers
+- bounded context packing
+- optional assess/refetch loop
+- optional verification/refinement
+- replay / planning diagnostics in the normalization pipeline
+- no agent-framework lock-in
 
-semantic_backend = PgVectorSemanticBackend(
-    {
-        "product": PgVectorSemanticSource(
-            entity="product",
-            vector_store=vector_store,
-            metadata_entity_key="entity",  # optional, defaults to "entity"
-            metadata_field_key="field",    # optional, defaults to "field"
-            id_metadata_keys=("id",),       # optional metadata key(s) to read the row identifier
-            score_kind="distance",          # convert pgvector distances into similarity scores
-        )
-    }
-)
-```
+---
 
-The backend will filter returned documents by entity and requested fields using
-Document metadata before converting scores into :class:`SemanticMatch` entries.
+## When should I use FetchGraph?
+
+FetchGraph is a good fit when:
+
+- several agents need access to the same corporate data,
+- data is spread across heterogeneous systems,
+- questions require more than document similarity search,
+- structured filters, joins, or aggregations matter,
+- you want retrieval logic to be inspectable and reusable,
+- or you want to separate context planning from the main agent reasoning loop.
+
+You probably do **not** need FetchGraph if:
+
+- you have one small corpus and ordinary top-k RAG is enough,
+- you have one simple database and are happy to let one strong model write SQL directly,
+- or there is no meaningful data model worth sharing across applications.
 
 ---
 
 ## Examples
 
-The repository contains working examples under:
+Working examples live under:
 
 ```text
 examples/
@@ -425,69 +435,26 @@ examples/
 └── retail_orders/
 ```
 
-`demo_qa` demonstrates a schema-driven question-answering agent over relational data, including planning and evaluation cases.
+`examples/demo_qa` contains a schema-driven QA testbed with planning artifacts and evaluation cases.
 
-See:
-
-[examples/demo_qa](examples/demo_qa)
+`examples/retail_orders` demonstrates questions over relational business data.
 
 ---
 
-## When should I use fetchgraph?
+## Direction
 
-Fetchgraph is useful when your LLM needs to work across **multiple heterogeneous sources** and the required context changes from request to request.
+The long-term direction is to make the semantic layer cheaper to create and richer to reuse.
 
-Good examples:
+One natural extension is **schema introspection and ontology-assisted provider generation**: deriving an initial agent-readable model from database schemas, relationships, metadata, and existing corporate glossaries, then letting humans enrich it where business semantics cannot be inferred reliably.
 
-* analytics over relational business data,
-* agents combining APIs and internal documentation,
-* support assistants using account data plus knowledge bases,
-* architecture agents reading specifications, ADRs and repositories,
-* research agents that need different retrieval strategies,
-* applications mixing structured and semantic search.
+That is a direction, not a requirement for using FetchGraph today.
 
-You probably do **not** need fetchgraph if your entire retrieval problem is:
+The core invariant remains:
 
-```text
-one corpus → vector search → top 5 chunks
-```
-
-A normal RAG pipeline will be simpler.
+> **Describe your data once. Reuse that knowledge across agents.**
 
 ---
 
-## The core idea
+## License
 
-The important abstraction in fetchgraph is not a vector store and not a particular agent graph.
-
-It is this boundary:
-
-```text
-LLM intent
-    │
-    ▼
-structured context plan
-    │
-    ▼
-provider contracts
-    │
-    ▼
-real data
-```
-
-Once data sources expose machine-readable contracts, context selection itself becomes something the LLM can plan.
-
-That is what fetchgraph is built for.
-
----
-
-
-## LICENSE
-```text
-MIT License
-
-Copyright (c) 2025 ...
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-...
-```
+MIT

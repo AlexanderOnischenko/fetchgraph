@@ -103,7 +103,22 @@ from .adapters import (  # noqa: E402
     create_artifact_context_provider,
 )
 
+from .retrieval import (  # noqa: E402
+    RetrievalError,
+    FetchGraph,
+    retrieve,
+    answer,
+    EvidenceBundle,
+    AnswerResult,
+)
+
 __all__ = (
+    "RetrievalError",
+    "FetchGraph",
+    "retrieve",
+    "answer",
+    "EvidenceBundle",
+    "AnswerResult",
     # Core
     "RawLLMOutput",
     "ProviderInfo",

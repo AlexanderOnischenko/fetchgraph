@@ -435,6 +435,363 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "fetchgraph_retrieve",
+      "description": "Retrieve structured data, executed plan and provenance for your own reasoning. Performs planning and retrieval. Returns an EvidenceBundle.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "inference_profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          }
+        },
+        "required": [
+          "source",
+          "question"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "$defs": {
+          "ContextFetchSpec": {
+            "description": "Specification for a single provider fetch step.\n\n``selectors`` is a JSON-serializable object describing provider-specific\nfetch parameters. Its allowed structure is defined by the provider via\n``ProviderInfo.selectors_schema``.",
+            "properties": {
+              "provider": {
+                "title": "Provider",
+                "type": "string"
+              },
+              "mode": {
+                "default": "full",
+                "title": "Mode",
+                "type": "string"
+              },
+              "selectors": {
+                "additionalProperties": true,
+                "title": "Selectors",
+                "type": "object"
+              },
+              "max_tokens": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Max Tokens"
+              }
+            },
+            "required": [
+              "provider"
+            ],
+            "title": "ContextFetchSpec",
+            "type": "object"
+          },
+          "JsonValue": {},
+          "Plan": {
+            "properties": {
+              "required_context": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Required Context",
+                "type": "array"
+              },
+              "context_plan": {
+                "items": {
+                  "$ref": "#/$defs/ContextFetchSpec"
+                },
+                "title": "Context Plan",
+                "type": "array"
+              },
+              "adr_queries": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Adr Queries"
+              },
+              "constraints": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Constraints"
+              },
+              "entities": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Entities",
+                "type": "array"
+              },
+              "dtos": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Dtos",
+                "type": "array"
+              }
+            },
+            "title": "Plan",
+            "type": "object"
+          },
+          "Provenance": {
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "locator": {
+                "maxLength": 240,
+                "minLength": 1,
+                "title": "Locator",
+                "type": "string"
+              },
+              "selectors": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "title": "Selectors",
+                "type": "object"
+              },
+              "retrieved_at": {
+                "title": "Retrieved At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "locator",
+              "selectors",
+              "retrieved_at"
+            ],
+            "title": "Provenance",
+            "type": "object"
+          },
+          "RetrievalDiagnostics": {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "insufficient"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "profile": {
+                "title": "Profile",
+                "type": "string"
+              },
+              "gaps": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Gaps",
+                "type": "array"
+              },
+              "llm_calls": {
+                "title": "Llm Calls",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "status",
+              "profile",
+              "llm_calls"
+            ],
+            "title": "RetrievalDiagnostics",
+            "type": "object"
+          },
+          "RetrievalSource": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "title": "Kind",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "title": "RetrievalSource",
+            "type": "object"
+          },
+          "RetrievedEvidence": {
+            "additionalProperties": false,
+            "properties": {
+              "ref": {
+                "pattern": "^ev_[0-9a-f]{32}$",
+                "title": "Ref",
+                "type": "string"
+              },
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "locator": {
+                "maxLength": 240,
+                "minLength": 1,
+                "title": "Locator",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 16384,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              },
+              "data": {
+                "$ref": "#/$defs/JsonValue",
+                "default": null
+              },
+              "provenance": {
+                "$ref": "#/$defs/Provenance"
+              }
+            },
+            "required": [
+              "ref",
+              "source",
+              "locator",
+              "text",
+              "provenance"
+            ],
+            "title": "RetrievedEvidence",
+            "type": "object"
+          }
+        },
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Executed plan and bounded evidence, without answer synthesis.",
+            "properties": {
+              "plan": {
+                "$ref": "#/$defs/Plan"
+              },
+              "evidence": {
+                "items": {
+                  "$ref": "#/$defs/RetrievedEvidence"
+                },
+                "maxItems": 8,
+                "title": "Evidence",
+                "type": "array"
+              },
+              "sources": {
+                "items": {
+                  "$ref": "#/$defs/RetrievalSource"
+                },
+                "title": "Sources",
+                "type": "array"
+              },
+              "diagnostics": {
+                "$ref": "#/$defs/RetrievalDiagnostics"
+              }
+            },
+            "required": [
+              "plan",
+              "sources",
+              "diagnostics"
+            ],
+            "title": "EvidenceBundle",
+            "type": "object"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "INVALID_ARGUMENT",
+                      "SOURCE_UNKNOWN",
+                      "PROFILE_UNKNOWN",
+                      "PROFILE_FORBIDDEN",
+                      "BUSY",
+                      "TIMEOUT",
+                      "SOURCE_FAILED",
+                      "MODEL_FAILED",
+                      "INVALID_PLAN",
+                      "INVALID_ANSWER",
+                      "BUDGET_EXCEEDED",
+                      "EVIDENCE_GONE",
+                      "INTERNAL"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "retryable"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
     }
   ]
 }

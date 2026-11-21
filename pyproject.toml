@@ -1,7 +1,7 @@
 [project]
 name = "fetchgraph"
 version = "0.2.2"
-description = "Graph-like planning → context fetching → synthesis agent (library-style)."
+description = "Evidence-first retrieval from configured data providers for agents."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT" 
@@ -26,7 +26,8 @@ requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.30,<2", "httpx>=0.27", "jsonschema>=4", "PyYAML>=6"]
+retrieval = ["httpx>=0.27", "jsonschema>=4", "PyYAML>=6"]
+mcp = ["fetchgraph[retrieval]", "mcp>=1.30,<2"]
 dev = [
   "pytest>=9.0",
   "pre-commit",

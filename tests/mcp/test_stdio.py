@@ -26,7 +26,7 @@ def test_stdio_inference_and_evidence(tmp_path):
         def do_POST(self):
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append(payload)
-            if len(requests) == 1:
+            if payload["model"] == "planner":
                 answer = {
                     "context_plan": [
                         {
@@ -97,9 +97,22 @@ default_profile = "local"
         async with stdio_client(params) as (reader, writer):
             async with ClientSession(reader, writer) as client:
                 await client.initialize()
-                assert len((await client.list_tools()).tools) == 3
+                assert len((await client.list_tools()).tools) == 4
                 catalog = await client.call_tool("fetchgraph_catalog", {})
                 assert not catalog.isError
+                retrieval = await client.call_tool(
+                    "fetchgraph_retrieve",
+                    {"source": "shop", "question": "Count orders?"},
+                )
+                assert not retrieval.isError, retrieval
+                bundle = retrieval.structuredContent
+                assert bundle["evidence"][0]["data"] == {"n": 1000}
+                assert bundle["diagnostics"]["llm_calls"] == 1
+                assert len(requests) == 1
+                page = await client.call_tool(
+                    "fetchgraph_read_evidence", {"ref": bundle["evidence"][0]["ref"]}
+                )
+                assert page.structuredContent["text"] == bundle["evidence"][0]["text"]
                 answer = await client.call_tool(
                     "fetchgraph_ask", {"source": "shop", "question": "Count orders?"}
                 )
@@ -116,8 +129,13 @@ default_profile = "local"
 
     try:
         asyncio.run(exercise())
+        from fetchgraph import retrieve
+
+        bundle = retrieve("Count orders?", config=config)
+        assert bundle.evidence[0].data == {"n": 1000}
+        assert bundle.diagnostics.llm_calls == 1
     finally:
         http.shutdown()
         http.server_close()
         thread.join()
-    assert [r["model"] for r in requests] == ["planner", "writer"]
+    assert [r["model"] for r in requests] == ["planner", "planner", "writer", "planner"]

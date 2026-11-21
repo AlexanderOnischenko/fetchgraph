@@ -120,7 +120,7 @@ def test_sqlite_zero_aggregate(runtime, tmp_path):
         "Count?",
         float("inf"),
     )
-    assert pairs == [("orders/aggregations/n", '{"n":0}')]
+    assert pairs == [("orders/aggregations/n", '{"n":0}', {"n": 0})]
     assert gaps == []
     import numpy as np
     import pandas as pd
@@ -287,7 +287,7 @@ def test_artifact_families(runtime, tmp_path, family, anchors):
         source, {"family": family, "anchors": anchors}, "?", float("inf")
     )
     assert pairs
-    assert all(locator.startswith("run/") for locator, text in pairs)
+    assert all(locator.startswith("run/") for locator, text, data in pairs)
     pairs, gaps = runtime.fetch(
         source,
         {"family": "EXPLAIN_TARGET", "anchors": {"target_id": "targ"}},
@@ -298,9 +298,12 @@ def test_artifact_families(runtime, tmp_path, family, anchors):
     assert gaps
 
 
-def test_plugin_alias_and_invalid_citation_are_isolated(runtime, monkeypatch):
+@pytest.mark.parametrize("selectors", [{}, {"key": "value"}])
+def test_plugin_alias_and_invalid_citation_are_isolated(
+    runtime, monkeypatch, selectors
+):
     from fetchgraph import ProviderInfo
-    import fetchgraph.mcp.runtime as module
+    import fetchgraph.retrieval.engine as module
 
     class Provider:
         name = "different_name"
@@ -311,17 +314,17 @@ def test_plugin_alias_and_invalid_citation_are_isolated(runtime, monkeypatch):
                 selectors_schema={
                     "type": "object",
                     "properties": {"key": {"const": "value"}},
-                    "required": ["key"],
+                    "required": list(selectors),
                     "additionalProperties": False,
                 },
             )
 
         def fetch(self, question, selectors):
-            assert selectors == {"key": "value"}
-            return "observed"
+            assert selectors in ({}, {"key": "value"})
+            return {"count": 42, "detail": "original data"}
 
         def serialize(self, obj):
-            return obj
+            return "observed"
 
     monkeypatch.setattr(module, "factory", lambda name: lambda options: Provider())
     runtime.config["sources"]["shop"] = {
@@ -335,7 +338,7 @@ def test_plugin_alias_and_invalid_citation_are_isolated(runtime, monkeypatch):
     async def inference(profile, stage, instruction, data):
         if stage == "plan":
             return json.dumps(
-                {"context_plan": [{"provider": "shop", "selectors": {"key": "value"}}]}
+                {"context_plan": [{"provider": "shop", "selectors": selectors}]}
             )
         return json.dumps(
             {
@@ -349,10 +352,19 @@ def test_plugin_alias_and_invalid_citation_are_isolated(runtime, monkeypatch):
 
     async def exercise():
         nonlocal bad_citation
+        retrieval = await runtime.call(
+            "fetchgraph_retrieve", {"source": "shop", "question": "?"}
+        )
+        assert retrieval["evidence"][0]["data"] == {
+            "count": 42,
+            "detail": "original data",
+        }
+        assert retrieval["evidence"][0]["text"] == "observed"
+        snapshots_before = len(runtime.snapshots)
         with pytest.raises(Failure) as error:
             await runtime.call("fetchgraph_ask", {"source": "shop", "question": "?"})
         assert error.value.code == "INVALID_ANSWER"
-        assert not runtime.snapshots
+        assert len(runtime.snapshots) == snapshots_before
         bad_citation = False
         answer = await runtime.call(
             "fetchgraph_ask", {"source": "shop", "question": "?"}

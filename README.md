@@ -1,21 +1,17 @@
 # fetchgraph
 
-Universal, library-style agent that plans what to fetch, fetches context from pluggable providers, and synthesizes an output.
+FetchGraph retrieves structured evidence from configured data sources for agents.
+Its Python API and MCP server return data, provenance, the executed plan, and
+diagnostics so the calling agent can continue reasoning.
 
-**Pipeline:** PLAN → FETCH → (ASSESS/REFETCH)* → SYNTH → VERIFY → (REFINE)* → SAVE
+**Retrieval pipeline:** PLAN → VALIDATE → FETCH → EvidenceBundle
 
-## Why fetchgraph?
+Provide an inference model for retrieval planning and register data providers for
+databases, APIs, or files. Use `retrieve(question)` to obtain evidence or
+`answer(question)` to add answer synthesis.
 
-`fetchgraph` is a *library-style* LLM agent orchestrator.  
-You bring:
-- your LLM (OpenAI, local, whatever),
-- your data providers (DBs, APIs, files),
-
-and `fetchgraph` handles:
-- planning what context to fetch,
-- calling providers with JSON selectors,
-- packing context into the prompt,
-- verifying / refining the result.
+The existing `BaseGraphAgent` API also supports the full orchestration pipeline
+with refetch, synthesis, verification, refinement, and save hooks.
 
 ## Features
 
@@ -31,6 +27,28 @@ and `fetchgraph` handles:
 pip install fetchgraph
 ```
 
+## Retrieve evidence for any agent
+
+```bash
+pip install 'fetchgraph[retrieval]'
+```
+
+```python
+from fetchgraph import FetchGraph
+
+graph = FetchGraph("/absolute/path/fetchgraph.toml")
+bundle = graph.retrieve("How many orders are in the shop?", source="shop")
+print(bundle.evidence[0].data)
+print(bundle.plan.context_plan[0].selectors)
+```
+
+Retrieval returns structured data, provenance, the executed plan, and diagnostics.
+Use `graph.answer(question, source="shop")` to add answer synthesis.
+Async applications can await `graph.aretrieve(...)` and `graph.aanswer(...)`.
+Module-level `fetchgraph.retrieve(...)` and `fetchgraph.answer(...)` accept
+`config=...`, or read the configuration path from `FETCHGRAPH_CONFIG`.
+See the [API and configuration contract](docs/features/fetchgraph-mcp/spec.md).
+
 ## MCP server
 
 Connect configured sources to Codex, OpenCode, or another MCP client:
@@ -42,7 +60,8 @@ codex mcp add fetchgraph -- fetchgraph-mcp --config /absolute/path/fetchgraph.to
 ```
 
 Configure an inference endpoint, model, and source in TOML. The server provides
-`fetchgraph_catalog`, `fetchgraph_ask`, and `fetchgraph_read_evidence`.
+`fetchgraph_catalog`, `fetchgraph_retrieve`, `fetchgraph_ask`, and
+`fetchgraph_read_evidence`.
 See the [MCP specification](docs/features/fetchgraph-mcp/spec.md) for configuration
 examples, OpenCode setup, and source adapter contracts.
 

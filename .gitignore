@@ -9,3 +9,5 @@ build/
 _demo_data/*/.runs/*
 .coverage
 .DS_Store
+
+fetchgraph.local.toml

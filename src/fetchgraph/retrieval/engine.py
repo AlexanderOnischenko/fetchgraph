@@ -108,7 +108,7 @@ class RetrievalEngine:
                         "max_tokens": 2048,
                         "stream": False,
                     },
-                    timeout=60,
+                    timeout=profile.get("timeout_s", 60),
                 )
             if response.status_code >= 400:
                 raise Failure(
@@ -188,8 +188,9 @@ class RetrievalEngine:
             raise Failure("BUSY", True)
         self.active += 1
         try:
-            deadline = time.monotonic() + 60
-            async with asyncio.timeout(60):
+            timeout = self.config["profiles"][profile_id].get("timeout_s", 60)
+            deadline = time.monotonic() + timeout
+            async with asyncio.timeout(timeout):
                 bundle = await self.retrieve(
                     source_id, source, profile_id, question, deadline
                 )

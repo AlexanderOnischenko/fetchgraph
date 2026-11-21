@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import math
 import os
 import re
 import tomllib
@@ -56,19 +57,25 @@ def load_config(path):
             "api_key_env",
             "plan_model",
             "synth_model",
+            "timeout_s",
         }:
             raise ValueError("Invalid profile fields")
-        if any(not isinstance(v, str) or not v.strip() for v in profile.values()):
+        timeout = profile.get("timeout_s", 60)
+        if (
+            type(timeout) not in (int, float)
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ValueError("Invalid inference timeout")
+        if any(
+            not isinstance(v, str) or not v.strip()
+            for k, v in profile.items()
+            if k != "timeout_s"
+        ):
             raise ValueError("Empty profile value")
         url = urlsplit(profile["base_url"])
         if (
-            (
-                url.scheme != "https"
-                and not (
-                    url.scheme == "http"
-                    and url.hostname in {"localhost", "127.0.0.1", "::1"}
-                )
-            )
+            url.scheme not in {"https", "http"}
             or not url.netloc
             or url.username is not None
             or url.query

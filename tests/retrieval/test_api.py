@@ -139,3 +139,19 @@ def test_root_import_does_not_load_optional_transports():
         ],
         check=True,
     )
+
+
+def test_lan_inference_profile_and_timeout(configured):
+    from fetchgraph.retrieval.config import load_config
+
+    path, _ = configured
+    text = path.read_text().replace(
+        "http://127.0.0.1:8080/v1", "http://MacBook-Air-Maria.local:11434/v1"
+    )
+    path.write_text(text.replace('model = "test"', 'model = "test"\ntimeout_s = 600'))
+    profile = load_config(path)["profiles"]["local"]
+    assert profile["timeout_s"] == 600
+    assert profile["base_url"] == "http://MacBook-Air-Maria.local:11434/v1"
+    path.write_text(path.read_text().replace("timeout_s = 600", "timeout_s = 0"))
+    with pytest.raises(ValueError, match="timeout"):
+        load_config(path)

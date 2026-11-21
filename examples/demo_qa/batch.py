@@ -12,6 +12,7 @@ from typing import Iterable, Mapping, Optional, cast
 from .llm.factory import build_llm
 from .logging_config import configure_logging
 from .provider_factory import build_provider
+from .compare_resolver import resolve_compare_input, resolved_lines
 from .runner import (
     Case,
     DiffCaseChange,
@@ -54,6 +55,7 @@ from .term import color as term_color
 from .term import fmt_num, fmt_pct, should_use_color, truncate
 from .term import render_table as render_text_table
 from .utils import dump_json
+from fetchgraph.utils.path_layout import LayoutConfig, RunLayout, ensure_dirs, find_case_dirs, make_case_dir, runs_root
 
 
 def write_summary(out_path: Path, summary: dict) -> Path:
@@ -416,13 +418,8 @@ def _git_sha() -> Optional[str]:
 
 
 def _find_case_artifact(run_path: Path, case_id: str) -> Optional[Path]:
-    cases_dir = run_path / "cases"
-    if not cases_dir.exists():
-        return None
-    matches = sorted(cases_dir.glob(f"{case_id}_*"))
-    if matches:
-        return matches[-1]
-    return None
+    matches = find_case_dirs(run_path, case_id, LayoutConfig())
+    return matches[0] if matches else None
 
 
 def _resolve_run_path(path: Path | None, artifacts_dir: Path) -> Optional[Path]:
@@ -449,17 +446,18 @@ def handle_chat(args) -> int:
 
     llm_settings = settings.llm
     llm_endpoint = llm_settings.base_url or "https://api.openai.com/v1"
-    diagnostics = [
-        f"LLM endpoint: {llm_endpoint}",
-        f"Plan model: {llm_settings.plan_model} (temp={llm_settings.plan_temperature})",
-        f"Synth model: {llm_settings.synth_model} (temp={llm_settings.synth_temperature})",
-        f"Timeout: {llm_settings.timeout_s if llm_settings.timeout_s is not None else 'default'}, "
-        f"Retries: {llm_settings.retries if llm_settings.retries is not None else 'default'}",
-    ]
-    if args.enable_semantic:
-        diagnostics.append(f"Embeddings: CSV semantic backend in {args.data} (*.embeddings.json)")
-    else:
-        diagnostics.append("Embeddings: disabled (use --enable-semantic to build/search embeddings).")
+    diagnostics: list[str] | None = None
+    if args.verbose:
+        diagnostics = [
+            f"Plan model: {llm_settings.plan_model} (temp={llm_settings.plan_temperature})",
+            f"Synth model: {llm_settings.synth_model} (temp={llm_settings.synth_temperature})",
+            f"Timeout: {llm_settings.timeout_s if llm_settings.timeout_s is not None else 'default'}, "
+            f"Retries: {llm_settings.retries if llm_settings.retries is not None else 'default'}",
+        ]
+        if args.enable_semantic:
+            diagnostics.append(f"Embeddings: CSV semantic backend in {args.data} (*.embeddings.json)")
+        else:
+            diagnostics.append("Embeddings: disabled (use --enable-semantic to build/search embeddings).")
 
     llm = build_llm(settings)
 
@@ -472,6 +470,8 @@ def handle_chat(args) -> int:
         enable_semantic=args.enable_semantic,
         log_file=log_file,
         diagnostics=diagnostics,
+        llm_endpoint=llm_endpoint,
+        verbose=args.verbose,
     )
     return 0
 
@@ -493,6 +493,41 @@ def _id_sort_key(row: Mapping[str, object]) -> str:
 
 def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
     lines: list[str] = []
+    provenance = compare.get("provenance")
+    if isinstance(provenance, Mapping):
+        base_info = provenance.get("base")
+        new_info = provenance.get("new")
+        lines.append("# Batch comparison report")
+        lines.append("")
+        lines.append("## Resolved inputs")
+        if isinstance(base_info, Mapping):
+            lines.append(f"- BASE input: {base_info.get('input')}")
+            lines.append(f"- BASE kind: {base_info.get('kind')}")
+            lines.append(f"- BASE resolved run_id: {base_info.get('run_id') or 'n/a'}")
+            lines.append(f"- BASE resolved run_dir: {base_info.get('run_dir') or 'n/a'}")
+            lines.append(f"- BASE source: {base_info.get('source')}")
+            lines.append(f"- BASE candidate_count: {base_info.get('candidate_count')}")
+            lines.append(f"- BASE resolved_case_count: {base_info.get('resolved_case_count')}")
+            skipped_base = base_info.get('skipped_incomplete_runs')
+            if isinstance(skipped_base, list) and skipped_base:
+                lines.append(f"- BASE skipped_incomplete_runs: {len(skipped_base)}")
+                for item in skipped_base:
+                    lines.append(f"  - {item}")
+        if isinstance(new_info, Mapping):
+            lines.append(f"- NEW input: {new_info.get('input')}")
+            lines.append(f"- NEW kind: {new_info.get('kind')}")
+            lines.append(f"- NEW resolved run_id: {new_info.get('run_id') or 'n/a'}")
+            lines.append(f"- NEW resolved run_dir: {new_info.get('run_dir') or 'n/a'}")
+            lines.append(f"- NEW source: {new_info.get('source')}")
+            lines.append(f"- NEW candidate_count: {new_info.get('candidate_count')}")
+            lines.append(f"- NEW resolved_case_count: {new_info.get('resolved_case_count')}")
+            skipped_new = new_info.get('skipped_incomplete_runs')
+            if isinstance(skipped_new, list) and skipped_new:
+                lines.append(f"- NEW skipped_incomplete_runs: {len(skipped_new)}")
+                for item in skipped_new:
+                    lines.append(f"  - {item}")
+        lines.append("")
+
     base_counts = compare["base_counts"]
     new_counts = compare["new_counts"]
     fail_on = compare.get("fail_on", "bad")
@@ -507,7 +542,8 @@ def render_markdown(compare: DiffReport, out_path: Optional[Path]) -> str:
 
     base_bad = _bad_total(base_counts, fallback=compare.get("base_bad_total", 0))
     new_bad = _bad_total(new_counts, fallback=compare.get("new_bad_total", 0))
-    lines.append("# Batch comparison report")
+    if not lines:
+        lines.append("# Batch comparison report")
     lines.append("")
     lines.append("## Summary")
     lines.append(f"- Base OK: {base_counts.get('ok',0)}, Bad: {base_bad}")
@@ -983,10 +1019,18 @@ def handle_batch(args) -> int:
 
     selected_case_ids = [case.id for case in cases]
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_folder = artifacts_dir / "runs" / f"{timestamp}_{cases_path.stem}"
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+    cfg = LayoutConfig()
+    default_artifacts_dir = data_dir / ".runs"
+    if artifacts_dir == default_artifacts_dir:
+        runs_root_path = runs_root(data_dir, cfg)
+    else:
+        runs_root_path = artifacts_dir / "runs"
+    run_dir_name = f"{timestamp}_{cases_path.stem}_{run_id}"
+    run_folder = runs_root_path / run_dir_name
+    run_layout = RunLayout(data_dir=data_dir, run_root=run_folder, run_dir_name=run_dir_name, run_id=run_id)
+    ensure_dirs(run_layout, cfg=cfg)
     results_path = Path(args.out) if args.out else (run_folder / "results.jsonl")
-    artifacts_root = run_folder / "cases"
     results_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path = results_path.with_name("summary.json")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -1018,12 +1062,21 @@ def handle_batch(args) -> int:
         for case in cases:
             current_case_id = case.id
             try:
-                result = run_one(case, runner, artifacts_root, plan_only=args.plan_only, event_logger=event_logger)
+                result = run_one(
+                    case,
+                    runner,
+                    runs_root_path,
+                    plan_only=args.plan_only,
+                    event_logger=event_logger,
+                    run_dir=run_folder,
+                    run_dir_name=run_dir_name,
+                    schema_path=schema_path,
+                )
             except KeyboardInterrupt:
                 interrupted = True
                 interrupted_at_case_id = current_case_id
-                run_dir = artifacts_root / f"{case.id}_{uuid.uuid4().hex[:8]}"
-                run_dir.mkdir(parents=True, exist_ok=True)
+                case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
+                ensure_dirs(run_layout, case_layout, cfg=cfg)
                 stub = RunResult(
                     id=case.id,
                     question=case.question,
@@ -1031,7 +1084,7 @@ def handle_batch(args) -> int:
                     checked=case.has_asserts,
                     reason="KeyboardInterrupt",
                     details={"error": "KeyboardInterrupt"},
-                    artifacts_dir=str(run_dir),
+                    artifacts_dir=str(case_layout.case_dir),
                     duration_ms=0,
                     tags=list(case.tags),
                     answer=None,
@@ -1377,10 +1430,18 @@ def handle_case_run(args) -> int:
         return 2
 
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_id = uuid.uuid4().hex[:8]
-    run_folder = artifacts_dir / "runs" / f"{timestamp}_{args.cases.stem}_{run_id}"
-    artifacts_root = run_folder / "cases"
+    cfg = LayoutConfig()
+    default_artifacts_dir = args.data / ".runs"
+    if artifacts_dir == default_artifacts_dir:
+        runs_root_path = runs_root(args.data, cfg)
+    else:
+        runs_root_path = artifacts_dir / "runs"
+    run_dir_name = f"{timestamp}_{args.cases.stem}_{run_id}"
+    run_folder = runs_root_path / run_dir_name
+    run_layout = RunLayout(data_dir=args.data, run_root=run_folder, run_dir_name=run_dir_name, run_id=run_id)
+    ensure_dirs(run_layout, cfg=cfg)
     results_path = run_folder / "results.jsonl"
 
     log_dir = artifacts_dir / "logs"
@@ -1390,7 +1451,14 @@ def handle_case_run(args) -> int:
     llm = build_llm(settings)
     runner = build_agent(llm, provider)
 
-    result = run_one(cases[args.case_id], runner, artifacts_root, plan_only=args.plan_only)
+    result = run_one(
+        cases[args.case_id],
+        runner,
+        runs_root_path,
+        plan_only=args.plan_only,
+        run_dir=run_folder,
+        schema_path=args.schema,
+    )
     write_results(results_path, [result])
     counts = summarize([result])
     bad = bad_statuses("bad", False)
@@ -1437,7 +1505,12 @@ def handle_case_open(args) -> int:
     plan = case_dir / "plan.json"
     answer = case_dir / "answer.txt"
     status = case_dir / "status.json"
-    for path in [plan, answer, status]:
+    events = case_dir / "events.jsonl"
+    error = case_dir / "error.txt"
+    # Schema snapshots may use the schema file extension (json/yaml), so match all.
+    schema_snapshots = sorted(case_dir.glob("schema_snapshot.*"))
+    artifacts = [plan, answer, status, events, error, *schema_snapshots]
+    for path in artifacts:
         if path.exists():
             print(f"- {path}")
     return 0
@@ -1646,50 +1719,65 @@ def _render_missing_effective_error(tag: str, attempted: list[Path]) -> str:
 
 
 def handle_compare(args) -> int:
-    if args.base and args.base_tag:
-        print("Use either --base or --base-tag (not both).", file=sys.stderr)
+    base_ref = str(args.base) if getattr(args, "base", None) else None
+    new_ref = str(args.new) if getattr(args, "new", None) else None
+    if getattr(args, "base_tag", None):
+        base_ref = f"tag:{args.base_tag}"
+    if getattr(args, "new_tag", None):
+        new_ref = f"tag:{args.new_tag}"
+
+    if not base_ref:
+        print("Provide --base <ref> (or deprecated --base-tag <tag>).", file=sys.stderr)
         return 2
-    if args.new and args.new_tag:
-        print("Use either --new or --new-tag (not both).", file=sys.stderr)
+    if not new_ref:
+        print("Provide --new <ref> (or deprecated --new-tag <tag>).", file=sys.stderr)
         return 2
 
-    base_path: Path | None = Path(args.base) if args.base else None
-    new_path: Path | None = Path(args.new) if args.new else None
-
-    if args.base_tag:
-        if not args.data:
-            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
-            return 2
-        artifacts_dir = Path(args.data) / ".runs"
-        base_path, artifacts_dir, attempted = _resolve_effective_results_for_tag(
-            args.base_tag, candidates=[artifacts_dir]
-        )
-        if base_path is None:
-            print(_render_missing_effective_error(args.base_tag, attempted), file=sys.stderr)
-            return 2
-    if args.new_tag:
-        if not args.data:
-            print("--data is required when using --base-tag/--new-tag.", file=sys.stderr)
-            return 2
-        artifacts_dir = Path(args.data) / ".runs"
-        new_path, _, attempted = _resolve_effective_results_for_tag(
-            args.new_tag, candidates=[artifacts_dir]
-        )
-        if new_path is None:
-            print(_render_missing_effective_error(args.new_tag, attempted), file=sys.stderr)
-            return 2
-
-    if base_path is None and not args.base_tag:
-        print("Provide either --base or --base-tag.", file=sys.stderr)
-        return 2
-    if new_path is None and not args.new_tag:
-        print("Provide either --new or --new-tag.", file=sys.stderr)
+    data_dir = Path(args.data) if args.data else None
+    try:
+        resolved_base = resolve_compare_input(base_ref, data_dir=data_dir)
+        resolved_new = resolve_compare_input(new_ref, data_dir=data_dir)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
 
-    if not base_path.exists() or not new_path.exists():
-        print("Base or new results file not found.", file=sys.stderr)
-        return 2
-    comparison = compare_runs(base_path, new_path, fail_on=args.fail_on, require_assert=args.require_assert)
+    for line in resolved_lines("BASE", resolved_base):
+        print(line, file=sys.stderr)
+    print("", file=sys.stderr)
+    for line in resolved_lines("NEW", resolved_new):
+        print(line, file=sys.stderr)
+
+    comparison = diff_runs(
+        resolved_base.results.values(),
+        resolved_new.results.values(),
+        fail_on=args.fail_on,
+        require_assert=args.require_assert,
+    )
+    comparison["provenance"] = {
+        "base": {
+            "input": resolved_base.input_value,
+            "kind": resolved_base.kind,
+            "run_id": resolved_base.run_id,
+            "run_dir": str(resolved_base.run_dir) if resolved_base.run_dir else None,
+            "tag": resolved_base.tag,
+            "source": resolved_base.source_description,
+            "candidate_count": resolved_base.candidate_count,
+            "resolved_case_count": resolved_base.resolved_case_count,
+            "skipped_incomplete_runs": resolved_base.skipped_incomplete_runs,
+        },
+        "new": {
+            "input": resolved_new.input_value,
+            "kind": resolved_new.kind,
+            "run_id": resolved_new.run_id,
+            "run_dir": str(resolved_new.run_dir) if resolved_new.run_dir else None,
+            "tag": resolved_new.tag,
+            "source": resolved_new.source_description,
+            "candidate_count": resolved_new.candidate_count,
+            "resolved_case_count": resolved_new.resolved_case_count,
+            "skipped_incomplete_runs": resolved_new.skipped_incomplete_runs,
+        },
+    }
+
     out_path = Path(args.out) if args.out is not None else None
     format_mode = getattr(args, "format", "md")
     color_mode = getattr(args, "color", "auto")

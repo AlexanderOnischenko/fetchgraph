@@ -1,0 +1,39 @@
+{
+  "notes_last": "{\"provider\": \"demo_qa\", \"selectors_validate_before\": \"error\", \"selectors_validate_after\": \"ok\", \"selectors_normalization_decision\": \"use_normalized_fixed\", \"selectors_before\": {\"aggregations\": [{\"agg\": \"count\", \"alias\": \"item_count\", \"field\": \"order_item_id\"}], \"case_sensitivity\": false, \"filters\": {\"clauses\": [{\"entity\": \"order_items\", \"field\": \"order_id\", \"op\": \"is_not_null\", \"type\": \"comparison\"}], \"op\": \"and\", \"type\": \"logical\"}, \"group_by\": [{\"alias\": \"order_id\", \"field\": \"order_id\"}], \"op\": \"query\", \"root_entity\": \"order_items\"}, \"selectors_after\": {\"aggregations\": [{\"agg\": \"count\", \"alias\": \"item_count\", \"field\": \"order_item_id\"}], \"case_sensitivity\": false, \"filters\": {\"clauses\": [{\"entity\": \"order_items\", \"field\": \"order_id\", \"op\": \"is_not_null\", \"type\": \"comparison\", \"value\": null}], \"op\": \"and\", \"type\": \"logical\"}, \"group_by\": [{\"alias\": \"order_id\", \"field\": \"order_id\"}], \"op\": \"query\", \"root_entity\": \"order_items\", \"select\": []}}",
+  "out_spec": {
+    "mode": "slice",
+    "provider": "demo_qa",
+    "selectors": {
+      "aggregations": [
+        {
+          "agg": "count",
+          "alias": "item_count",
+          "field": "order_item_id"
+        }
+      ],
+      "case_sensitivity": false,
+      "filters": {
+        "clauses": [
+          {
+            "entity": "order_items",
+            "field": "order_id",
+            "op": "is_not_null",
+            "type": "comparison",
+            "value": null
+          }
+        ],
+        "op": "and",
+        "type": "logical"
+      },
+      "group_by": [
+        {
+          "alias": "order_id",
+          "field": "order_id"
+        }
+      ],
+      "op": "query",
+      "root_entity": "order_items",
+      "select": []
+    }
+  }
+}

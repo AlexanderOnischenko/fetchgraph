@@ -1,0 +1,70 @@
+{
+  "notes_last": "{\"provider\": \"demo_qa\", \"selectors_validate_before\": \"ok\", \"selectors_validate_after\": \"ok\", \"selectors_normalization_decision\": \"keep_original_valid\"}",
+  "out_spec": {
+    "mode": "slice",
+    "provider": "demo_qa",
+    "selectors": {
+      "aggregations": [
+        {
+          "agg": "count",
+          "alias": "order_count",
+          "field": "order_id"
+        }
+      ],
+      "case_sensitivity": false,
+      "filters": {
+        "clauses": [
+          {
+            "field": "order_date",
+            "op": "between",
+            "type": "comparison",
+            "value": [
+              "2022-01-01",
+              "2022-12-31"
+            ]
+          },
+          {
+            "field": "customer_id",
+            "op": "in",
+            "type": "comparison",
+            "value": {
+              "query": {
+                "filters": {
+                  "field": "city",
+                  "op": "=",
+                  "type": "comparison",
+                  "value": "San Diego"
+                },
+                "op": "query",
+                "root_entity": "customers",
+                "select": [
+                  {
+                    "alias": "customer_id",
+                    "expr": "customer_id"
+                  }
+                ]
+              },
+              "type": "subquery"
+            }
+          }
+        ],
+        "op": "and",
+        "type": "logical"
+      },
+      "group_by": [
+        {
+          "alias": "channel",
+          "field": "channel"
+        }
+      ],
+      "op": "query",
+      "root_entity": "orders",
+      "select": [
+        {
+          "alias": "channel",
+          "expr": "channel"
+        }
+      ]
+    }
+  }
+}

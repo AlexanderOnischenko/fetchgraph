@@ -10,6 +10,8 @@ from typing import cast
 
 import pytest
 
+from fetchgraph.utils.path_layout import LayoutConfig, RunLayout, ensure_dirs, make_case_dir
+
 import examples.demo_qa.batch as batch
 from examples.demo_qa.batch import (
     _consecutive_passes,
@@ -441,9 +443,23 @@ def test_format_healed_explain_includes_key_lines() -> None:
     assert any("run_id=r2" in line and "status=ok" in line for line in lines)
 
 
-def _stubbed_run_one(case, runner, artifacts_root, *, plan_only=False, event_logger=None):
-    run_dir = artifacts_root / f"{case.id}_stub"
-    run_dir.mkdir(parents=True, exist_ok=True)
+def _stubbed_run_one(
+    case,
+    runner,
+    runs_root: Path,
+    *,
+    plan_only=False,
+    event_logger=None,
+    run_dir: Path | None = None,
+    run_dir_name: str | None = None,
+    schema_path=None,
+):
+    cfg = LayoutConfig()
+    run_root = run_dir or (runs_root / (run_dir_name or f"{case.id}_stub"))
+    run_layout = RunLayout(data_dir=runs_root.parent.parent, run_root=run_root, run_dir_name=run_root.name, run_id="stub")
+    case_layout = make_case_dir(run=run_layout, case_id=case.id, suffix=None, cfg=cfg)
+    ensure_dirs(run_layout, case_layout, cfg=cfg)
+    run_dir = case_layout.case_dir
     return RunResult(
         id=case.id,
         question=case.question,
@@ -554,3 +570,59 @@ def test_packaged_default_config_used_when_no_cli_or_data_dir(tmp_path: Path, mo
     expected_default = Path(batch.__file__).resolve().parent / "demo_qa.toml"
     assert Path(config_path) == expected_default
     assert run_meta["inputs"]["config_hash"] == batch._hash_file(expected_default)
+
+
+def test_chat_parser_supports_verbose_flag(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    schema = tmp_path / "schema.yaml"
+    schema.write_text("tables: []\n", encoding="utf-8")
+
+    args_default = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema)])
+    assert args_default.verbose is False
+
+    args_verbose = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema), "--verbose"])
+    assert args_verbose.verbose is True
+
+
+def test_handle_chat_keeps_endpoint_non_verbose_and_expands_diagnostics_in_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import examples.demo_qa.chat_repl as chat_repl
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    schema = tmp_path / "schema.yaml"
+    schema.write_text("tables: []\n", encoding="utf-8")
+
+    llm_settings = SimpleNamespace(
+        base_url="http://localhost:8002/v1",
+        plan_model="default",
+        plan_temperature=0.0,
+        synth_model="default",
+        synth_temperature=0.2,
+        timeout_s=900.0,
+        retries=2,
+    )
+    monkeypatch.setattr(batch, "load_settings", lambda config_path, data_dir: (SimpleNamespace(llm=llm_settings), None))
+    monkeypatch.setattr(batch, "configure_logging", lambda **kwargs: data_dir / ".runs" / "logs" / "chat.log")
+    monkeypatch.setattr(batch, "build_llm", lambda settings: SimpleNamespace())
+
+    captured_calls: list[dict] = []
+
+    def _capture_start_repl(*args, **kwargs):
+        captured_calls.append(kwargs)
+
+    monkeypatch.setattr(chat_repl, "start_repl", _capture_start_repl)
+
+    args_default = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema)])
+    assert batch.handle_chat(args_default) == 0
+    assert captured_calls[-1]["verbose"] is False
+    assert captured_calls[-1]["diagnostics"] is None
+    assert captured_calls[-1]["llm_endpoint"] == "http://localhost:8002/v1"
+
+    args_verbose = build_parser().parse_args(["chat", "--data", str(data_dir), "--schema", str(schema), "--verbose"])
+    assert batch.handle_chat(args_verbose) == 0
+    assert captured_calls[-1]["verbose"] is True
+    diagnostics = captured_calls[-1]["diagnostics"]
+    assert diagnostics is not None
+    assert any(line.startswith("Plan model:") for line in diagnostics)
+    assert captured_calls[-1]["llm_endpoint"] == "http://localhost:8002/v1"

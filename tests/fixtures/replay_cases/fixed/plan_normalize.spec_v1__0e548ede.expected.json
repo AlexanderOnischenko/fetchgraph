@@ -1,0 +1,30 @@
+{
+  "notes_last": "{\"provider\": \"demo_qa\", \"selectors_validate_before\": \"ok\", \"selectors_validate_after\": \"ok\", \"selectors_normalization_decision\": \"keep_original_valid\"}",
+  "out_spec": {
+    "mode": "slice",
+    "provider": "demo_qa",
+    "selectors": {
+      "filters": {
+        "field": "order_id",
+        "op": "in",
+        "type": "comparison",
+        "value": "(SELECT order_id FROM orders WHERE customer_id = 42)"
+      },
+      "limit": 5,
+      "op": "query",
+      "order_by": [
+        {
+          "direction": "desc",
+          "field": "line_total"
+        }
+      ],
+      "root_entity": "order_items",
+      "select": [
+        {
+          "alias": "line_total",
+          "expr": "line_total"
+        }
+      ]
+    }
+  }
+}

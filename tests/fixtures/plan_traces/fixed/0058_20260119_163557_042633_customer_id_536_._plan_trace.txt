@@ -1,0 +1,100 @@
+{
+  "stage": "before_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "customers",
+          "select": [
+            {
+              "expr": "city",
+              "alias": "customer_city"
+            }
+          ],
+          "filters": {
+            "type": "comparison",
+            "field": "customer_id",
+            "op": "=",
+            "value": 536
+          },
+          "limit": 1
+        },
+        "max_tokens": null
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": []
+  }
+}
+
+{
+  "stage": "after_normalize",
+  "plan": {
+    "required_context": [
+      "demo_qa"
+    ],
+    "context_plan": [
+      {
+        "provider": "demo_qa",
+        "mode": "slice",
+        "selectors": {
+          "op": "query",
+          "root_entity": "customers",
+          "select": [
+            {
+              "expr": "city",
+              "alias": "customer_city"
+            }
+          ],
+          "filters": {
+            "type": "comparison",
+            "field": "customer_id",
+            "op": "=",
+            "value": 536
+          },
+          "limit": 1
+        },
+        "max_tokens": null
+      }
+    ],
+    "adr_queries": null,
+    "constraints": null,
+    "entities": [],
+    "dtos": [],
+    "normalization_notes": []
+  }
+}
+
+{
+  "stage": "fetch_request",
+  "provider": "demo_qa",
+  "provider_class": "PandasRelationalDataProvider",
+  "mode": "slice",
+  "selectors": {
+    "op": "query",
+    "root_entity": "customers",
+    "select": [
+      {
+        "expr": "city",
+        "alias": "customer_city"
+      }
+    ],
+    "filters": {
+      "type": "comparison",
+      "field": "customer_id",
+      "op": "=",
+      "value": 536
+    },
+    "limit": 1
+  },
+  "max_tokens": null
+}
+

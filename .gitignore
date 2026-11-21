@@ -8,3 +8,4 @@ build/
 .env.demo_qa
 _demo_data/*/.runs/*
 .coverage
+.DS_Store

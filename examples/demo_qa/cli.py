@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat_p.add_argument("--log-dir", type=Path, default=None, help="Directory for log files")
     chat_p.add_argument("--log-stderr", action="store_true", help="Also stream logs to stderr")
     chat_p.add_argument("--log-jsonl", action="store_true", help="Write logs as JSONL")
+    chat_p.add_argument("--verbose", action="store_true", help="Show diagnostic details in chat output")
 
     batch_p = sub.add_parser("batch", help="Run a batch of questions from a JSONL file")
     batch_p.add_argument("--data", type=Path, required=True)
@@ -190,14 +191,22 @@ def build_parser() -> argparse.ArgumentParser:
     tags_list.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
     tags_list.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="ANSI color mode for table output")
 
-    compare_p = sub.add_parser("compare", help="Compare two batch result files")
-    compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (for tag-based compare)")
-    base_group = compare_p.add_mutually_exclusive_group(required=False)
-    base_group.add_argument("--base", type=Path, help="Path to baseline results.jsonl")
-    base_group.add_argument("--base-tag", type=str, help="Use effective snapshot for this tag as baseline")
-    new_group = compare_p.add_mutually_exclusive_group(required=False)
-    new_group.add_argument("--new", type=Path, help="Path to new results.jsonl")
-    new_group.add_argument("--new-tag", type=str, help="Use effective snapshot for this tag as new results")
+    compare_p = sub.add_parser("compare", help="Compare two batch runs/results by ref")
+    compare_p.add_argument("--data", type=Path, default=None, help="Data dir containing .runs (required for run_id/tag/latest refs)")
+    base_group = compare_p.add_mutually_exclusive_group(required=True)
+    base_group.add_argument(
+        "--base",
+        type=str,
+        help="Baseline ref: /path/results.jsonl | /path/run_dir | <run_id> | latest | tag:<tag> | latest:<tag>",
+    )
+    base_group.add_argument("--base-tag", type=str, help="[deprecated] Equivalent to --base tag:<tag>")
+    new_group = compare_p.add_mutually_exclusive_group(required=True)
+    new_group.add_argument(
+        "--new",
+        type=str,
+        help="New ref: /path/results.jsonl | /path/run_dir | <run_id> | latest | tag:<tag> | latest:<tag>",
+    )
+    new_group.add_argument("--new-tag", type=str, help="[deprecated] Equivalent to --new tag:<tag>")
     compare_p.add_argument("--out", type=Path, default=None, help="Path to markdown report to write")
     compare_p.add_argument("--junit", type=Path, default=None, help="Path to junit xml output")
     compare_p.add_argument("--format", choices=["md", "table", "json"], default="md", help="Output format")

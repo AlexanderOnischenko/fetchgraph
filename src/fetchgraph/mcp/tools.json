@@ -1,0 +1,797 @@
+{
+  "tools": [
+    {
+      "name": "fetchgraph_catalog",
+      "description": "List configured sources and their available inference profiles.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 48,
+                      "pattern": "^[a-z][a-z0-9_]{0,47}$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 240
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "csv",
+                        "sqlite",
+                        "artifact",
+                        "plugin"
+                      ]
+                    },
+                    "inference_profiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 48,
+                        "pattern": "^[a-z][a-z0-9_]{0,47}$"
+                      },
+                      "maxItems": 8
+                    },
+                    "default_profile": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 48,
+                      "pattern": "^[a-z][a-z0-9_]{0,47}$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "description",
+                    "kind",
+                    "inference_profiles",
+                    "default_profile"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 32
+              }
+            },
+            "required": [
+              "sources"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "INVALID_ARGUMENT",
+                      "SOURCE_UNKNOWN",
+                      "PROFILE_UNKNOWN",
+                      "PROFILE_FORBIDDEN",
+                      "BUSY",
+                      "TIMEOUT",
+                      "SOURCE_FAILED",
+                      "MODEL_FAILED",
+                      "INVALID_PLAN",
+                      "INVALID_ANSWER",
+                      "BUDGET_EXCEEDED",
+                      "EVIDENCE_GONE",
+                      "INTERNAL"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "retryable"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "fetchgraph_ask",
+      "description": "Ask a question about one configured source. Returns an answer with evidence references and gaps.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "inference_profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          }
+        },
+        "required": [
+          "source",
+          "question"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "answered",
+                  "partial",
+                  "insufficient"
+                ]
+              },
+              "answer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "profile": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z][a-z0-9_]{0,47}$"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 36,
+                      "pattern": "^ev_[0-9a-f]{32}$"
+                    },
+                    "source": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 48,
+                      "pattern": "^[a-z][a-z0-9_]{0,47}$"
+                    },
+                    "locator": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 240
+                    },
+                    "preview": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 240
+                    }
+                  },
+                  "required": [
+                    "ref",
+                    "source",
+                    "locator",
+                    "preview"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 8
+              },
+              "gaps": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "maxItems": 8
+              }
+            },
+            "required": [
+              "status",
+              "answer",
+              "profile",
+              "evidence",
+              "gaps"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "INVALID_ARGUMENT",
+                      "SOURCE_UNKNOWN",
+                      "PROFILE_UNKNOWN",
+                      "PROFILE_FORBIDDEN",
+                      "BUSY",
+                      "TIMEOUT",
+                      "SOURCE_FAILED",
+                      "MODEL_FAILED",
+                      "INVALID_PLAN",
+                      "INVALID_ANSWER",
+                      "BUDGET_EXCEEDED",
+                      "EVIDENCE_GONE",
+                      "INTERNAL"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "retryable"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "fetchgraph_read_evidence",
+      "description": "Read a page of the exact evidence used for a previous answer.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "pattern": "^ev_[0-9a-f]{32}$"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16384
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2048
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36,
+                "pattern": "^ev_[0-9a-f]{32}$"
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z][a-z0-9_]{0,47}$"
+              },
+              "locator": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "total_chars": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 16384
+              },
+              "next_offset": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16383
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "selectors": {
+                "type": "object",
+                "description": "Effective validated selectors used for this snapshot."
+              }
+            },
+            "required": [
+              "ref",
+              "source",
+              "locator",
+              "text",
+              "total_chars",
+              "next_offset",
+              "selectors"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "INVALID_ARGUMENT",
+                      "SOURCE_UNKNOWN",
+                      "PROFILE_UNKNOWN",
+                      "PROFILE_FORBIDDEN",
+                      "BUSY",
+                      "TIMEOUT",
+                      "SOURCE_FAILED",
+                      "MODEL_FAILED",
+                      "INVALID_PLAN",
+                      "INVALID_ANSWER",
+                      "BUDGET_EXCEEDED",
+                      "EVIDENCE_GONE",
+                      "INTERNAL"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "retryable"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "fetchgraph_retrieve",
+      "description": "Retrieve structured data, executed plan and provenance for your own reasoning. Performs planning and retrieval. Returns an EvidenceBundle.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "inference_profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          }
+        },
+        "required": [
+          "source",
+          "question"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "$defs": {
+          "ContextFetchSpec": {
+            "description": "Specification for a single provider fetch step.\n\n``selectors`` is a JSON-serializable object describing provider-specific\nfetch parameters. Its allowed structure is defined by the provider via\n``ProviderInfo.selectors_schema``.",
+            "properties": {
+              "provider": {
+                "title": "Provider",
+                "type": "string"
+              },
+              "mode": {
+                "default": "full",
+                "title": "Mode",
+                "type": "string"
+              },
+              "selectors": {
+                "additionalProperties": true,
+                "title": "Selectors",
+                "type": "object"
+              },
+              "max_tokens": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Max Tokens"
+              }
+            },
+            "required": [
+              "provider"
+            ],
+            "title": "ContextFetchSpec",
+            "type": "object"
+          },
+          "JsonValue": {},
+          "Plan": {
+            "properties": {
+              "required_context": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Required Context",
+                "type": "array"
+              },
+              "context_plan": {
+                "items": {
+                  "$ref": "#/$defs/ContextFetchSpec"
+                },
+                "title": "Context Plan",
+                "type": "array"
+              },
+              "adr_queries": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Adr Queries"
+              },
+              "constraints": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Constraints"
+              },
+              "entities": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Entities",
+                "type": "array"
+              },
+              "dtos": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Dtos",
+                "type": "array"
+              }
+            },
+            "title": "Plan",
+            "type": "object"
+          },
+          "Provenance": {
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "locator": {
+                "maxLength": 240,
+                "minLength": 1,
+                "title": "Locator",
+                "type": "string"
+              },
+              "selectors": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "title": "Selectors",
+                "type": "object"
+              },
+              "retrieved_at": {
+                "title": "Retrieved At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "locator",
+              "selectors",
+              "retrieved_at"
+            ],
+            "title": "Provenance",
+            "type": "object"
+          },
+          "RetrievalDiagnostics": {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "insufficient"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "profile": {
+                "title": "Profile",
+                "type": "string"
+              },
+              "gaps": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Gaps",
+                "type": "array"
+              },
+              "llm_calls": {
+                "title": "Llm Calls",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "status",
+              "profile",
+              "llm_calls"
+            ],
+            "title": "RetrievalDiagnostics",
+            "type": "object"
+          },
+          "RetrievalSource": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "title": "Kind",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "title": "RetrievalSource",
+            "type": "object"
+          },
+          "RetrievedEvidence": {
+            "additionalProperties": false,
+            "properties": {
+              "ref": {
+                "pattern": "^ev_[0-9a-f]{32}$",
+                "title": "Ref",
+                "type": "string"
+              },
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "locator": {
+                "maxLength": 240,
+                "minLength": 1,
+                "title": "Locator",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 16384,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              },
+              "data": {
+                "$ref": "#/$defs/JsonValue",
+                "default": null
+              },
+              "provenance": {
+                "$ref": "#/$defs/Provenance"
+              }
+            },
+            "required": [
+              "ref",
+              "source",
+              "locator",
+              "text",
+              "provenance"
+            ],
+            "title": "RetrievedEvidence",
+            "type": "object"
+          }
+        },
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Executed plan and bounded evidence, without answer synthesis.",
+            "properties": {
+              "plan": {
+                "$ref": "#/$defs/Plan"
+              },
+              "evidence": {
+                "items": {
+                  "$ref": "#/$defs/RetrievedEvidence"
+                },
+                "maxItems": 8,
+                "title": "Evidence",
+                "type": "array"
+              },
+              "sources": {
+                "items": {
+                  "$ref": "#/$defs/RetrievalSource"
+                },
+                "title": "Sources",
+                "type": "array"
+              },
+              "diagnostics": {
+                "$ref": "#/$defs/RetrievalDiagnostics"
+              }
+            },
+            "required": [
+              "plan",
+              "sources",
+              "diagnostics"
+            ],
+            "title": "EvidenceBundle",
+            "type": "object"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "INVALID_ARGUMENT",
+                      "SOURCE_UNKNOWN",
+                      "PROFILE_UNKNOWN",
+                      "PROFILE_FORBIDDEN",
+                      "BUSY",
+                      "TIMEOUT",
+                      "SOURCE_FAILED",
+                      "MODEL_FAILED",
+                      "INVALID_PLAN",
+                      "INVALID_ANSWER",
+                      "BUDGET_EXCEEDED",
+                      "EVIDENCE_GONE",
+                      "INTERNAL"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "retryable"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    }
+  ]
+}

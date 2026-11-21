@@ -31,6 +31,21 @@ and `fetchgraph` handles:
 pip install fetchgraph
 ```
 
+## MCP server
+
+Connect configured sources to Codex, OpenCode, or another MCP client:
+
+```bash
+pip install 'fetchgraph[mcp]'
+fetchgraph-mcp --config /absolute/path/fetchgraph.toml --check-config
+codex mcp add fetchgraph -- fetchgraph-mcp --config /absolute/path/fetchgraph.toml
+```
+
+Configure an inference endpoint, model, and source in TOML. The server provides
+`fetchgraph_catalog`, `fetchgraph_ask`, and `fetchgraph_read_evidence`.
+See the [MCP specification](docs/features/fetchgraph-mcp/spec.md) for configuration
+examples, OpenCode setup, and source adapter contracts.
+
 # Quick Start
 
 ### Selectors are JSON-only

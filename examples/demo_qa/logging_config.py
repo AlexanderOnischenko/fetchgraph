@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -57,7 +57,7 @@ def configure_logging(
 
     if log_dir:
         log_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         suffix = "jsonl" if jsonl else "log"
         log_file = log_dir / f"demo_qa_{timestamp}.{suffix}"
         file_handler = RotatingFileHandler(

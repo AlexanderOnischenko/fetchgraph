@@ -408,7 +408,7 @@ def run_one(
     cfg = LayoutConfig()
     if run_dir is None:
         run_id = uuid.uuid4().hex[:8]
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
         run_dir_name = run_dir_name or f"{timestamp}_{run_id}"
         run_root = runs_root / run_dir_name
     else:

@@ -166,3 +166,10 @@ python -m examples.demo_qa.cli chat --data demo_data --schema demo_data/schema.j
 ```
 
 Большинство OpenAI-совместимых сервисов ожидают конечную точку `/v1` в `base_url`.
+
+## Run timestamps
+
+New run directory names use UTC. Compare interprets legacy directory timestamps
+and metadata without a timezone as UTC for deterministic ordering across hosts.
+For historical runs recorded in local time, add an ISO 8601 timestamp with its
+original UTC offset to run_meta.json to preserve the actual chronology.

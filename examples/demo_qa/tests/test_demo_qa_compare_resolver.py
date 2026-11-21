@@ -305,3 +305,18 @@ def test_explicit_run_id_with_corrupt_status_fallback_is_hard_error(tmp_path: Pa
 
     with pytest.raises(ValueError, match=r"non-comparable|non-loadable"):
         resolve_compare_input("badstatus", data_dir=tmp_path)
+
+
+@pytest.mark.parametrize("zone", ["UTC", "Europe/Moscow", "America/New_York"])
+def test_latest_run_order_is_independent_of_host_timezone(tmp_path, monkeypatch, zone):
+    import time
+    if not hasattr(time, "tzset"):
+        pytest.skip("tzset is unavailable")
+    with monkeypatch.context() as scoped:
+        scoped.setenv("TZ", zone)
+        time.tzset()
+        try:
+            test_latest_prefers_newer_effective_ts_over_source_rank(tmp_path)
+        finally:
+            scoped.undo()
+            time.tzset()

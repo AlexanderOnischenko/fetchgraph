@@ -1019,7 +1019,7 @@ def handle_batch(args) -> int:
 
     selected_case_ids = [case.id for case in cases]
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
     cfg = LayoutConfig()
     default_artifacts_dir = data_dir / ".runs"
     if artifacts_dir == default_artifacts_dir:
@@ -1430,7 +1430,7 @@ def handle_case_run(args) -> int:
         return 2
 
     artifacts_dir = args.artifacts_dir or (args.data / ".runs")
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_id = uuid.uuid4().hex[:8]
     cfg = LayoutConfig()
     default_artifacts_dir = args.data / ".runs"

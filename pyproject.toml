@@ -1,7 +1,7 @@
 [project]
 name = "fetchgraph"
-version = "0.2.2"
-description = "Graph-like planning → context fetching → synthesis agent (library-style)."
+version = "0.3.0"
+description = "Evidence-first retrieval from configured data providers for agents."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT" 
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [tool.setuptools.package-data]
-fetchgraph = ["prompts/*.md"]
+fetchgraph = ["prompts/*.md", "mcp/tools.json"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -26,6 +26,8 @@ requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
+retrieval = ["httpx>=0.27", "jsonschema>=4", "PyYAML>=6"]
+mcp = ["fetchgraph[retrieval]==0.3.0", "mcp>=1.30,<2"]
 dev = [
   "pytest>=9.0",
   "pre-commit",
@@ -50,3 +52,5 @@ Issues = "https://github.com/AlexanderOnischenko/fetchgraph/issues"
 
 [project.scripts]
 fetchgraph-tracer = "fetchgraph.tracer.cli:main"
+fetchgraph-artifact-context = "fetchgraph.cli.artifact_context:main"
+fetchgraph-mcp = "fetchgraph.mcp.server:main"

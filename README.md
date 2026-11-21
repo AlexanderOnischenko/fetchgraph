@@ -213,7 +213,60 @@ That means a provider may wrap a database client, an ODBC connection, an HTTP AP
 pip install fetchgraph
 ```
 
-Connect your LLM and expose a data source through a provider:
+## Retrieve evidence for any agent
+
+```bash
+pip install 'fetchgraph[retrieval]'
+```
+
+```python
+from fetchgraph import FetchGraph
+
+graph = FetchGraph("/absolute/path/fetchgraph.toml")
+bundle = graph.retrieve("How many orders are in the shop?", source="shop")
+print(bundle.evidence[0].data)
+print(bundle.plan.context_plan[0].selectors)
+```
+
+Retrieval returns structured data, provenance, the executed plan, and diagnostics.
+Use `graph.answer(question, source="shop")` to add answer synthesis.
+Async applications can await `graph.aretrieve(...)` and `graph.aanswer(...)`.
+Module-level `fetchgraph.retrieve(...)` and `fetchgraph.answer(...)` accept
+`config=...`, or read the configuration path from `FETCHGRAPH_CONFIG`.
+See the [API and configuration contract](docs/features/fetchgraph-mcp/spec.md).
+
+## MCP server
+
+Connect configured sources to Codex, OpenCode, or another MCP client:
+
+```bash
+pip install 'fetchgraph[mcp]'
+fetchgraph-mcp --config /absolute/path/fetchgraph.toml --check-config
+codex mcp add fetchgraph -- fetchgraph-mcp --config /absolute/path/fetchgraph.toml
+```
+
+Configure an inference endpoint, model, and source in TOML. The server provides
+`fetchgraph_catalog`, `fetchgraph_retrieve`, `fetchgraph_ask`, and
+`fetchgraph_read_evidence`.
+See the [MCP specification](docs/features/fetchgraph-mcp/spec.md) for configuration
+examples, OpenCode setup, and source adapter contracts.
+
+# Quick Start
+
+### Selectors are JSON-only
+
+Providers receive a `selectors` argument that **must be JSON-serializable**. The
+shared alias `SelectorsDict` (exported from `fetchgraph.relational.types`) represents
+`Dict[str, JSONValue]` and is used across protocols and models. The planner/LLM
+produces this structure, so do not place runtime-only Python objects (e.g.
+connections, DataFrames) into `selectors`; pass such hints through `**kwargs`
+instead. Providers can publish the expected shape via `ProviderInfo.selectors_schema`
+(a JSON Schema) and optional `examples` containing stringified JSON payloads.
+
+Relational providers require `selectors` to include a string field `"op"` that
+chooses the operation (e.g., `"schema"`, `"semantic_only"`, `"query"`). The
+complete set of supported shapes is described by the schema returned from
+`RelationalDataProvider.describe()`.
 
 ```python
 import json

@@ -69,8 +69,42 @@ from .relational.semantic import (  # noqa: E402
     PgVectorSemanticSource,
     VectorStoreLike,
 )
+from .artifact_context import (  # noqa: E402
+    RetrievalPolicy,
+    ContextRequest,
+    EvidenceCapsule,
+    EvidencePack,
+    ExplainPack,
+    CaseDossier,
+    ValidatorDefectPack,
+    InvestigationSession,
+    fetch as artifact_context_fetch,
+    explain_target,
+    explain_derivation,
+    case_dossier,
+    validator_defect_pack,
+)
+from .artifact_graph import (  # noqa: E402
+    ArtifactGraphProvider,
+    FileSystemArtifactGraphProvider,
+    create_artifact_graph_provider,
+)
+from .pipeline_schema import (  # noqa: E402
+    QueryTemplate,
+    RelationRule,
+    ArtifactTypeSchema,
+    PipelineSchema,
+    create_default_pipeline_schema,
+    get_schema,
+    load_schema,
+)
+from .adapters import (  # noqa: E402
+    ArtifactContextProvider,
+    create_artifact_context_provider,
+)
 
 __all__ = (
+    # Core
     "RawLLMOutput",
     "ProviderInfo",
     "TaskProfile",
@@ -90,6 +124,7 @@ __all__ = (
     "create_generic_agent",
     "make_llm_plan_generic",
     "make_llm_synth_generic",
+    # Relational
     "SelectorsDict",
     "AggregationResult",
     "AggregationSpec",
@@ -122,4 +157,33 @@ __all__ = (
     "PgVectorSemanticSource",
     "VectorStoreLike",
     "PandasRelationalDataProvider",
+    # Artifact Context Engine
+    "RetrievalPolicy",
+    "ContextRequest",
+    "EvidenceCapsule",
+    "EvidencePack",
+    "ExplainPack",
+    "CaseDossier",
+    "ValidatorDefectPack",
+    "InvestigationSession",
+    "artifact_context_fetch",
+    "explain_target",
+    "explain_derivation",
+    "case_dossier",
+    "validator_defect_pack",
+    # Artifact Graph
+    "ArtifactGraphProvider",
+    "FileSystemArtifactGraphProvider",
+    "create_artifact_graph_provider",
+    # Pipeline Schema
+    "QueryTemplate",
+    "RelationRule",
+    "ArtifactTypeSchema",
+    "PipelineSchema",
+    "create_default_pipeline_schema",
+    "get_schema",
+    "load_schema",
+    # Adapters
+    "ArtifactContextProvider",
+    "create_artifact_context_provider",
 )

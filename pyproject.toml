@@ -50,3 +50,5 @@ Issues = "https://github.com/AlexanderOnischenko/fetchgraph/issues"
 
 [project.scripts]
 fetchgraph-tracer = "fetchgraph.tracer.cli:main"
+
+fetchgraph-artifact-context = "fetchgraph.cli.artifact_context:main"

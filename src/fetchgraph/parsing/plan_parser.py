@@ -5,13 +5,16 @@ from typing import Any, Dict, List
 from ..core.models import ContextFetchSpec, Plan, RawLLMOutput
 from .exceptions import OutputParserException
 from .json_parser import JsonParser
+from llm_output_repair import CrashRecorder
 
 
 class PlanParser(JsonParser[Plan]):
     """Парсер LLM-вывода шага PLAN."""
 
-    def __init__(self) -> None:
-        super().__init__(key=None)
+    def __init__(self, *, policy: str = "safe", recorder: CrashRecorder | None = None) -> None:
+        # Plans must be objects. Keep syntactic recovery conservative:
+        # no silent field deletion or ambiguous multi-object selection.
+        super().__init__(key=None, policy=policy, recorder=recorder)
 
     def _clean(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         cleaned: List[Dict[str, Any]] = []

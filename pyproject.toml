@@ -10,6 +10,8 @@ keywords = ["agents", "context", "langgraph", "planning", "llm"]
 dependencies = [
   "pydantic>=2.6",
   "pandas>=2.0",
+  # Integration-only SHA: replace with a released version BEFORE publishing Fetchgraph.
+  "llm-output-repair @ git+https://github.com/AlexanderOnischenko/llm-output-repair.git@016673c57b2af6a76add30a4892cd4fc97c241fb",
 ]
 
 [tool.setuptools.package-data]

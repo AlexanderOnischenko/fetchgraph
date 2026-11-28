@@ -14,6 +14,9 @@ from typing import Any, Literal, overload
 import httpx
 from jsonschema import Draft202012Validator
 from pydantic import TypeAdapter
+from llm_output_repair import parse_json
+
+from fetchgraph.parsing.repair_runtime import recorder_for
 
 from fetchgraph.relational.models import RelationalQuery, SchemaRequest
 from fetchgraph.relational.normalize import normalize_relational_selectors
@@ -84,6 +87,10 @@ def closed(schema):
 
 class RetrievalEngine:
     def __init__(self, config):
+        # Fail on invalid explicit capture configuration before inference.
+        # Neither active recorder nor OFF can change during this engine's life.
+        self._plan_recorder = recorder_for("retrieval.plan")
+        self._answer_recorder = recorder_for("retrieval.answer")
         self.config = config
         self.active = 0
 
@@ -237,7 +244,9 @@ class RetrievalEngine:
             {"source": source_id, "question": question, "catalog": catalog},
         )
         try:
-            plan = json.loads(raw)
+            plan = parse_json(
+                raw, policy="safe", recorder=self._plan_recorder
+            ).value
             if set(plan) != {"context_plan"} or not isinstance(
                 plan["context_plan"], list
             ):
@@ -373,7 +382,9 @@ class RetrievalEngine:
             },
         )
         try:
-            result = json.loads(raw)
+            result = parse_json(
+                raw, policy="safe", recorder=self._answer_recorder
+            ).value
             if set(result) != {"status", "answer", "gaps"}:
                 raise ValueError()
             result["gaps"] = list(dict.fromkeys(gaps + result["gaps"]))

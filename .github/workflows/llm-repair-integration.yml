@@ -1,0 +1,33 @@
+name: LLM repair integration smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pinned dependency
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,mcp]'
+      - name: Run offline integration tests
+        env:
+          PYTHONPATH: .:src
+        run: python -m pytest -q tests/test_llm_repair_integration.py tests/retrieval/test_api.py
+      - name: Build only (no publishing)
+        run: |
+          python -m pip install build
+          python -m build

@@ -87,6 +87,10 @@ def closed(schema):
 
 class RetrievalEngine:
     def __init__(self, config):
+        # Fail on invalid explicit capture configuration before inference.
+        # Neither active recorder nor OFF can change during this engine's life.
+        self._plan_recorder = recorder_for("retrieval.plan")
+        self._answer_recorder = recorder_for("retrieval.answer")
         self.config = config
         self.active = 0
 
@@ -241,7 +245,7 @@ class RetrievalEngine:
         )
         try:
             plan = parse_json(
-                raw, policy="safe", recorder=recorder_for("retrieval.plan")
+                raw, policy="safe", recorder=self._plan_recorder
             ).value
             if set(plan) != {"context_plan"} or not isinstance(
                 plan["context_plan"], list
@@ -379,7 +383,7 @@ class RetrievalEngine:
         )
         try:
             result = parse_json(
-                raw, policy="safe", recorder=recorder_for("retrieval.answer")
+                raw, policy="safe", recorder=self._answer_recorder
             ).value
             if set(result) != {"status", "answer", "gaps"}:
                 raise ValueError()

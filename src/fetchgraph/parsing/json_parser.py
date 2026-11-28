@@ -34,7 +34,9 @@ class JsonParser(Generic[T]):
             raise ValueError("policy must be strict, safe, or tolerant")
         self.key = key
         self.policy = policy
-        self.recorder = recorder
+        # Snapshot settings when the parser is built. Explicit dependency
+        # injection remains another opt-in path, independent of environment.
+        self.recorder = recorder if recorder is not None else recorder_for("json")
 
     def to_model(self, data: Any) -> T:
         return cast(T, data)
@@ -42,7 +44,7 @@ class JsonParser(Generic[T]):
     def parse(self, raw: RawLLMOutput) -> T:
         # Pass EXACT original text; do not strip/fence-extract before recording.
         # Recorder initialization is opt-in, controlled by the host application.
-        recorder = self.recorder if self.recorder is not None else recorder_for("json")
+        recorder = self.recorder
         try:
             if self.policy == "tolerant":
                 data: Any = repair_json(raw.text, recorder=recorder)

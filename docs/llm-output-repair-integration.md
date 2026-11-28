@@ -14,12 +14,33 @@ python -m pip install -e '.[dev,mcp,demo]'
 
 ## Private crash recording
 
-Recording is **off** by default. Explicitly configure an absolute path outside
-your Git worktree before running Fetchgraph or the demo QA benchmark:
+Recording is **off** by default. A path on its own never enables
+capture. To opt in, explicitly set both the mode and an absolute private
+directory outside your Git worktree before starting Fetchgraph or the demo QA
+benchmark:
 
 ```bash
+export FETCHGRAPH_REPAIR_CRASH_CAPTURE=failed
 export FETCHGRAPH_REPAIR_DUMP_DIR="$HOME/private-llm-repair/fetchgraph"
 ```
+
+Allowed modes are `off` (default, no capture, even if a stale directory
+variable remains) and `failed` (capture final parser failures). To disable
+capture again, restart the application with:
+
+```bash
+export FETCHGRAPH_REPAIR_CRASH_CAPTURE=off
+```
+
+An invalid mode, or `failed` without a valid absolute private directory,
+raises a configuration error **at parser/engine construction, before LLM
+inference**. The application logs `LLM repair crash capture: OFF` or
+`LLM repair crash capture: FAILED storage=<path>` at INFO level.
+Capture mode and destination are resolved when a parser/engine is built,
+not per LLM output: changing environment variables cannot flip an existing
+instance. Directly injecting `CrashRecorder` into a parser is also an
+explicit opt-in. As before, write failures during capture do not mask the
+parser's exception.
 
 `JsonParser` uses the library's tolerant repair by default, retaining
 JSON arrays and prose extraction. `PlanParser` defaults to conservative
